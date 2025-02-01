@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+    background-color: hsl(0, 0%, 12%);
+    color: white;
+}
+
+pre {
+    margin-left: 1rem;
+    position: relative;
+    padding: 1rem;
+    background-color: hsl(0, 0%, 10%);
+}
+pre::before {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2rem;
+    height: 2rem;
+    content: "";
+    border-left: 3px solid hsl(120, 90%, 50%);
+    border-top: 3px solid hsl(120, 90%, 50%);
+}
+pre::after {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 2rem;
+    height: 2rem;
+    content: "";
+    border-right: 3px solid hsl(120, 90%, 50%);
+    border-bottom: 3px solid hsl(120, 90%, 50%);
+}
+
+</style>
+</head>
+<body>
+<div>
+    <h1> The Billt Language Specification</h1>
+</div>
+<div>
+    <div><h4>The "for" loop</h4></div>
+    <p>
+    The "for" loop looks like this:
+    </p>
+    <pre>
+(for x~ = 1; < x 101; x += 1:
+    print $x
+)
+    </pre>
+
+    The syntax is 4-part:
+    
+    <pre>
+(for assignments; expressionEvaluatingToBool; stmt; assignment; assert:
+    ...body...
+)
+    </pre>
+    <ol>
+        <li> 
+        Assignments are optional.
+        </li>
+        <li>The condition is the first non-assignment statement and must be
+        an expression that evaluates to Bool. It is mandatory, but you can just write
+        <code>true</code> to signify an empty condition
+        </li>
+        <li>The stepping/iteration change code is everything that comes after the condition
+        and until the Intro, inclusive. (Intro is the statement terminated by a colon
+        <code>:</code>)
+        </li>
+        <li>The body is everything after the colon and it may be comprised of arbitrary code
+        </li>
+    </ol>
+    <p>At least one of stepping code or body must be present in a well-formed loop. </p>
+    <p>Examples of syntactically correct loops:</p>
+<pre>
+(for x~ = 1; y~ = 100; < x 101; x += 1; y -= 1:
+    print $x
+)
+</pre>
+<pre>
+(for ; true:
+    print `Infinite loop`
+)
+</pre>
+
+    <p>Examples of incorrect loops:</p>
+<pre>
+(for x~ = 1; y~ = 100; < x 101:
+)
+</pre>
+    <p>(Neither stepping code nor body are present)</p>
+<pre>
+(for x~ = 1; x += 1:
+    print $x
+)
+</pre>
+    <p>(The condition is absent)</p>
+</div>
+</body>
+</html>

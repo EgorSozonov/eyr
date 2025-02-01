@@ -1,0 +1,78 @@
+def main = {{}
+    (sortingIntArrays);
+    (sortingStringArrays);
+};
+
+def swap = {{ i Int, j Int, arr L $E, }
+    tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+};
+
+def insertionSort = {{ arr L $E, comparer F $E $E Int, }
+    for {i' = 0; i < #arr; i++; }{
+       for {j' = i + 1; j < #arr; j++; }{
+          if comparer arr[i] arr[j] > 0 {
+             swap i j arr;
+          }
+       }
+    } 
+};
+
+def ascending Int = {{ a Int, b Int, }
+   return a - b;
+};
+
+def descending Int = {{ a Int, b Int, }
+   return b - a;
+};
+
+def ascending Int = {{ a Str, b Str, }
+   return #a - #b;
+};
+
+def descending Int = {{ a Str, b Str, }
+   return #b - #a;
+};
+
+
+def print = {{ lst L $E, }
+    print `[`;
+    for {i' = 0; i < #lst; i++;}{
+        print lst[i];
+    } 
+    print `]`;
+};
+
+def sortingIntArrays = {{}
+   leArray = [5 1 2 4 3];
+   print `Unsorted:`;
+   print leArray;
+   sorter' F Int Int Int = ascending;
+   insertionSort leArray sorter;
+   print `Sorted ASC:`;
+   print leArray;
+   
+   sorter = descending;
+   insertionSort leArray sorter;
+   print `Sorted DESC:`;
+   print leArray;
+};
+
+def sortingStringArrays = {{}
+   leArray = [`already` `some` `Get` `sleep`];
+   print `Unsorted:`;
+   print leArray;
+   sorter' F Str Str Int = ascending;
+   insertionSort leArray sorter;
+   print `Sorted ASC:`;
+   print leArray;
+   
+   sorter = descending;
+   insertionSort leArray sorter;
+   print `Sorted DESC:`;
+   print leArray;
+};
+
+
+

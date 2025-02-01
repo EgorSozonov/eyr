@@ -1,0 +1,129 @@
+NEW LAYOUT
+___________
+[type length][type header][name of type][type params, if any][param names, if any]
+type arity (in header) documents the number of [type params], while [type length] can be used to determin count of param names
+
+
+
+
+
+
+
+Examples:
+L = Rec len Int, cap Int, co Array $T,;
+(id1 tyrity = 1 arity = 3 isGeneric) // sorRecord
+
+
+ListInt = L Int;
+(id1 Int, tyrity = 0, arity = 3) // sorTypeCall
+
+Foo = Rec id Long, name Str,;
+(id2 tyrity = 0, arity = 2) // sorRecord
+
+
+
+
+
+
+
+TYPE LAYOUT
+------------
+
+I. Common part = [type length][type header]
+Type length = number of ints that everything after this takes
+Type header = sort, arity, depth, nameLen
+
+II. Differing parts:
+    
+Record:
+[name](Arities of type params, count = arity)
+(member names)(member types)|meta flags, 1 Int|
+
+Enum:
+[name](variant names)(variant types)|meta flags|
+
+Function:
+depth = count of func params + 1
+(Tyrities of type params, count = tyrity)
+(function parameter types)(return type)
+
+TypeCall:
+(type arguments, which if negative are -1*(paramInd + 1), and if positive are TypeId)
+
+Concrete:
+(Full type expression in prefix form, with tyrities)
+
+
+(name = 8 bits of length, 24 bits of nameId)
+
+-----------------
+
+Record
+
+Type layout for normal types (sums, structs, functions) is pentapartite:
+
+[total size][tag][nameId](member names)(member types)
+
+1. total size = 1 Int holding the number of ints of all the following data
+2. tag = 8 bits of 0, 8 bits of sort, 8 bits of depth, 8 bits of type-arity
+
+- sort = "the type of the type" = is it a function or a struct or a sum type?
+- type-arity = the number of type parameters this type takes (0 if it's a concrete type)
+- depth = the number of fields a struct has, or the number of variants a sum type has, or the arity of a function type
+
+3. nameId = first 8 bit are the length (in bytes),
+next 24 are index into the cm->stringTable type
+4. member names = list of nameIds of struct fields, sum type variants, or function parameters
+
+5. member types = list of references to types of each member, plus (for function types) an extra typeId at end.
+
+- reference to type = for single-param types, 8 bits that tell which one of this type's parameters is applied, and 
+24 bits of typeInd. For all other types, it's 8 bits of 0 and 24 bits of typeInd
+
+Primitive types are represented as just a single 0.
+
+Examples:
+
+"Int"
+[0]
+
+"MyStruct = def(id Int name String)"
+[5][sort = struct, depth = 2, arity = 0]("id" "name")(Int String)
+
+
+"MyStruct = def(id Int payload L(?A) dict Dict(String P(?A ?B))"
+[][sort = struct, depth = 3, arity = 2]("id" "payload" "dict")(Int (0 L) (Ref1))
+where Ref1 is the typeInd of the type
+[][sort = concretization, depth = 2, arity = 0](Dict/2 String P/2 0 1)
+
+
+-----------------------------------------------------
+
+Type layout for types of the sort "type call":
+
+Max tyrity = 254 (not 255!)
+
+[total size][tag][typeId/paramId]
+(Full type expression in prefix form, with arities)
+
+- The tag has sort = "sorTypeCall", depth = 0
+- typeId = id of the original type if it's known, and -1*(paramId + 1) if a param
+- The type expression is made of single or double-int parts with the following structure: 
+    - if it's less than 255, then it's the arity, and 
+    next 24 bits are the typeInd of a concrete type
+    - if it's 255, then it's a type param, and next 24 bits are: 8 bits 0, 8 bits of type param index, 8 bits of arity
+
+Examples:
+
+T U => M(T U) inside Foo(...T U) will have the layout
+[5][Map typeId][concretization arity = 0]
+(0 0)(2/Map -1/0/0/0 -1/0/0/1)
+
+U => M(Str U) inside Foo(...T U) will have the layout
+[5][Map typeId][concretization arity = 0]
+(0)(2/Map 0/String -1/0/0/1)
+
+M(2) T => M(Str T) inside Foo(... T M) will have the layout
+[5]["M" nameId][concretization arity = 0]
+(1 0)(-1/0/2/1 0/String -1/0/0/0)
+

@@ -1,0 +1,1142 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="291.33588mm"
+   height="303.91919mm"
+   viewBox="0 0 291.33588 303.91919"
+   version="1.1"
+   id="svg5"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs2">
+    <rect
+       x="264.72314"
+       y="557.47516"
+       width="3.928998"
+       height="53.42424"
+       id="rect15140" />
+    <rect
+       x="220.35522"
+       y="557.94849"
+       width="0.58648992"
+       height="160.63087"
+       id="rect15072" />
+    <rect
+       x="313.69998"
+       y="244.42479"
+       width="35.439518"
+       height="22.251732"
+       id="rect1041" />
+    <rect
+       x="285.43112"
+       y="221.67525"
+       width="108.10078"
+       height="44.024307"
+       id="rect1035" />
+  </defs>
+  <g
+     id="layer1"
+     transform="translate(59.954814,16.549862)">
+    <rect
+       style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529"
+       width="34.393814"
+       height="14.111"
+       x="97.77047"
+       y="73.200623"
+       ry="1" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.23333px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#00e500;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="101.0004"
+       y="81.650726"
+       id="text1047"><tspan
+         id="tspan1045"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.23333px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#00e500;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="101.0004"
+         y="81.650726">Tl compiler</tspan></text>
+    <rect
+       style="fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.0446043;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-0"
+       width="5.9553957"
+       height="5.9553957"
+       x="100.45654"
+       y="236.22552"
+       ry="0.42203921" />
+    <rect
+       style="fill:#606060;fill-opacity:1;stroke:#000000;stroke-width:0.0446043;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-0-4"
+       width="5.9553957"
+       height="5.9553957"
+       x="100.44646"
+       y="245.13307"
+       ry="0.42203921" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.296762;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-3"
+       width="72.980247"
+       height="21.512074"
+       x="-57.75621"
+       y="117.74644"
+       ry="1.5244895" />
+    <rect
+       style="fill:#e1a724;fill-opacity:1;stroke:#000000;stroke-width:0.0446042;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-3-7"
+       width="5.9553957"
+       height="5.9553957"
+       x="100.57929"
+       y="227.03433"
+       ry="0.42203912" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#747474;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-31.487"
+       y="122.7271"
+       id="text1047-8-6"><tspan
+         id="tspan1045-6-7"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#747474;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="-31.487"
+         y="122.7271">[langDef]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-5"
+       transform="matrix(1.5492545,0,0,0.97230579,-214.39684,0.24040517)" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.165399;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-4-3"
+       transform="matrix(1.5492545,0,0,0.97230579,-214.81229,-0.49285651)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1147"><tspan
+           style="font-size:1.72461px"
+           id="tspan1145">Global definitions that make the language:
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1151"><tspan
+           style="font-size:1.72461px"
+           id="tspan1149">- operators
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1155"><tspan
+           style="font-size:1.72461px"
+           id="tspan1153">- dispatch tables for the lexer &amp; parser</tspan></tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.383607;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5"
+       width="72.893402"
+       height="35.987759"
+       x="23.636944"
+       y="118.43361"
+       ry="2.5503335" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="49.254288"
+       y="123.07266"
+       id="text1047-8-62"><tspan
+         id="tspan1045-6-9"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="49.254288"
+         y="123.07266">[overloads]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1"
+       transform="matrix(1.5492545,0,0,0.97230579,-133.04712,0.88414143)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1159"><tspan
+           style="font-size:1.72461px"
+           id="tspan1157">For each top-level function name, contains
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1163"><tspan
+           style="font-size:1.72461px"
+           id="tspan1161">a key-value list. Keys are typeIds
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1167"><tspan
+           style="font-size:1.72461px"
+           id="tspan1165">(either of concrete types, or to heads
+</tspan></tspan><tspan
+         x="102.71559"
+         y="143.01432"
+         id="tspan1171"><tspan
+           style="font-size:1.72461px"
+           id="tspan1169">of generic types), values are either
+</tspan></tspan><tspan
+         x="102.71559"
+         y="146.98307"
+         id="tspan1175"><tspan
+           style="font-size:1.72461px"
+           id="tspan1173">entityIds (for concretes) or indices
+</tspan></tspan><tspan
+         x="102.71559"
+         y="150.95182"
+         id="tspan1179"><tspan
+           style="font-size:1.72461px"
+           id="tspan1177">into [monoIds]</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-4-2"
+       transform="matrix(1.5492545,0,0,0.97230579,-133.06095,55.636916)" />
+    <rect
+       style="fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.383607;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-7"
+       width="72.893402"
+       height="35.987759"
+       x="108.9948"
+       y="161.65788"
+       ry="2.5503335" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="134.61217"
+       y="166.29694"
+       id="text1047-8-62-2"><tspan
+         id="tspan1045-6-9-7"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="134.61217"
+         y="166.29694">[fnMonoIds]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-22"
+       transform="matrix(1.5492545,0,0,0.97230579,-47.689249,44.108399)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1183"><tspan
+           style="font-size:1.72461px"
+           id="tspan1181">A list of lists of key-value pairs.
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1187"><tspan
+           style="font-size:1.72461px"
+           id="tspan1185">The first item of a list points to 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1191"><tspan
+           style="font-size:1.72461px"
+           id="tspan1189">a generic typeId, the rest of them have
+</tspan></tspan><tspan
+         x="102.71559"
+         y="143.01432"
+         id="tspan1195"><tspan
+           style="font-size:1.72461px"
+           id="tspan1193">key = typeId of a concrete type,
+</tspan></tspan><tspan
+         x="102.71559"
+         y="146.98307"
+         id="tspan1199"><tspan
+           style="font-size:1.72461px"
+           id="tspan1197">value = index into fnMonos
+</tspan></tspan></text>
+    <rect
+       style="fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.314732;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-7-9"
+       width="72.96228"
+       height="24.202162"
+       x="158.08269"
+       y="78.28495"
+       ry="1.7151271" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="181.70552"
+       y="82.682938"
+       id="text1047-8-62-2-7"><tspan
+         id="tspan1045-6-9-7-7"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="181.70552"
+         y="82.682938">[entities]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-22-6"
+       transform="matrix(1.5492545,0,0,0.97230579,0.86107964,-41.06558)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1203"><tspan
+           style="font-size:1.72461px"
+           id="tspan1201">Functions (except monomorphized
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1207"><tspan
+           style="font-size:1.72461px"
+           id="tspan1205">generically-typed ones), constants
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1211"><tspan
+           style="font-size:1.72461px"
+           id="tspan1209">function params and and local variables,
+</tspan></tspan><tspan
+         x="102.71559"
+         y="143.01432"
+         id="tspan1215"><tspan
+           style="font-size:1.72461px"
+           id="tspan1213">with their types and codegen info</tspan></tspan></text>
+    <rect
+       style="fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.316477;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-7-9-3"
+       width="72.960533"
+       height="24.471863"
+       x="158.26228"
+       y="46.77034"
+       ry="1.7342401" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="183.91322"
+       y="51.442963"
+       id="text1047-8-62-2-7-6"><tspan
+         id="tspan1045-6-9-7-7-5"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="183.91322"
+         y="51.442963">[types]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-22-6-6"
+       transform="matrix(1.5492545,0,0,0.97230579,1.6118186,-70.745555)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1219"><tspan
+           style="font-size:1.72461px"
+           id="tspan1217">All types' data. Each sort (structs,
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1223"><tspan
+           style="font-size:1.72461px"
+           id="tspan1221">sum types, function types etc) has a 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1227"><tspan
+           style="font-size:1.72461px"
+           id="tspan1225">different data layout. </tspan></tspan></text>
+    <rect
+       style="fill:#e1a623;fill-opacity:1;stroke:#000000;stroke-width:0.3055;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-7-0"
+       width="72.971512"
+       height="22.800236"
+       x="157.4072"
+       y="-16.397112"
+       ry="1.6157774" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="182.16917"
+       y="-12.085499"
+       id="text1047-8-62-2-6"><tspan
+         id="tspan1045-6-9-7-1"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="182.16917"
+         y="-12.085499">[stringTable]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-22-5"
+       transform="matrix(1.5492545,0,0,0.97230579,0.56903514,-135.19096)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1231"><tspan
+           style="font-size:1.72461px"
+           id="tspan1229">Contains the starting byte of every string
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1235"><tspan
+           style="font-size:1.72461px"
+           id="tspan1233">symbol from the curent module.
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1239"><tspan
+           style="font-size:1.72461px"
+           id="tspan1237">Does not contain byte lengths, because
+</tspan></tspan><tspan
+         x="102.71559"
+         y="143.01432"
+         id="tspan1243"><tspan
+           style="font-size:1.72461px"
+           id="tspan1241">they are written in the tokens and nodes. </tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-4-2-61-9"
+       transform="matrix(1.5492545,0,0,0.97230579,0.16279771,-135.82877)" />
+    <rect
+       style="fill:#e1a623;fill-opacity:1;stroke:#000000;stroke-width:0.261534;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-7-0-7"
+       width="54.048504"
+       height="22.560259"
+       x="96.022186"
+       y="10.366171"
+       ry="1.598771" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.73424px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.142094;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="130.17216"
+       y="12.206925"
+       id="text1047-8-62-2-6-7"
+       transform="scale(0.85990401,1.1629205)"><tspan
+         id="tspan1045-6-9-7-1-1"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.73424px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.142094;stroke-dasharray:none;stroke-opacity:1"
+         x="130.17216"
+         y="12.206925">[stringDict]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-4-2-61-9-5"
+       transform="matrix(1.147268,0,0,0.97374458,-20.416376,-109.51123)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1247"><tspan
+           style="font-size:1.72461px"
+           id="tspan1245">A hash dictionary of all identifier 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1251"><tspan
+           style="font-size:1.72461px"
+           id="tspan1249">strings in code that helps assign each
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1255"><tspan
+           style="font-size:1.72461px"
+           id="tspan1253">string a unique number, nameId</tspan></tspan></text>
+    <rect
+       style="fill:#e1a623;fill-opacity:1;stroke:#000000;stroke-width:0.298656;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6"
+       width="72.978355"
+       height="21.788015"
+       x="21.359539"
+       y="10.73526"
+       ry="1.5440446" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="48.756359"
+       y="15.385925"
+       id="text1047-8-62-0"><tspan
+         id="tspan1045-6-9-6"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="48.756359"
+         y="15.385925">[tokens]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-2"
+       transform="matrix(1.5492545,0,0,0.97230579,-136.09302,-105.86799)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1259"><tspan
+           style="font-size:1.72461px"
+           id="tspan1257">- An array of tokens that grows during the
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1263"><tspan
+           style="font-size:1.72461px"
+           id="tspan1261">lexing phase 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1267"><tspan
+           style="font-size:1.72461px"
+           id="tspan1265">(entrypoint = {lexicallyAnalyze})</tspan></tspan></text>
+    <rect
+       style="fill:#e1a623;fill-opacity:1;stroke:#000000;stroke-width:0.222109;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-6"
+       width="43.620979"
+       height="20.160858"
+       x="1.5611523"
+       y="37.873547"
+       ry="1.4287333" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="13.329912"
+       y="42.648121"
+       id="text1047-8-62-0-8"><tspan
+         id="tspan1045-6-9-6-8"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="13.329912"
+         y="42.648121">[newlines]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-2-4"
+       transform="matrix(1.5492545,0,0,0.97230579,-155.04215,-79.595147)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1271"><tspan
+           style="font-size:1.72461px"
+           id="tspan1269">Used to calculate line 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1275"><tspan
+           style="font-size:1.72461px"
+           id="tspan1273">numbers from startBt</tspan></tspan></text>
+    <rect
+       style="fill:#616161;fill-opacity:1;stroke:#000000;stroke-width:0.222109;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-6-3"
+       width="43.620979"
+       height="20.160858"
+       x="1.954186"
+       y="59.817005"
+       ry="1.4287333" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="13.981566"
+       y="65.276367"
+       id="text1047-8-62-0-8-1"><tspan
+         id="tspan1045-6-9-6-8-4"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="13.981566"
+         y="65.276367">[numeric]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-4-2-6"
+       transform="matrix(1.5492545,0,0,0.97230579,-135.88144,-109.71202)" />
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.35129"
+       y="231.02271"
+       id="text1528"><tspan
+         id="tspan1526"
+         style="stroke-width:0.165;stroke-dasharray:none"
+         x="108.35129"
+         y="231.02271">Data finalized at lexer stage</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="100.17095"
+       y="257.05942"
+       id="text1528-7"><tspan
+         id="tspan1526-4"
+         style="stroke-width:0.165;stroke-dasharray:none"
+         x="100.17095"
+         y="257.05942">[tbl]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="100.31247"
+       y="263.57172"
+       id="text1528-7-5"><tspan
+         id="tspan1526-4-2"
+         style="stroke-width:0.165;stroke-dasharray:none"
+         x="100.31247"
+         y="263.57172">{fn}</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="99.703018"
+       y="270.5574"
+       id="text1528-7-5-9"><tspan
+         id="tspan1526-4-2-0"
+         style="stroke-width:0.165;stroke-dasharray:none"
+         x="99.703018"
+         y="270.5574">@lex</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.27551"
+       y="240.55028"
+       id="text1528-9"><tspan
+         id="tspan1526-3"
+         style="stroke-width:0.165;stroke-dasharray:none"
+         x="108.27551"
+         y="240.55028">Data finalized at parser stage</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.24524"
+       y="249.43379"
+       id="text1528-9-8"><tspan
+         id="tspan1526-3-7"
+         style="stroke-width:0.165;stroke-dasharray:none"
+         x="108.24524"
+         y="249.43379">Temporary (per compilation stage) data</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.69444"
+       y="221.0495"
+       id="text1828"><tspan
+         id="tspan1826"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.88056px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.165"
+         x="108.69444"
+         y="221.0495">Formatting</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.88056px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.38036"
+       y="257.2811"
+       id="text1886"><tspan
+         id="tspan1884"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.165"
+         x="108.38036"
+         y="257.2811">Tables defined in source/tl.internal.h</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.88056px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.57659"
+       y="263.10876"
+       id="text1886-5"><tspan
+         id="tspan1884-4"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.165"
+         x="108.57659"
+         y="263.10876">Function names in source/tl.c</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.88056px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#571302;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none"
+       x="108.3231"
+       y="270.68231"
+       id="text1886-5-9"><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.165"
+         x="108.3231"
+         y="270.68231"
+         id="tspan5203">The compilation stage this data is </tspan><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.165"
+         x="108.3231"
+         y="275.53302"
+         id="tspan5205">finalized at (lex = lexing, par = parsing,</tspan><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:sans-serif;-inkscape-font-specification:'sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.165"
+         x="108.3231"
+         y="280.3837"
+         id="tspan5207">cfg = control-flow graph)</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.182581;stroke-linejoin:round;stroke-dasharray:none"
+       id="rect1967"
+       width="70.254341"
+       height="72.229042"
+       x="98.726738"
+       y="215.04898" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.792074,224.91908 H 168.9187"
+       id="path2133" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.820141,225.27278 H 168.94677"
+       id="path2133-4" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.635835,234.81931 H 168.76247"
+       id="path2133-3" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.699639,244.15535 H 168.82626"
+       id="path2133-0" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.837188,252.47342 H 168.96382"
+       id="path2133-7" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.825634,258.8791 H 168.95227"
+       id="path2133-7-1" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.155831;stroke-linejoin:round;stroke-dasharray:none"
+       d="M 98.675229,265.87216 H 168.80186"
+       id="path2133-7-1-4" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.199723;stroke-linejoin:round;stroke-dasharray:none"
+       d="m 107.57604,224.97816 v 62.13887"
+       id="path2135" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.0542906;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-2-4-2"
+       transform="matrix(6.3405026,0,0,4.6771005,-605.34405,-524.58451)" />
+    <rect
+       style="fill:#606060;fill-opacity:1;stroke:#000000;stroke-width:0.146406;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-6-3-9"
+       width="43.696682"
+       height="8.7446194"
+       x="1.9836235"
+       y="81.35733"
+       ry="0.61970222" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="14.048855"
+       y="86.854538"
+       id="text1047-8-62-0-8-1-4"><tspan
+         id="tspan1045-6-9-6-8-4-8"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="14.048855"
+         y="86.854538">[lexBtrack]</tspan></text>
+    <rect
+       style="fill:#606060;fill-opacity:1;stroke:#000000;stroke-width:0.143415;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-6-3-9-2"
+       width="43.699673"
+       height="8.3904352"
+       x="1.9185603"
+       y="90.960838"
+       ry="0.59460241" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="13.985288"
+       y="96.459541"
+       id="text1047-8-62-0-8-1-4-9"><tspan
+         id="tspan1045-6-9-6-8-4-8-3"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="13.985288"
+         y="96.459541">[backtrack]</tspan></text>
+    <rect
+       style="fill:#606060;fill-opacity:1;stroke:#000000;stroke-width:0.143415;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-6-3-9-2-0"
+       width="43.699673"
+       height="8.3904352"
+       x="2.0127904"
+       y="100.25682"
+       ry="0.59460241" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="11.511506"
+       y="105.75553"
+       id="text1047-8-62-0-8-1-4-9-8"><tspan
+         id="tspan1045-6-9-6-8-4-8-3-8"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="11.511506"
+         y="105.75553">[activeBindings]</tspan></text>
+    <rect
+       style="fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.298656;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-4"
+       width="72.978355"
+       height="21.788015"
+       x="158.17657"
+       y="111.45347"
+       ry="1.5440446" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#040404;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="185.57339"
+       y="116.10413"
+       id="text1047-8-62-0-3"><tspan
+         id="tspan1045-6-9-6-0"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#040404;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="185.57339"
+         y="116.10413">[nodes]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-2-3"
+       transform="matrix(1.5492545,0,0,0.97230579,0.72401995,-5.1497784)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1279"><tspan
+           style="font-size:1.72461px"
+           id="tspan1277">- An array of AST nodes that grows during 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1283"><tspan
+           style="font-size:1.72461px"
+           id="tspan1281">the parsing phase 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="139.04557"
+         id="tspan1287"><tspan
+           style="font-size:1.72461px"
+           id="tspan1285">(entrypoint = {parse})</tspan></tspan></text>
+    <rect
+       style="fill:#45843c;fill-opacity:1;stroke:#000000;stroke-width:0.298656;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1529-7-5-6-4-2"
+       width="72.978355"
+       height="21.788015"
+       x="158.12575"
+       y="134.1387"
+       ry="1.5440446" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="183.28748"
+       y="138.62013"
+       id="text1047-8-62-0-3-2"><tspan
+         id="tspan1045-6-9-6-0-4"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.165;stroke-dasharray:none;stroke-opacity:1"
+         x="183.28748"
+         y="138.62013">[fnMonos]</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-2-3-7"
+       transform="matrix(1.5492545,0,0,0.97230579,0.67320416,17.535446)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1291"><tspan
+           style="font-size:1.72461px"
+           id="tspan1289">A list of lists of AST nodes for function 
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1295"><tspan
+           style="font-size:1.72461px"
+           id="tspan1293">monomorphizations</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#606060;fill-opacity:1;stroke:#010101;stroke-width:0.147;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="2.7075534"
+       y="84.650536"
+       id="text7707-59"><tspan
+         id="tspan7705-7"
+         style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.147;stroke-dasharray:none;stroke-opacity:1"
+         x="2.7075534"
+         y="84.650536">@lex</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#606060;fill-opacity:1;stroke:#010101;stroke-width:0.147;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="3.1663198"
+       y="63.607513"
+       id="text7707-53"><tspan
+         id="tspan7705-8"
+         style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.147;stroke-dasharray:none;stroke-opacity:1"
+         x="3.1663198"
+         y="63.607513">@lex</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#606060;fill-opacity:1;stroke:#010101;stroke-width:0.147;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="2.8874953"
+       y="94.598274"
+       id="text7707-53-1"><tspan
+         id="tspan7705-8-8"
+         style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.147;stroke-dasharray:none;stroke-opacity:1"
+         x="2.8874953"
+         y="94.598274">@par</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#606060;fill-opacity:1;stroke:#010101;stroke-width:0.147;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="3.1494472"
+       y="103.38194"
+       id="text7707-53-9"><tspan
+         id="tspan7705-8-6"
+         style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0.147;stroke-dasharray:none;stroke-opacity:1"
+         x="3.1494472"
+         y="103.38194">@par</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.23333px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#616161;fill-opacity:1;stroke:#000000;stroke-width:0.449001;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-45.541252"
+       y="-3.7882707"
+       id="text13874"><tspan
+         id="tspan13872"
+         style="stroke-width:0.449"
+         x="-45.541252"
+         y="-3.7882707">Stages</tspan></text>
+    <path
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.529134;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="path14116"
+       d="m -199.53229,70.030167 16.61697,28.781438 16.61697,28.781445 -33.23394,-1e-5 -33.23394,0 16.61697,-28.781434 z"
+       transform="matrix(0.64478781,0,0,0.26322784,90.300591,-11.46852)" />
+    <path
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.529134;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="path14116-9"
+       d="m -199.53229,70.030167 16.61697,28.781438 16.61697,28.781445 -33.23394,-1e-5 -33.23394,0 16.61697,-28.781434 z"
+       transform="matrix(0.63937636,0,0,-0.26324348,89.475497,78.96453)" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.252273;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect14118"
+       width="42.766953"
+       height="23.104044"
+       x="-59.593494"
+       y="22.20026" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.19983;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect14122"
+       width="43.520348"
+       height="7.8240895"
+       x="-59.786068"
+       y="-0.89450252"
+       rx="2.2582059" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:0.197675;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       id="rect14122-7"
+       width="42.575123"
+       height="7.8262444"
+       x="-59.700874"
+       y="60.679619"
+       rx="2.2091599" />
+    <g
+       id="g14361"
+       transform="translate(-4.1126335,-0.38225056)">
+      <rect
+         style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.0715168;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+         id="rect14215"
+         width="1.0179547"
+         height="50.147381"
+         x="-8.3694544"
+         y="1.5296303" />
+      <path
+         style="fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.14;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+         id="path14219"
+         d="m -122.28877,293.5909 -7.51859,13.02257 -7.51858,13.02258 -7.51859,-13.02258 -7.51859,-13.02257 15.03718,0 z"
+         transform="matrix(0.26458333,0,0,0.26458333,28.373618,-26.758731)" />
+    </g>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.23333px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#616161;fill-opacity:1;stroke:#000000;stroke-width:0.14;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-49.39275"
+       y="3.9941175"
+       id="text14343"><tspan
+         id="tspan14341"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:0.14"
+         x="-49.39275"
+         y="3.9941175">Source code</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.23333px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#616161;fill-opacity:1;stroke:#000000;stroke-width:0.14;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-53.187477"
+       y="66.282532"
+       id="text14343-7"><tspan
+         id="tspan14341-6"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:0.14"
+         x="-53.187477"
+         y="66.282532">JokeScript code</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.14;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-44.945438"
+       y="17.001835"
+       id="text14347"><tspan
+         id="tspan14345"
+         style="stroke-width:0.14"
+         x="-44.945438"
+         y="17.001835">Lexing</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.14;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-51.93449"
+       y="26.045012"
+       id="text14351"><tspan
+         id="tspan14349"
+         style="stroke-width:0.14"
+         x="-51.93449"
+         y="26.045012">Parsing (</tspan><tspan
+         style="stroke-width:0.14"
+         x="-51.93449"
+         y="30.013762"
+         id="tspan14353">  includes</tspan><tspan
+         style="stroke-width:0.14"
+         x="-51.93449"
+         y="33.98251"
+         id="tspan14355">  type checking </tspan><tspan
+         style="stroke-width:0.14"
+         x="-51.93449"
+         y="37.95126"
+         id="tspan14357">  and resolution</tspan><tspan
+         style="stroke-width:0.14"
+         x="-51.93449"
+         y="41.92001"
+         id="tspan14394">)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.14;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="-44.637619"
+       y="52.164665"
+       id="text14365"><tspan
+         id="tspan14363"
+         style="stroke-width:0.14"
+         x="-44.637619"
+         y="52.164665">Codegen</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 152.94674,-13.554977 4.04146,1.409702 -3.57462,1.612914"
+       id="path14936" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 154.03742,57.490133 4.04146,1.409702 -3.57462,1.612914"
+       id="path14936-2" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 154.10524,88.157978 4.04146,1.409702 -3.57462,1.612913"
+       id="path14936-2-8" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 173.6188,10.58356 1.4097,-4.0414601 1.61292,3.5746201"
+       id="path14936-2-2" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 210.2333,10.22282 1.4097,-4.0414601 1.61292,3.57462"
+       id="path14936-2-2-9" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 154.20538,143.53771 4.04146,1.4097 -3.57462,1.61292"
+       id="path14936-2-1" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 153.56745,79.280037 4.04146,1.409702 -3.57462,1.612914"
+       id="path14936-5" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 154.32029,127.12858 4.04146,1.40971 -3.57462,1.61291"
+       id="path14936-4" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 197.93007,159.97399 1.40971,-4.04146 1.61291,3.57462"
+       id="path14936-4-48" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 93.517947,77.62819 4.04146,1.40971 -3.57462,1.61291"
+       id="path14936-4-4" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 48.9925,49.467203 -4.041461,1.40971 3.57462,1.61291"
+       id="path14936-4-4-9" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 105.07424,178.28759 4.04146,1.40971 -3.57462,1.61291"
+       id="path14936-4-0" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 87.05225,114.14015 -1.40971,4.04146 -1.61291,-3.57462"
+       id="path14936-4-0-5-9" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 60.619466,36.484854 -1.40971,-4.04146 -1.61291,3.57462"
+       id="path14936-4-0-5-9-6" />
+    <text
+       xml:space="preserve"
+       transform="matrix(0.26458333,0,0,0.26458333,-60.266343,-29.815491)"
+       id="text15070"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:12px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;shape-inside:url(#rect15072);display:inline;fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.66299;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" />
+    <text
+       xml:space="preserve"
+       transform="matrix(0.26458333,0,0,0.26458333,-60.266343,-29.815491)"
+       id="text15138"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:12px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;shape-inside:url(#rect15140);display:inline;fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.66299;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="M 9.6389011,117.79941 C 9.8964968,106.3779 67.348656,121.40307 60.144155,111.29578"
+       id="path15204" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="M 60.32165,111.53809 C 52.534759,101.99089 70.353634,79.995886 97.393852,78.981621"
+       id="path15206" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="M 85.469902,117.95994 C 85.691273,104.56782 107.73023,105.64304 108.0591,87.29823"
+       id="path15299" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.430518;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 124.39102,87.499742 c -0.19786,20.964158 2.6909,41.030848 33.90881,41.115268"
+       id="path15307" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 129.17161,73.122437 c 0.0702,-16.733695 25.78464,-14.429343 28.64519,-14.239841"
+       id="path15369" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 132.21431,81.061694 25.5343,-0.345247"
+       id="path15420" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 118.81892,32.786285 -0.35733,40.34692 C 160.03327,32.7703 175.18344,21.333877 175.16544,6.6567797"
+       id="path15428" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 119.16152,10.20564 c 0.0152,-17.6104115 25.14132,-22.734388 37.241,-22.346593"
+       id="path15430" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="M 97.088264,179.58506 H 108.7079"
+       id="path16031" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 105.28345,73.203394 c 0,-12.62803 -46.344845,-4.109357 -46.041464,-40.691085"
+       id="path16259" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="M 78.527145,60.479103 C 58.740612,52.208815 52.453683,50.676338 45.651005,50.738724"
+       id="path16283" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 182.08717,175.78669 c 15.44977,0 17.19133,-8.67334 17.19133,-19.95888"
+       id="path16887" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 124.3414,87.387235 c 0,26.794685 0.75812,57.563415 33.70358,57.563415"
+       id="path16913" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 97.302513,165.31009 c 9.892547,0 17.712387,-75.612521 60.533407,-75.612521"
+       id="path17645" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.439999;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       d="M 211.65088,46.77561 V 6.5257565"
+       id="path18096" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.175px;font-family:'Fira Code';-inkscape-font-specification:'Fira Code, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;inline-size:54.5575;display:inline;fill:#45843c;fill-opacity:1;stroke:#ffffff;stroke-width:0.165;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+       x="102.71559"
+       y="131.10806"
+       id="text1711-1-2-4-3"
+       transform="matrix(1.5492545,0,0,0.97230579,-155.99781,-57.699617)"><tspan
+         x="102.71559"
+         y="131.10806"
+         id="tspan1299"><tspan
+           style="font-size:1.72461px"
+           id="tspan1297">Scratch space used to
+</tspan></tspan><tspan
+         x="102.71559"
+         y="135.07682"
+         id="tspan1303"><tspan
+           style="font-size:1.72461px"
+           id="tspan1301">calculate number literals</tspan></tspan></text>
+  </g>
+</svg>

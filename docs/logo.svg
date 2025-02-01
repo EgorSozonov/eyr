@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" height="1000" width="1000">
+    <defs>
+        <radialGradient id="grGr">
+            <stop offset="10%" stop-color="hsl(120, 90%, 50%)" />
+            <stop offset="95%" stop-color="hsl(120, 90%, 30%)" />
+        </radialGradient>
+    </defs>
+
+    <rect x="10" y="10" width="80" height="10" rx="5" fill="gold"  />
+
+    <circle cx="50" cy="60" r="40" fill="url('#grGr')" />
+    <circle cx="50" cy="60" r="40" stroke="gold" fill="none" stroke-width="8"  />
+    <circle cx="50" cy="60" r="40" stroke="yellow" fill="none" stroke-width="4"  />
+
+    <rect x="20" y="40" width="60" height="8" rx="4" fill="gold" />
+    <rect x="39" y="44" width="8" height="50" rx="4" fill="gold"  />
+    <rect x="54" y="54" width="8" height="30" rx="4" fill="gold"  />
+    
+    <rect x="22" y="41" width="56" height="6" rx="3" fill="yellow" />
+    <rect x="12" y="12" width="76" height="6" rx="3" fill="yellow"  />
+    <rect x="40" y="44" width="5" height="49" rx="3" fill="yellow"  />
+    <rect x="55" y="54" width="5" height="29" rx="3" fill="yellow"  />
+</svg>
