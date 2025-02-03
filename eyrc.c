@@ -8616,6 +8616,7 @@ tech_sozonov_eyr_compileFile(String filename) {
       printString(cm->stats.errMsg);
       return 1;
    }
+   printParser(cm);
    Codegen* cg = generateCode(cm, a);
    if (cg->wasError) {
       print("codegen error");
