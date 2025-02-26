@@ -1,0 +1,89 @@
+// Scratchspace for design ideas
+
+
+////////////////////
+// Memory management
+////////////////////
+
+Arenas and atomic reference counts.
+
+Type taxonomy:
+
+[flat types | arena-pointing types | refcounted types ]
+[flat types | A-types | R-types ]
+
+Flat types: contain no references of any kind.
+Arena-pointing types: contain references into some arenas they do not own.
+Refcounted types: are behind (atomic) reference counters, may own an arena. Their internal
+refs may be either Arcs themselves, or may point into the owned arena (maybe multiple arenas?).
+
+
+Example: [Foo id Int, value Long] is flat,
+         [Foo id Int, name 'a String] is an A-type,
+         Arc [Foo id Int, name Arc String, internalData 'Bar] is an R-type.
+         
+         
+A-types may not own an arena because then that arena will never get freed!
+R-types may not point into an arbitrary arena because there's no lifetime comparison between
+Arc and arbitrary arena. I.e. an Arc may have a dynamic lifetime (it will be deallocated when
+no thread and no heap object holds a reference to it), but so can an Arena (since it's Arc itself
+and may be returned from functions).
+         
+R-types may only be referenced by other arc types. But they may contain a single (owned) arena
+and contain arbitrary references into that arena.
+         
+Example:
+
+   r: Arc Foo = getRefcountedObj;
+   arenaRef: 'r Bar = r.fld;
+   doSomethingWith arenaRef;
+   // r's refcount gets decremented, arenaRef is no longer valid, though r may still live on
+         
+
+Arena objects are all refcounted.
+
+   
+Functions working with arena references must specify arena flow (aka lifetime annotations). For
+example:
+
+   def foo = {{x '1 Foo, y '2 Bar -> u '3 Bar} ...}
+
+Here the function specifies that the ref it returns will be in the same arena as its second param.
+It may allocate "z" or it may just return a pre-existing ref, but it will be in that arena, and
+callers can use that info:
+
+   a = newArena();
+   { 
+      b = newArena();
+      x = [Foo ... @a];
+      y = [Bar ... @b];
+      u = foo x y; // u has type 'b Bar because in "foo"'s signature, '1 ~ 'a and '2 ~ 'b
+   }
+   // here, u is invalid because the b arena has been destroyed
+
+
+
+Every function may have an implicit call frame arena, which can be referenced as "'0".
+It's used for temporary expression results that are not assigned to a local like strings concat.
+It is freed on function exit. Of course if it's not used in the body of the function, it is not
+created at runtime.
+For example, string concatenation:
+
+   c '0 Str = `asdf` + str;
+   
+Specifying another arena automatically invokes copying from the call frame arena:
+
+   c '1 Str = `asdf` + str; // means: copy 1 (`asdf + str)
+   
+R-types must always be assigned to local variables, i.e. they may not be intermediate results of
+expression evaluation.
+
+Arena subtiming: some arenas must be statically lifetimed. This allows to set upper bounds on them,
+to ensure that the outer arena lives longer than them. Useful for fork-join parallelism, for example:
+
+   parentArena = newArena();
+   childArena = newStaticArena(); // not refcounted, will definitely get destroyed at end of scope
+   forkedThread = newThread childArena; // in there objs in "childArena" can reference "parentArena"
+   join forkedThread; // "childArena" gets destroyed but the results of the thread are in "parent"
+
+
