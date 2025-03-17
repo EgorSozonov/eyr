@@ -59,6 +59,125 @@ private Bool endsWith(String a, String b);
 
 #define s(lit) str(lit)
 
+private void* allocateOnArena(size_t, Arena*);
+#define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
+#define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
+
+extern jmp_buf excBuf;
+
+//{{{ Arena
+
+#define CHUNK_QUANT 32768
+
+
+struct ArenaChunk { // :ArenaChunk
+   size_t size;
+   ArenaChunk* next;
+   char memory[]; // flexible array member
+};
+
+struct Arena { // :Arena
+   ArenaChunk* firstChunk;
+   ArenaChunk* currChunk;
+   int currInd;
+};
+
+
+private size_t
+minChunkSize(void) {
+   return (size_t)(CHUNK_QUANT - 32);
+}
+
+private Arena*
+createArena(void) { //:createArena
+   Arena* result = malloc(sizeof(Arena));
+
+   size_t firstChunkSize = minChunkSize();
+   ArenaChunk* firstChunk = malloc(firstChunkSize);
+   if (!result || !firstChunk)
+      { longjmp(excBuf, 1); }
+
+   firstChunk->size = firstChunkSize - sizeof(ArenaChunk);
+   firstChunk->next = null;
+   result->firstChunk = firstChunk;
+   result->currChunk = firstChunk;
+   result->currInd = 0;
+   return result;
+}
+
+private size_t
+calculateChunkSize(size_t allocSize) { //:calculateChunkSize
+// Calculates memory for a new chunk. Memory is quantized and is always 32 bytes less
+// 32 for any possible padding malloc might use internally,
+// so that the total allocation size is a good even number of OS memory pages
+   size_t fullMemory = sizeof(ArenaChunk) + allocSize + 32;
+   // struct header + main memory chunk + space for malloc bookkeep
+
+   int mallocMemory = fullMemory < CHUNK_QUANT
+                  ? CHUNK_QUANT
+                  : (fullMemory % CHUNK_QUANT > 0
+                     ? (fullMemory/CHUNK_QUANT + 1)*CHUNK_QUANT
+                     : fullMemory);
+
+   return mallocMemory - 32;
+}
+
+private Any*
+allocateOnArena(size_t allocSize, Arena* a) { //:allocateOnArena
+// Allocate memory in the arena, malloc'ing a new chunk if needed
+   if ((size_t)a->currInd + allocSize >= a->currChunk->size) {
+      if (a->currChunk->next != null && a->currChunk->next->size < allocSize) {
+         // the next chunk is big enough, so we skip the rest of this chunk and move on
+         print("reusing cleared memory from the arena!")
+         a->currChunk = a->currChunk->next;
+         a->currInd = 0;
+      } else { // we need to allocate new chunk
+
+         size_t newSize = calculateChunkSize(allocSize);
+         ArenaChunk* newChunk = malloc(newSize);
+         if (!newChunk) {
+            perror("malloc error when allocating arena chunk");
+            exit(EXIT_FAILURE);
+         };
+         // sizeof counts everything but the flexible array member, that's why we subtract it
+         newChunk->size = newSize - sizeof(ArenaChunk);
+         newChunk->next = a->currChunk->next; // if the arena has a (small) tail, don't lose it
+
+         a->currChunk->next = newChunk;
+         a->currChunk = newChunk;
+         a->currInd = 0;
+      }
+
+   }
+   Any* result = (Any*)(a->currChunk->memory + (a->currInd));
+   a->currInd += allocSize;
+   if (allocSize % 4 != 0)  {
+      a->currInd += (4 - (allocSize % 4));
+   }
+   return result;
+}
+
+private void
+deleteArena(Arena* ar) { //:deleteArena
+// Returns memory of the arena to the OS
+   ArenaChunk* curr = ar->firstChunk;
+   while (curr != null) {
+      ArenaChunk* nextToFree = curr->next;
+      free(curr);
+      curr = nextToFree;
+   }
+   free(ar);
+}
+
+private void
+clearArena(Arena* a) { //:clearArena
+// Clears the memory of the arena for reuse. Does not free memory.
+   a->currChunk = a->firstChunk;
+   a->currInd = 0;
+}
+
+//}}}
+
 //}}}
 //{{{ Standard strings :standardStr
 

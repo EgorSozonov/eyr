@@ -1,10 +1,11 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <libgccjit.h>
 #include <stdint.h>
+#include <setjmp.h>
 #include "include/eyrc.h"
 #include "eyrc.internal.h"
-
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -17,10 +18,84 @@ typedef gcc_jit_rvalue RValue;
 typedef enum gcc_jit_function_kind FnKind;
 typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
-#define private static
 #define toPointer(x) gcc_jit_type_get_pointer(x)
 
+extern jmp_buf excBuf;
 
+//{{{ Utils
+//{{{ Stack
+
+#define DEFINE_STACK_HEADER(T) \
+   typedef struct {\
+      Int cap;\
+      Int len;\
+      Arena* arena;\
+      T* cont;\
+   } Stack##T;\
+   private Stack ## T * createStack ## T (Int initCapacity, Arena* a);\
+   private Bool hasValues ## T (Stack ## T * st);\
+   private T pop ## T (Stack ## T * st);\
+   private T peek ## T(Stack ## T * st);\
+   private void push ## T (T newItem, Stack ## T * st);
+
+#define DEFINE_STACK(T)\
+   private Stack##T * createStack##T (int initCapacity, Arena* a) {\
+      int capacity = initCapacity < 4 ? 4 : initCapacity;\
+      Stack##T * result = allocate(Stack##T, a);\
+      result->cap = capacity;\
+      result->len = 0;\
+      result->arena = a;\
+      T* arr = allocateArray(capacity, T, a);\
+      result->cont = arr;\
+      return result;\
+   }\
+   private bool hasValues ## T (Stack ## T * st) {\
+      return st->len > 0;\
+   }\
+   private T pop##T (Stack ## T * st) {\
+      st->len -= 1;\
+      return st->cont[st->len];\
+   }\
+   private T peek##T(Stack##T * st) {\
+      return st->cont[st->len - 1];\
+   }\
+   private void push##T (T newItem, Stack ## T * st) {\
+      if (st->len < st->cap) {\
+         memcpy((T*)(st->cont) + (st->len), &newItem, sizeof(T));\
+      } else {\
+         T* newContent = allocateArray(2*(st->cap), T, st->arena);\
+         memcpy(newContent, st->cont, st->len*sizeof(T));\
+         memcpy((T*)(newContent) + (st->len), &newItem, sizeof(T));\
+         st->cap *= 2;\
+         st->cont = newContent;\
+      }\
+      st->len += 1;\
+   }\
+
+Int
+e_(Int ind, Int len) {
+   if ((Unt)ind < (Unt) len) {
+      return ind;
+   }
+   longjmp(excBuf, 1);
+}
+
+#define lLast(lst) lst->cont + lst->len - 1
+
+#define l(ind, lst) lst->cont[e_(ind, lst->len)]
+
+DEFINE_STACK_HEADER(SourceLoc)
+DEFINE_STACK(SourceLoc) //:createStackSourceLoc
+
+DEFINE_STACK_HEADER(Node)
+DEFINE_STACK(Node)
+
+#ifdef TEST
+private void dbgStackNode(StackNode*, Arena*);
+#endif
+
+//}}}
+//}}}
 //{{{ Types 
 
 typedef struct { //:CgCall Deprecated?
@@ -353,7 +428,14 @@ int main(int argc, char** argv) {
         }
      }
   */
-
+//~         def newFn Str = {{x Str, y Double, }
+//~            a = x;
+//~            return a;
+//~         };
+// def newFn F[Str Double -> Str] = {x y ->
+//    a = x;
+//    return a;
+// }
    CgContext* ctx = gcc_jit_context_acquire();
    Codegen* cg = malloc(sizeof(Codegen));
    cg->cont = ctx;
