@@ -59,7 +59,7 @@ testLexer: $(DEBUG_TGT) ## Test the lexical analyzer
 
 
 testParser: $(DEBUG_TGT) ## Test the parser & typechecker
-/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c $(APP).c
+/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
 / $(DEBUG_TGT)/parserTest
 
 

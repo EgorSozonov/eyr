@@ -1,5 +1,8 @@
-#include <libgccjit.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "libeyr.h"
+#include <libgccjit.h>
 
 //{{{ Types 
 
@@ -16,24 +19,12 @@ typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define toPointer(x) gcc_jit_type_get_pointer(x)
 
-typedef struct { //:CgCall Deprecated?
-    Int startInd; // or externalNameId
-    Int len;      // only for native names
-    Byte emit;
-    uint8_t arity;
-    uint8_t countArgs;
-    Bool needClosingParen;
-} CgCall;
-
-DEFINE_STACK_HEADER(CgCall)
-DEFINE_STACK(CgCall)
-
-typedef struct { //:CgFrame
+typedef struct { //:Frame
    Byte tp; // node type
    Int pl1; // node pl1
    Int pl3; // node pl3
    Int sentinel; // node sentinel
-} CgFrame;
+} Frame;
 
 DEFINE_STACK_HEADER(CgFrame)
 DEFINE_STACK(CgFrame)
@@ -60,7 +51,7 @@ typedef struct { //:Codegen
    Module* md;
    Primitives primitives;
    
-   StackFnParam params; // temporary buffer for function params
+   StackFnParamPtr params; // temporary buffer for function params
 
    StackCall calls; // temporary stack for generating expressions
    StackFrame backtrack;
@@ -158,6 +149,15 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [nodIfClause   - nodScope] = &writeIfClause,
    [nodMatch      - nodScope] = &writeMatch
 };
+
+//}}}
+//{{{ Type registry
+
+void //:registerTypes
+registerTypes(CM, CG) {
+   // for every type in @cm.types, create an entry in @cg.typeRefs
+   
+}
 
 //}}}
 //{{{ Code generator
@@ -263,7 +263,7 @@ CgType* getType(BuiltinType tp, Module* md) {
    return gcc_jit_context_get_type(md, tp);
 }
 
-static void
+private void
 addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
 //~     Arr(Int) arr = malloc(4*sizeof(Int));
 //~     for (int i = 0; i < 4; i++) {
@@ -327,7 +327,7 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
    gcc_jit_block_end_with_void_return(loopAfter, NULL);
 }
 
-static void
+private void
 createCodeGreet(Codegen* cg) {
    Module* md = cg->cont;
    CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
@@ -512,475 +512,6 @@ private void //:writeBytesFromSource
 writeBytesFromSource(SourceLoc loc, CG) {
    writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
 }
-
-//{{{ CgExpr - code generation for expressions
-
-private void //:writeVar
-writeVar(Node nd, CG) {
-   Var v = cg->cm->vars.cont[nd.pl1];
-   if (v.fnId == -1) {
-      writeName(v.name, cg);
-   } else {
-      FunctionId fnId = nd.pl2;
-      writeName(cg->cm->functions.cont[fnId].name, cg);
-      writeChar(aUnderscore, cg);
-      writeInt(fnId, cg);
-   }
-}
-
-private void //:writeExprOperand
-writeExprOperand(Node n, SourceLoc loc, CG) {
-   if (n.tp == nodVar) {
-      writeVar(n, cg);
-   } else if (n.tp == nodDataAlloc && n.pl2 == 0) {
-      writeChars(((Byte[]){ aBracketLeft, aBracketRight}), cg);
-   } else if (n.tp == tokInt) {
-      Ulong upper = n.pl1;
-      Ulong lower = n.pl2;
-      Ulong total = (upper << 32) + lower;
-      Long signedTotal = (Long)total;
-      cgEnsureBufferLength(45, cg);
-      Int lenWritten = sprintf(cg->buffer + cg->len, "%d", signedTotal);
-      cg->len += lenWritten;
-   } else if (n.tp == tokString) {
-      writeBytesFromSource(loc, cg);
-   } else if (n.tp == tokDouble) {
-      Ulong upper = n.pl1;
-      Ulong lower = n.pl2;
-      Long total = (Long)((upper << 32) + lower);
-      double floating = doubleOfLongBits(total);
-      cgEnsureBufferLength(45, cg);
-      Int lenWritten = sprintf(cg->buffer + cg->len, "%f", floating);
-      cg->len += lenWritten;
-   } else if (n.tp == tokBool) {
-      writeBytesFromSource(loc, cg);
-   }
-}
-
-void //:cgeSortCodeSpans
-cgeSortCodeSpans(StackCgeCallSpan* sortedCallSpans) {
-// Spans are sorted by startNode DESC, the sort is stable. Then they will be consumed backwards
-   Int const len = sortedCallSpans->len;
-
-   for (Int i = 0; i < len; i += 1) {
-      Int maxInd = i;
-      Int maxStartNode = sortedCallSpans->cont[maxInd].startNode;
-
-      Int j = i + 1;
-      for (j = len - 1; j > i; j -= 1) {
-         if (sortedCallSpans->cont[j].startNode > maxStartNode) {
-            maxInd = j;
-            maxStartNode = sortedCallSpans->cont[j].startNode;
-         }
-      }
-      if (maxInd != i) {
-         CgeCallSpan tmp = sortedCallSpans->cont[i];
-         sortedCallSpans->cont[i] = sortedCallSpans->cont[maxInd];
-         sortedCallSpans->cont[maxInd] = tmp;
-      }
-   }
-}
-
-void //:cgeResolveCallSpans
-cgeResolveCallSpans(AST, CgExpr cge, CM) {
-// For every call in an expression, resolves the node ids of the operands it spans
-// Ex: for [id1 id2 literal .call(2)] resolves that the binary `.call` spans `.id2` and `literal`
-   cge.callSpans->len = 0;
-   cge.sortedCallSpans->len = 0;
-   for(Int j = cge.endInclusive; j >= cge.start; j--) {
-      Node nd = ast[j];
-      if (nd.tp == nodCall) {
-      
-         Byte closerType = closerPrefix;
-         Int fnId = -1;
-         switch (nd.pl3) {
-         case callNormal:
-            fnId = nd.pl1;
-            Function fn = cm->functions.cont[fnId];
-            if (fn.emit == emitInfix || fn.emit == emitField)
-               { closerType = closerInfix; }
-            break;
-         case callField:
-            continue;
-         case callMonomorph:
-            fnId = cm->monos->cont[nd.pl1].fnId; break;
-         case callVar:
-            fnId = cm->vars.cont[nd.pl1].fnId; break;
-         case callGetElem:
-            closerType = closerAccessor; break;
-            
-         }
-         Int varId = fnId != -1 ? -1 : nd.pl1; // only for function-typed function params
-         push(((CgeCallSpan){
-                .arity = nd.pl2,
-                .fnId = fnId,
-                .varId = varId,
-                .countArgs = 0,
-                .n = j,
-                .closerType = closerType
-              }), cge.callSpans
-         );
-      } else {
-         CgeCallSpan* top = cge.callSpans->cont + cge.callSpans->len - 1;
-         for (CgeCallSpan* p = top; p >= cge.callSpans->cont && p->countArgs == 0; p--) {
-            p->endNode = j;
-         }
-
-         top->countArgs++;
-         if (top->countArgs == top->arity) {
-            top->startNode = j;
-            top->firstArgEndNode = j;
-            CgeCallSpan full = pop(cge.callSpans); // this function's arity has been saturated
-            push(full, cge.sortedCallSpans);
-            for(;
-               hasValues(cge.callSpans);
-               full = pop(cge.callSpans), push(full, cge.sortedCallSpans)
-            ){
-               top--;
-               top->countArgs++;
-               if (top->countArgs < top->arity)
-                  { break; }
-               top->startNode = j;
-               top->firstArgEndNode = full.endNode;
-            }
-         }
-      }
-   }
-
-   if (false) {
-      print("resolved code spans:")
-      printf("[");
-      for (Int j = 0; j < cge.sortedCallSpans->len; j++) {
-         auto sp = cge.sortedCallSpans->cont[j];
-         printf(" (j %d | %d %d faen %d)", sp.n,
-            sp.startNode, sp.endNode, sp.firstArgEndNode);
-      }
-      printf("]\n");
-   }
-
-   cgeSortCodeSpans(cge.sortedCallSpans);
-
-   if (false) {
-      print("sorted code spans:")
-      printf("[");
-      for (Int j = 0; j < cge.sortedCallSpans->len; j += 1) {
-         auto sp = cge.sortedCallSpans->cont[j];
-         printf(" (j [sort %d] %d: %d %d)", sp.closerType, sp.n,
-                sp.startNode, sp.endNode);
-      }
-      printf("]\n");
-   }
-}
-
-void //:cgeProcessFnCallSpan
-cgeProcessFnCallSpan(CgeCallSpan sp, CgExpr cge, CG) {
-   Function fn = cg->cm->functions.cont[sp.fnId];
-   if (fn.emit == emitPrefix) {
-      writeName(fn.name, cg);
-      writeChar(aUnderscore, cg);
-      writeInt(sp.fnId, cg);
-      writeChar(aParenLeft, cg);
-      push(((CgeCloser){  // closing paren for a prefix function
-               .nodeInd = sp.endNode,
-               .tp = closerPrefix,
-               .arity = tGetFnArity(fn.typeId, cg->cm)
-           }),
-           cge.closers
-      );
-   } ei (fn.emit == emitInfix) {
-      push(((CgeCloser) { // for infix operators, scheduling the operator itself
-               .nodeInd = sp.firstArgEndNode,
-               .tp = closerInfix,
-               .arity = 2,
-               .fnId = sp.fnId
-           }),
-           cge.closers
-      );
-
-      if (cge.closers->len > 1) {
-         Byte prevCloserType = cge.closers->cont[cge.closers->len - 2].tp;
-         if (prevCloserType != closerPrefix && prevCloserType != closerBracket) {
-            writeChar(aParenLeft, cg);
-            push(((CgeCloser) { // ... and maybe its closing paren - only if inside infix
-                     .nodeInd = sp.endNode,
-                     .tp = closerParen,
-                     .fnId = sp.fnId
-                 }),
-                 cge.closers
-            );
-         } else {
-            push(((CgeCloser){ // This empty closer signifies that we're inside an infix span
-                     .nodeInd = sp.endNode,
-                     .tp = closerNone
-                 }),
-                 cge.closers
-            );
-         }
-      }
-   } ei (fn.emit == emitHostPrefix) {
-      writeHostConstant(fn.hostName, false, cg);
-      writeChar(aParenLeft, cg);
-      push(((CgeCloser){  // closing paren for a prefix function
-               .nodeInd = sp.endNode,
-               .tp = closerPrefix,
-               .arity = tGetFnArity(fn.typeId, cg->cm)
-           }),
-           cge.closers
-      );
-   } ei (fn.emit == emitField)  {
-      push(((CgeCloser){
-               .nodeInd = sp.endNode,
-               .tp = closerField,
-               .fnId = sp.fnId,
-               .arity = 1
-           }),
-           cge.closers
-      );
-   } ei (fn.emit == emitHostInfix) {
-      push(((CgeCloser) { // for infix operators, schedule the operator itself
-               .nodeInd = sp.firstArgEndNode,
-               .tp = closerInfix,
-               .arity = 2,
-               .fnId = sp.fnId
-           }),
-           cge.closers
-      );
-      push(((CgeCloser){  // closing paren for a prefix function
-               .nodeInd = sp.endNode,
-               .tp = closerPrefix,
-               .arity = tGetFnArity(fn.typeId, cg->cm)
-           }),
-           cge.closers
-      );
-
-   }
-}
-
-void //:cgeProcessCallSpans
-cgeProcessCallSpans(CgeCallSpan sp, CgExpr cge, CG) {
-// Process call spans associated with an operand in an expression
-   if (sp.closerType == closerAccessor) {
-      push(((CgeCloser){  // closing paren for a prefix function
-               .nodeInd = sp.firstArgEndNode,
-               .tp = closerAccessor,
-               .arity = 2
-           }),
-           cge.closers
-      );
-      push(((CgeCloser) { // ... and maybe its closing paren - only if inside infix
-               .nodeInd = sp.endNode,
-               .tp = closerBracket,
-           }),
-           cge.closers
-      );
-      return;
-   } ei (sp.fnId != -1) {
-      cgeProcessFnCallSpan(sp, cge, cg);
-   } else { // variable which is a parameter with fn type. We just print it by its var name
-      Var v = cg->cm->vars.cont[sp.varId];
-      writeName(v.name, cg);
-      writeChar(aParenLeft, cg);
-      push(((CgeCloser){  // closing paren for a prefix function
-               .nodeInd = sp.endNode,
-               .tp = closerPrefix,
-               .arity = sp.closerType == closerField ? 1 : tGetFnArity(v.typeId, cg->cm)
-           }),
-           cge.closers
-      );
-   }
-}
-
-void //:cgeSortClosers
-cgeSortClosers(StackCgeCloser* closers) {
-// Sorts the active closers ascending by nodeId so they are applied to corresponding operands
-   for (Int i = 0; i < closers->len; i += 1)  {
-      Int maxInd = i;
-      Int maxVal = closers->cont[i].nodeInd;
-      for (Int j = i + 1; j < closers->len; j++) {
-         if (closers->cont[j].nodeInd > maxVal) {
-            maxInd = j;
-            maxVal = closers->cont[j].nodeInd;
-         }
-      }
-      if (maxInd != i) {
-         CgeCloser tmp = closers->cont[i];
-         closers->cont[i] = closers->cont[maxInd];
-         closers->cont[maxInd] = tmp;
-      }
-   }
-}
-
-void //:cgeApplyClosers
-cgeApplyClosers(Int operandInd, CgExpr cge, CG) {
-// Apply the closers (infix operators, closing parens, brackets) after an operand
-   Int clInd = cge.closers->len - 1;
-   Bool infixWasInserted = false;
-   for (; clInd > -1 && operandInd == cge.closers->cont[clInd].nodeInd; clInd -= 1 ) {
-      CgeCloser closer = cge.closers->cont[clInd];
-      if (closer.tp == closerPrefix || closer.tp == closerParen) {
-         writeChars(((Byte[]){ aParenRight }), cg);
-      } else if (closer.tp == closerAccessor)  {
-         writeChar(aBracketLeft, cg);
-      } else if (closer.tp == closerBracket)  {
-         writeChar(aBracketRight, cg);
-      } else if (closer.tp == closerInfix)  {
-         Function fn = cg->cm->functions.cont[closer.fnId];
-         if (closer.fnId < cg->cm->stats.countOperatorFns) {
-            NameLoc nameLoc = fn.name;
-            Bool isIncrement =
-               nameLoc == OPERATORS[opIncrement].name || nameLoc == OPERATORS[opDecrement].name;
-            if (!isIncrement)
-               { writeChar(aSpace, cg); }
-            writeBytes(cg->sourceCode.cont + (nameLoc & LOWER24BITS), (nameLoc >> 24), cg);
-            if (!isIncrement)
-               { writeChar(aSpace, cg); }
-         } else {
-            writeChar(aDot, cg);
-            if (fn.emit == emitInfix) {
-               writeName(fn.name, cg);
-            } else if (fn.emit == emitHostInfix) {
-               writeHostConstant(fn.hostName, false, cg);
-            }
-            writeChar(aParenLeft, cg);
-         }
-
-         infixWasInserted = true;
-      } ei (closer.tp == closerField) {
-         writeChar(aDot, cg);
-         writeHostConstant(cg->cm->functions.cont[closer.fnId].hostName, false, cg);
-      } else if (closer.tp != closerNone) {
-         writeChar(aSpace, cg);
-         Function fn = cg->cm->functions.cont[closer.fnId];
-         writeBytesFromSource(
-            (SourceLoc){.startBt = fn.name & LOWER24BITS, .lenBts = (fn.name >> 24)}, cg
-         );
-         writeChar(aSpace, cg);
-         infixWasInserted = true;
-      }
-   }
-
-   cge.closers->len = clInd + 1;
-
-   // comma separator for prefix calls
-   if (clInd > -1 && !infixWasInserted) {
-      CgeCloser outerCloser = cge.closers->cont[clInd];
-      if (outerCloser.arity > 1 && outerCloser.tp == closerPrefix)
-         { writeChars(((Byte[]){aComma, aSpace}), cg); }
-   }
-}
-
-void //:cgeGenerate
-cgeGenerate(CgExpr cge, Arr(Node const) ast, CG) {
-// The super-complex expression codegeneration
-   Int spInd = cge.sortedCallSpans->len - 1;
-   CgeCallSpan sp = cge.sortedCallSpans->cont[spInd];
-   Compiler const* cm = cg->cm;
-   cge.closers->len = 0;
-   for (Int j = cge.start; j <= cge.endInclusive; j += 1) {
-      Node nd = ast[j];
-      if (nd.tp == nodCall) {
-         if (nd.pl3 == callField) {
-            writeChar(aDot, cg);
-            writeName(nd.pl1, cg);
-         } else // calls will be applied to respective operands, this is what CgeCallSpans are for
-            { continue; }
-      }
-
-      for (; j == sp.startNode && spInd > -1; spInd--, sp = cge.sortedCallSpans->cont[spInd]) {
-         cgeProcessCallSpans(sp, cge, cg);
-      }
-      cgeSortClosers(cge.closers);
-      writeExprOperand(nd, cm->sourceLocs->cont[j], cg);
-      cgeApplyClosers(j, cge, cg);
-   }
-}
-
-Int //:cgeComplexSubexpressions
-cgeComplexSubexpressions(Node exprNode, Int exprNodeInd, Arr(Node const) ast, CG) {
-// Consumes no nodes. Prints out all inner assignments of a complex expression
-   Int j = exprNodeInd + 1;
-   Compiler* cm = cg->cm;
-   // loop over the subexpressions
-   for (Node nd = ast[j];
-        nd.tp == nodAssignment;
-        j = calcNodeSentinel(nd, j), nd = ast[j], cg->local++
-   ) {
-      Node varNd = ast[j + 1];
-      Node allocNd = ast[j + 2];
-#ifdef SAFETY
-   VALIDATEI(nd.pl3 == 2 && varNd.tp == nodVar, iErrorComplexExpression);
-#endif
-
-      Int const countElts = allocNd.pl3;
-      // writes a nameless local var like `const _l123 = new Array(4);`
-      writeNewline(cg);
-      writeHostConstant(hostConst, true, cg);
-
-      cm->vars.cont[varNd.pl1].name = -cg->local - 1;
-      Int const localNameStart = cg->len;
-      writeName(-cg->local - 1, cg);
-      Int const localNameLen = cg->len - localNameStart;
-      writeChars(((Byte[]){aSpace, aEqual, aSpace}), cg);
-
-      writeHostConstant(hostNew, true, cg); // new Array(len)
-      writeHostConstant(hostArray, false, cg);
-      writeChar(aParenLeft, cg);
-      writeInt(countElts, cg);
-      writeChars(((Byte[]){ aParenRight, aSemicolon }), cg);
-
-      // loop over the elements of a list
-      Int t = j + 3; // skipping the nodAss, nodVar and nodDataAlloc
-      for (Int e = 0; e < countElts; e++) {
-         writeNewline(cg);
-         writeCopy(localNameStart, localNameLen, cg); // local var name
-         writeChars(((Byte[]){ aBracketLeft }), cg);
-         writeInt(e, cg);
-         writeChars(((Byte[]){ aBracketRight, aSpace, aEqual, aSpace }), cg);
-         Node eltNd = ast[t];
-         if (eltNd.tp != nodExpr) {
-            writeExprOperand(eltNd, cm->sourceLocs->cont[t], cg);
-            t++;
-         } else {
-            Int exprLen = eltNd.pl2;
-            cgExpr(t + 1, t + exprLen, false, ast, cg);
-            t += exprLen + 1;
-         }
-         writeChars(((Byte[]){ aSemicolon }), cg);
-      }
-   }
-   return j;
-}
-
-void //:writeExpr
-writeExpr(Int start, Int endInclusive, Bool isComplex, AST, CG) {
-// Code generate for a complex expression. Start is the ind of first node after nodExpr.
-// isComplex = it has internal assignments before the main expression.
-   CgExpr cge = cg->cgExpr;
-   if (isComplex) {
-      cgeComplexSubexpressions(ast[start - 1], start, ast, cg);
-      if (cg->i == endInclusive) // a complex expr where main part is just 1 node, like `[1 2]`
-         { return; }
-   }
-   cge.start = start;
-   cge.endInclusive = endInclusive;
-   if (start == endInclusive) {
-      Node nd = ast[start];
-      if (nd.tp == nodCall) {
-         Function fn = cg->cm->functions.cont[nd.pl1];
-         if (fn.emit == emitPrefix) {
-            writeName(fn.name, cg);
-         } else if (fn.emit == emitHostPrefix) {
-            writeHostConstant(fn.hostName, false, cg);
-         }
-         writeChar(aParenLeft, cg);
-         writeChar(aParenRight, cg);
-      }
-   }
-   cgeResolveCallSpans(ast, cge, cg->cm);
-   cgeGenerate(cge, ast, cg);
-}
-
-//}}}
 
 private void //:writeExprProcessFirstArg
 writeExprProcessFirstArg(Call* top, CG) {

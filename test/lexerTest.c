@@ -72,8 +72,6 @@ typedef struct { // :Token
 #define topVerbatimTokenVariant tokString
 #define topVerbatimType     tokMisc
 #define voidType            tokMisc
-// Not used in types, only in overloads to mark functions with first param = type param
-constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define firstSpanTokenType  tokStmt
 #define firstScopeTokenType tokScope
 #define countSyntaxForms    (tokEach + 1)
