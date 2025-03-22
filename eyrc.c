@@ -11,6 +11,7 @@
 #include <setjmp.h>
 #include "include/eyrc.h"
 #include "eyrc.internal.h"
+#include <libgccjit.h>
 
 #if defined(TEST)
 #include "test/eyrTest.h"
@@ -299,7 +300,7 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 
 typedef struct Codegen Codegen;
 typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
-#define CG Codegen* restrict cg
+#define CG Codegen * restrict cg
 #define CG_FUN(name) private void name(Node nd, Arr(Node const) nodes, CG);
 
 CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(cgAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
@@ -6511,221 +6512,434 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 //}}}
 //}}}
 //{{{ Code generator
-//{{{ Types
-private Codegen* createCodegen(CM, Arena* a);
+//{{{ Types 
 
-typedef struct { //:CgCall Deprecated?
+typedef gcc_jit_param FnParam;
+typedef gcc_jit_type CgType;
+typedef gcc_jit_function Fn;
+typedef gcc_jit_block CodeBlock;
+typedef gcc_jit_context Module;
+typedef gcc_jit_result CgResult;
+typedef gcc_jit_lvalue LValue;
+typedef gcc_jit_rvalue RValue;
+typedef enum gcc_jit_function_kind FnKind;
+typedef enum gcc_jit_types BuiltinType;
+typedef enum gcc_jit_comparison BuiltinComparison;
+#define toPointer(x) gcc_jit_type_get_pointer(x)
+
+typedef struct { //:Call Deprecated?
     Int startInd; // or externalNameId
     Int len;      // only for native names
     Byte emit;
     uint8_t arity;
     uint8_t countArgs;
     Bool needClosingParen;
-} CgCall;
+} Call;
 
-DEFINE_STACK_HEADER(CgCall)
-DEFINE_STACK(CgCall)
+DEFINE_STACK_HEADER(Call)
+DEFINE_STACK(Call)
 
-typedef struct { //:CgExpr
-   StackCgeCallSpan* callSpans;       // stack of call spans currently being resolved
-   StackCgeCallSpan* sortedCallSpans; // fully resolved call spans, stably sorted by nodeStart
-   StackCgeCloser* closers; // queue of currently active closer actions
-   Int start; // starting node of the expression proper (its content)
-   Int endInclusive;
-} CgExpr;
-
-typedef struct { //:CgFrame
+typedef struct { //:Frame
    Byte tp; // node type
    Int pl1; // node pl1
    Int pl3; // node pl3
    Int sentinel; // node sentinel
-} CgFrame;
+} Frame;
 
-DEFINE_STACK_HEADER(CgFrame)
-DEFINE_STACK(CgFrame)
+DEFINE_STACK_HEADER(Frame)
+DEFINE_STACK(Frame)
 
-struct Codegen { //:Codegen
-    Int i; // current node index
-    Int indentation;
-    Int len;
-    Int cap;
-    Arr(Byte) buffer;
-    StackCgCall calls; // temporary stack for generating expressions
+typedef struct {
+   CgType* intTp;
+   CgType* voidTp;
+} Primitives;
 
-    StackCgFrame backtrack;
-    String sourceCode;
-    Compiler* cm;
-    Int local; // counter of nameless locals, reset at function codegen start
-    CgExpr cgExpr; // [aTmp] State for codegeneration for expressions
-    Arena* a;
-    Bool wasError;
+typedef struct { //:Codegen
+   String sourceCode;
+   Compiler* cm;
+   
+   Int i; // current node index
+   Int len;
+   Int cap;
+   Arr(Byte) buffer;
+    
+   Module* md;
+   Primitives primitives;
+   
+   StackFnParam params; // temporary buffer for function params
+
+   StackCall calls; // temporary stack for generating expressions
+   StackFrame backtrack;
+   Expr Expr; // [aTmp] State for codegeneration for expressions
+   
+   Arena* a;
+   Bool wasError;
+} Codegen;
+
+//}}}
+//{{{ Generation table
+
+typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
+#define CG Codegen* restrict cg
+#define CG_FUN(name) private void name(Node nd, Arr(Node const) nodes, CG);
+CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(cgAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
+CG_FUN(writeBreakCont) CG_FUN(writeTry) CG_FUN(writeCatch) CG_FUN(writeFnDef) CG_FUN(writeDef)
+CG_FUN(writeTrait) CG_FUN(writeImpl) CG_FUN(cgReturn)
+CG_FUN(cgFor) CG_FUN(cgIf) CG_FUN(cgIfClause) CG_FUN(writeMatch)
+
+private CgFunc const CODEGEN_TABLE[countSpanForms] = {
+   [0]                        = &writeScope,
+   [nodExpr       - nodScope] = &writeExpr,
+   [nodAssignment - nodScope] = &writeAssignment,
+   [nodDataAlloc  - nodScope] = &writeDataAlloc,
+   [nodAssert     - nodScope] = &writeAssert,
+   [nodBreakCont  - nodScope] = &writeBreakCont,
+   [nodTry        - nodScope] = &writeTry,
+   [nodCatch      - nodScope] = &writeCatch,
+   [nodFnDef      - nodScope] = &writeFnDef,
+   [nodDef        - nodScope] = &writeDef,
+   [nodTrait      - nodScope] = &writeTrait,
+   [nodImpl       - nodScope] = &writeImpl,
+   [nodReturn     - nodScope] = &writeReturn,
+   [nodFor        - nodScope] = &writeFor,
+   [nodIf         - nodScope] = &writeIf,
+   [nodIfClause   - nodScope] = &writeIfClause,
+   [nodMatch      - nodScope] = &writeMatch
 };
 
 //}}}
-//{{{ Host text
+//{{{ Code generator
 
-// Host strings for codegen. Must agree in order with the "host" constants below :hostText
-constexpr char hostText[] = "functionelseconstletlonewArrayconsole.logpushlengthMath.abs"
-                            "";
-constexpr Byte
-hostStringLens[] = {
-    8, 4, 5, 3, 2,  // lo
-    3, 5, 11, 4, 6, // length
-    8
-};
-
-private Int
-hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
-
-//}}}
-//{{{ Codegen utils
-
-private void //:cgEnsureBufferLength
-cgEnsureBufferLength(Int additionalLength, CG) {
-// Ensures that the buffer has space for at least that many bytes plus 10 by increasing its
-// capacity if necessary
-    if (cg->len + additionalLength + 10 < cg->cap) {
-        return;
-    }
-    Int neededLength = cg->len + additionalLength + 10;
-    Int newCap = 2*cg->cap;
-    while (newCap <= neededLength) {
-        newCap *= 2;
-    }
-    Arr(Byte) new = allocateOnArena(newCap, cg->a);
-    memcpy(new, cg->buffer, cg->len);
-    cg->buffer = new;
-    cg->cap = newCap;
+private void
+assignment(LValue* left, RValue* right, CodeBlock* block) {
+   gcc_jit_block_add_assignment(block, NULL, left, right);
 }
 
-private void //:writeBytes
-writeBytes(Arr(Byte const) ptr, Int countBytes, CG) {
-    cgEnsureBufferLength(countBytes + 10, cg);
-    memcpy(cg->buffer + cg->len, ptr, countBytes);
-    cg->len += countBytes;
+private Fn*
+importFn(const char* name, int countParams, Arr(FnParam*) params, 
+      CgType* returnType, Bool isVariadic, Module* md
+) {
+   return gcc_jit_context_new_function(
+      md,
+      NULL, // source location
+      GCC_JIT_FUNCTION_IMPORTED,
+      returnType,
+      name,
+      countParams,
+      params,
+      isVariadic ? 1 : 0
+   );
 }
 
-private void //:writeInt
-writeInt(Int n, CG) {
-   cgEnsureBufferLength(40, cg); // enough for any 32-bit int
-   Int writtenLen = snprintf(cg->buffer + cg->len, 40, "%d", n);
-   cg->len += writtenLen;
+private Fn*
+newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params, 
+      CgType* returnType, Module* md
+) {
+   return gcc_jit_context_new_function(
+      md,
+      NULL, // source location
+      accessLevel,
+      returnType,
+      name,
+      countParams,
+      params,
+      0
+   );
 }
 
-private void //:writeConstant
-writeConstant(Int indConst, CG) {
-    Int const len = standardStringLens[indConst];
-    cgEnsureBufferLength(len, cg);
-    memcpy(cg->buffer + cg->len, standardText + standardOffsets[indConst], len);
-    cg->len += len;
-}
-
-private void //:writeConstantWithSpace
-writeConstantWithSpace(Int indConst, CG) {
-    Int const len = standardStringLens[indConst];
-    cgEnsureBufferLength(len + 1, cg);
-    memcpy(cg->buffer + cg->len, standardText + standardOffsets[indConst], len);
-    cg->buffer[cg->len + len] = aSpace;
-    cg->len += len + 1;
-}
-
-private void //:writeChar
-writeChar(Byte chr, CG) {
-    cgEnsureBufferLength(1, cg);
-    cg->buffer[cg->len] = chr;
-    ++cg->len;
-}
-
-private void //:writeNewline
-writeNewline(CG) {
-   writeChar(aNewline, cg);
-   cgEnsureBufferLength(cg->indentation, cg);
-   memset(cg->buffer + cg->len, aSpace, cg->indentation);
-   cg->len += cg->indentation;
+private RValue*
+call(Fn* fn, int countArgs, Arr(RValue*) args, Module* md) {
+   return gcc_jit_context_new_call(md, NULL, fn, countArgs, args);
 }
 
 private void
-writeChars0(Int count, Arr(Byte) chars, CG){
-   cgEnsureBufferLength(count, cg); for (Int j = 0; j < count; j++) {
-      cg->buffer[cg->len + j] = chars[j];
-   }
-   cg->len += count;
+evalExpr(RValue* rValue, CodeBlock* block) {
+   gcc_jit_block_add_eval(block, NULL, rValue);
 }
 
-#define writeChars(chars, cg) writeChars0(sizeof(chars), chars, cg) //:writeChars
-
-private void //:writeName
-writeName(NameId name, CG) {
-   if (name >= 0) {
-      NameLoc nameLoc = cg->cm->stringTable->cont[name];
-      writeBytes(cg->sourceCode.cont + (nameLoc & LOWER24BITS), (nameLoc >> 24), cg);
-   } else {
-      Int technicalLocalInd = -name - 1;
-      writeChars(((Byte[]){ aUnderscore, aLLower }), cg);
-      writeInt(technicalLocalInd, cg);
-   }
+private CodeBlock*
+newBlock(Fn* fn) {
+   return gcc_jit_function_new_block(fn, NULL);
 }
 
-private void //:writeCopy
-writeCopy(Int from, Int len, CG) {
-   cgEnsureBufferLength(len, cg);
-   memcpy(cg->buffer + cg->len, cg->buffer + from, len);
-   cg->len += len;
+private void
+jump(CodeBlock* from, CodeBlock* to) {
+   gcc_jit_block_end_with_jump (from, NULL, to);
+}
+
+private void
+conditional(CodeBlock* from, CodeBlock* toIfTrue, CodeBlock* toIfFalse, RValue* condition) {
+   gcc_jit_block_end_with_conditional(from, NULL, condition, toIfTrue, toIfFalse);
+}
+
+private RValue*
+comparison(RValue* a, BuiltinComparison operator, RValue* b, Module* md) {
+   return gcc_jit_context_new_comparison(md, NULL, operator, a, b);
+}
+
+private CodeBlock*
+newNamedBlock(Fn* fn, char const* name) {
+   return gcc_jit_function_new_block(fn, name);
+}
+
+private RValue*
+intConst(int val, Codegen* cg) {
+   return gcc_jit_context_new_rvalue_from_int(cg->cont, cg->intTp, val);
+}
+
+private LValue*
+arrElem(RValue* arr, RValue* index, Module* md)  {
+   return gcc_jit_context_new_array_access(md, NULL, arr, index);
+}
+
+private RValue*
+toRValue(LValue* lvalue) {
+   return gcc_jit_lvalue_as_rvalue(lvalue);
+}
+
+private RValue*
+ptrCast(RValue* v, CgType* tp, Module* md) {
+   return gcc_jit_context_new_cast(md, NULL, v, tp);
+}
+
+
+LValue* localVar(const char* name, CgType* tp, Fn* fn) {
+   return gcc_jit_function_new_local(fn, NULL, tp, name);
+}
+
+CgType* getType(BuiltinType tp, Module* md) {
+   return gcc_jit_context_get_type(md, tp);
+}
+
+static void
+addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
+//~     Arr(Int) arr = malloc(4*sizeof(Int));
+//~     for (int i = 0; i < 4; i++) {
+//~        printf("%d\n", arr[i]);
+//~     }
+   Module* md = cg->cont;
+   CgType* intPtrTp = toPointer(cg->intTp);
+   CgType* voidPtrTp = getType(GCC_JIT_TYPE_VOID_PTR, md);
+   FnParam* paramSz = gcc_jit_context_new_param(md, NULL, cg->intTp, "sz");
+   Fn* mallocFn = importFn(
+      "malloc",
+      1,
+      &paramSz,
+      voidPtrTp,
+      false,
+      md
+   );
+   LValue* arr = localVar("arr", intPtrTp, fn);
+   RValue* arrR = toRValue(arr);
+   RValue* sixteen = intConst(16, cg);
+   assignment(arr, ptrCast(call(mallocFn, 1, &sixteen, md), intPtrTp, md), block);
+   // arr[0] = ..., arr[1] = ...
+   assignment(arrElem(arrR, intConst(0, cg), md), intConst(17, cg), block);
+   assignment(arrElem(arrR, intConst(1, cg), md), intConst(-27, cg), block);
+   assignment(arrElem(arrR, intConst(2, cg), md), intConst(37, cg), block);
+   assignment(arrElem(arrR, intConst(3, cg), md), intConst(107, cg), block);
+   
+   CodeBlock* loopInit = newNamedBlock(fn, "loopInit");
+   CodeBlock* loopCond = newNamedBlock(fn, "loopCond");
+   CodeBlock* loopBody = newNamedBlock(fn, "loopBody");
+   CodeBlock* loopAfter = newNamedBlock(fn, "loopAfter");
+   
+   jump(block, loopInit);
+   
+   // init
+   LValue* iVar = localVar("i", cg->intTp, fn);
+   assignment(iVar, intConst(0, cg), loopInit);
+   jump(loopInit, loopCond);
+   
+   // conditional 
+   conditional(
+      loopCond, loopBody, loopAfter,
+      comparison(toRValue(iVar), GCC_JIT_COMPARISON_LT, intConst(4, cg), md)
+   );
+         
+   // body
+   int const countArgs = 2;
+   RValue* args[countArgs];
+   args[0] = gcc_jit_context_new_string_literal(md, "%d\n");
+   LValue* arrVal = arrElem(toRValue(arr), toRValue(iVar), md); // arr[i]
+   args[1] = toRValue(arrVal);
+   evalExpr(call(printfFn, countArgs, args, md), loopBody);
+   
+   RValue* nextI = gcc_jit_context_new_binary_op(
+      md, NULL, GCC_JIT_BINARY_OP_PLUS, cg->intTp, 
+      toRValue(iVar), intConst(1, cg));
+   assignment(iVar, nextI, loopBody); //i++
+   jump(loopBody, loopCond);
+   
+   // after loop
+   gcc_jit_block_end_with_void_return(loopAfter, NULL);
+}
+
+static void
+createCodeGreet(Codegen* cg) {
+   Module* md = cg->cont;
+   CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
+   FnParam* paramName = gcc_jit_context_new_param(md, NULL, constCharPtrTp, "name");
+   
+   Fn* innerFn = createCodeInner(md);
+   
+   Fn* greet = newFn(
+      "greet",
+      GCC_JIT_FUNCTION_EXPORTED,
+      1,
+      &paramName,
+      cg->voidTp,
+      md
+   );
+   
+   FnParam* paramFormat = gcc_jit_context_new_param(md, NULL, constCharPtrTp, "format");
+   Fn* printfFn = importFn(
+      "printf",
+      1,
+      &paramFormat,
+      cg->intTp,
+      true,
+      md
+   );
+   RValue* fifteen = intConst(15, cg);
+   RValue* resultOfEvalInner = call(innerFn, 1, &fifteen, md);
+   
+   const int countArgs = 3;
+   RValue* args[countArgs];
+   args[0] = gcc_jit_context_new_string_literal(md, "hello %s value is %d\n");
+   args[1] = gcc_jit_param_as_rvalue(paramName);
+   args[2] = resultOfEvalInner;
+
+   CodeBlock* block = gcc_jit_function_new_block(greet, NULL);
+
+   evalExpr(call(printfFn, countArgs, args, md), block);
+   
+   RValue* five = intConst(5, cg);
+   RValue* resultOfEvalInner2 = call(innerFn, 1, &five, md);
+   
+   RValue* args2[countArgs];
+   args2[0] = gcc_jit_context_new_string_literal(md, "hello %s value is %d\n");
+   args2[1] = gcc_jit_param_as_rvalue(paramName);
+   args2[2] = resultOfEvalInner2;
+   evalExpr(call(printfFn, countArgs, args2, md), block);
+   
+   addArrayPrint(block, greet, printfFn, cg);
+}
+
+
+int main(int argc, char** argv) {
+   printf("HW\n");
+   
+  /* Let's try to inject the equivalent of:
+     int
+     inner(int x) {
+        if (x > 10) {
+           return x -10
+        } else { 
+           return x * 20;
+        }
+     }
+     
+     void
+     greet(const char *name) {
+        printf("hello %s value = %d\n", name, inner(5));
+        printf("hello %s value = %d\n", name, inner(15));
+        Arr(Int) arr = malloc(4*sizeof(Int));
+        for (int i = 0; i < 4; i++) {
+           printf("%d\n", arr[i]);
+        }
+     }
+  */
+//~         def newFn Str = {{x Str, y Double, }
+//~            a = x;
+//~            return a;
+//~         };
+// def newFn F[Str Double -> Str] = {x y ->
+//    a = x;
+//    return a;
+// }
+   Module* md = gcc_jit_context_acquire();
+   Codegen* cg = malloc(sizeof(Codegen));
+   cg->cont = md;
+   cg->voidTp = getType(GCC_JIT_TYPE_VOID, md);
+   cg->intTp = getType(GCC_JIT_TYPE_INT32_T, md);
+   if (!md) {
+      fprintf(stderr, "NULL mdt");
+      exit (1);
+   }
+
+   /* Set some options on the context.
+     Let's see the code being generated, in assembler form.  */
+   gcc_jit_context_set_bool_option(md, GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE, 0);
+
+   createCodeGreet(cg);
+
+   // Compile the code
+   gcc_jit_result* result = gcc_jit_context_compile(md);
+   
+   gcc_jit_context_dump_to_file(md, "outp.c", 0); 
+   if (!result) {
+      fprintf (stderr, "NULL result");
+      exit(1);
+   }
+
+   // Extract the generated code from "result"
+   typedef void (*FnType) (const char *);
+   FnType greet = (FnType)gcc_jit_result_get_code(result, "greet");
+   if (!greet) {
+      fprintf(stderr, "NULL greet");
+      exit(1);
+   }
+
+   greet("world");
+   fflush(stdout);
+
+   gcc_jit_context_release(md);
+   gcc_jit_result_release(result);
+   return 0;
 }
 
 //}}}
 //{{{ Codegen proper
-//{{{ Templated code (built-in types, functions etc)
 
-constexpr char TEMPLATE_HTML_OPEN[] =
-"<!DOCTYPE html>\n"
-"<html>\n"
-"<head>\n"
-"<style>\n"
-"body {\n"
-"   background-color: #303090;\n"
-"   color: #A0A0A0;\n"
-"}\n"
-"#output {\n"
-"   font-size: 3rem;\n"
-"}\n"
-"</style>\n"
-"<script>\n"
-;
+private Codegen* //:createCodegen
+createCodegen(CM, Arena* a) {
+   Codegen* cg = allocate(Codegen, a);
+   Expr expr = (Expr){
+      .callSpans = createStackCgeCallSpan(4, a),
+      .sortedCallSpans = createStackCgeCallSpan(4, a),
+      .closers = createStackCgeCloser(4, a)
+   };
+   Module* md = gcc_jit_context_acquire();
+   Primitives primitives = {
+      .intTp = getType(GCC_JIT_TYPE_VOID, md),
+      .voidTp = getType(GCC_JIT_TYPE_INT32_T, md),
+   };
+   (*cg) = (Codegen) {
+      .sourceCode = cm->sourceCode, .cm = cm,
+      .i = 0, .len = 0, .cap = 64, .buffer = allocateOnArena(64, a),
+      .md = md, .primitives = primitives,
 
-constexpr char TEMPLATE_HTML_CLOSE[] =
-"document.addEventListener('DOMContentLoaded', function (event) {\n"
-"   main();\n"
-"});\n"
-"</script>\n"
-"</head>\n"
-"<body>\n"
-"<div id=\"output\">Check the console for code results\n"
-"</div>\n"
-"</body>\n"
-"</html>\n"
-;
-
-
-void //:generateBuiltinsForExe
-generateBuiltinsForExe(CG) {
-   cgEnsureBufferLength(sizeof(TEMPLATE_HTML_OPEN) + sizeof(TEMPLATE_HTML_CLOSE), cg);
-   writeBytes(TEMPLATE_HTML_OPEN, sizeof(TEMPLATE_HTML_OPEN), cg);
-   writeBytes(TEMPLATE_HTML_CLOSE, sizeof(TEMPLATE_HTML_CLOSE), cg);
+      .calls = *createStackCall(16, a),
+      .backtrack = *createStackCgFrame(16, a),
+      .expr = expr,
+      .a = a,
+      .wasError = false
+   };
+   
+   return cg;
 }
 
-//}}}
-
-private void //:writeHostConstant
-writeHostConstant(Int indConst, Bool addSpace, CG) {
-   Int const len = hostStringLens[indConst] + (addSpace ? 1 : 0);
-   cgEnsureBufferLength(len, cg);
-   memcpy(cg->buffer + cg->len, hostText + hostOffsets[indConst], len);
-   cg->len += len;
-   if (addSpace) {
-      cg->buffer[cg->len - 1] = 32;
-   }
-}
+//~private void //:writeHostConstant
+//~writeHostConstant(Int indConst, Bool addSpace, CG) {
+//~   Int const len = hostStringLens[indConst] + (addSpace ? 1 : 0);
+//~   cgEnsureBufferLength(len, cg);
+//~   memcpy(cg->buffer + cg->len, hostText + hostOffsets[indConst], len);
+//~   cg->len += len;
+//~   if (addSpace) {
+//~      cg->buffer[cg->len - 1] = 32;
+//~   }
+//~}
 
 private void //:writeStr
 writeStr(String str, CG) {
@@ -7179,8 +7393,8 @@ cgeComplexSubexpressions(Node exprNode, Int exprNodeInd, Arr(Node const) ast, CG
    return j;
 }
 
-void //:cgExpr
-cgExpr(Int start, Int endInclusive, Bool isComplex, AST, CG) {
+void //:writeExpr
+writeExpr(Int start, Int endInclusive, Bool isComplex, AST, CG) {
 // Code generate for a complex expression. Start is the ind of first node after nodExpr.
 // isComplex = it has internal assignments before the main expression.
    CgExpr cge = cg->cgExpr;
@@ -7211,7 +7425,7 @@ cgExpr(Int start, Int endInclusive, Bool isComplex, AST, CG) {
 //}}}
 
 private void //:writeExprProcessFirstArg
-writeExprProcessFirstArg(CgCall* top, CG) {
+writeExprProcessFirstArg(Call* top, CG) {
    if (top->countArgs != 1)
       { return; }
    switch (top->emit) {
@@ -7252,20 +7466,20 @@ writeExpr(Node nd, Arr(Node const) ast, CG) {
    cg->i = sentinel;
 }
 
-private void //:openCgFrame
-openCgFrame(Node nd, CG) {
-   pushCgFrame(
-      ((CgFrame){
+private void //:openFrame
+openFrame(Node nd, CG) {
+   pushFrame(
+      ((Frame){
          .tp = nd.tp, .pl1 = nd.pl1, .pl3 = nd.pl3, .sentinel = calcNodeSentinel(nd, cg->i - 1)}
       ),
       &cg->backtrack
    );
 }
 
-private void //:openCgFrameWithSentinel
-openCgFrameWithSentinel(Node nd, Int sentinel, CG) {
-   pushCgFrame(
-      ((CgFrame){ .tp = nd.tp, .pl1 = nd.pl1, .pl3 = nd.pl3, .sentinel = sentinel}),
+private void //:openFrameWithSentinel
+openFrameWithSentinel(Node nd, Int sentinel, CG) {
+   pushFrame(
+      ((Frame){ .tp = nd.tp, .pl1 = nd.pl1, .pl3 = nd.pl3, .sentinel = sentinel}),
       &cg->backtrack
    );
 }
@@ -7294,8 +7508,8 @@ writeVarNode(CM, CG) {
    writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
 }
 
-private void //:cgAssignmentLeft
-cgAssignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
+private void //:assignmentLeft
+assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
 // Writes the left side & equals sign
    Node leftNd = ast[cg->i];
    if (leftNd.tp == nodVar) {
@@ -7307,8 +7521,8 @@ cgAssignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
    writeChars(((Byte[]){aSpace, aEqual, aSpace}), cg);
 }
 
-private void //:cgAssignmentRight
-cgAssignmentRight(Node rightNode, Int sentinel, Bool needSemicolon, Bool isComplex,
+private void //:assignmentRight
+assignmentRight(Node rightNode, Int sentinel, Bool needSemicolon, Bool isComplex,
                   Arr(Node const) ast, CG) {
    if (cg->i == sentinel) {
       writeExprOperand(rightNode, cg->cm->sourceLocs->cont[cg->i - 1], cg);
@@ -7331,8 +7545,8 @@ cgAssignmentRight(Node rightNode, Int sentinel, Bool needSemicolon, Bool isCompl
       { writeChar(aSemicolon, cg); }
 }
 
-private void //:cgAssignmentWorker
-cgAssignmentWorker(Bool onNewLine, Bool needSemicolon, Node nd, Arr(Node const) ast, CG) {
+private void //:assignmentWorker
+assignmentWorker(Bool onNewLine, Bool needSemicolon, Node nd, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
 // Consumes the whole assignment
    if (nd.pl2 == 0)
@@ -7360,8 +7574,8 @@ cgAssignmentWorker(Bool onNewLine, Bool needSemicolon, Node nd, Arr(Node const) 
    cg->i = sentinel;
 }
 
-private void //:cgAssignment
-cgAssignment(Node nd, Arr(Node const) ast, CG) {
+private void //:writeAssignment
+writeAssignment(Node nd, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
    cgAssignmentWorker(true, true, nd, ast, cg);
 }
@@ -7381,7 +7595,7 @@ writeAssert(Node fr, Arr(Node const) ast, CG) {
 }
 
 private void //:cgReturn
-cgReturn(Node fr, Arr(Node const) ast, CG) {
+writeReturn(Node fr, Arr(Node const) ast, CG) {
    Int sentinel = cg->i + fr.pl2;
 
    writeNewline(cg);
@@ -7403,15 +7617,11 @@ cgReturn(Node fr, Arr(Node const) ast, CG) {
 
 private void //:writeScope
 writeScope(Node nd, Arr(Node const) ast, CG) {
-   writeNewline(cg);
-   writeChar(aCurlyLeft, cg);
-   cg->indentation += 3;
-   openCgFrame(nd, cg);
 }
 
 private void //:writeIfClause
-cgIfClause(Node nd, Arr(Node const) ast, CG) {
-   openCgFrame(nd, cg);
+writeIfClause(Node nd, Arr(Node const) ast, CG) {
+   openFrame(nd, cg);
 
    writeChar(aSpace, cg);
 
@@ -7437,12 +7647,11 @@ cgIfClause(Node nd, Arr(Node const) ast, CG) {
       writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
    }
 
-   cg->indentation += 3;
 }
 
-private void //:cgIf
-cgIf(Node nd, Arr(Node const) ast, CG) {
-   openCgFrame(nd, cg);
+private void //:writeIf
+writeIf(Node nd, Arr(Node const) ast, CG) {
+   openFrame(nd, cg);
    writeNewline(cg);
    writeConstant(strIf, cg);
 }
@@ -7459,8 +7668,8 @@ writeLoopLabel(Int labelId, CG) {
    cg->len += lenWritten;
 }
 
-void //:cgPreambleFor
-cgPreambleFor(
+void //:preambleFor
+preambleFor(
    Int sentinel, Int skipToBody, Arr(Node const) ast, CG,
    OUT Int* initCount, OUT Int* condInd, OUT Int* stepCount, OUT Int* stepInd, OUT Int* bodyInd
 ) {
@@ -7481,8 +7690,8 @@ cgPreambleFor(
    }
 }
 
-private void //:cgFor
-cgFor(Node nd, Arr(Node const) ast, CG) {
+private void //:writeFor
+writeFor(Node nd, Arr(Node const) ast, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    Int initCount = 0;
    Int condInd = 0;
@@ -7494,8 +7703,7 @@ cgFor(Node nd, Arr(Node const) ast, CG) {
    if (initCount > 1) { // create a special scope that the loop will be nested in
       writeNewline(cg);
       writeChar(aCurlyLeft, cg);
-      openCgFrameWithSentinel(((Node){.tp = nodScope, .pl2 = nd.pl2 - 1}), sentinel, cg);
-      cg->indentation += 3;
+      openFrameWithSentinel(((Node){.tp = nodScope, .pl2 = nd.pl2 - 1}), sentinel, cg);
 
       for (; cg->i < condInd;) {
          Node initNd = ast[cg->i];
@@ -7511,8 +7719,7 @@ cgFor(Node nd, Arr(Node const) ast, CG) {
       writeChars(((Byte[]){ aSemicolon, aSpace }), cg);
    }
 
-   openCgFrameWithSentinel(nd, sentinel, cg);
-   cg->indentation += 3;
+   openFrameWithSentinel(nd, sentinel, cg);
    if (initCount == 1) {
       Node initNd = ast[cg->i];
       cg->i++; // CONSUME the nodAssignment
@@ -7590,7 +7797,7 @@ private void //:writeFnDef
 writeFnDef(Node nd, Arr(Node const) ast, CG) {
 //~   Compiler const* restrict cm = cg->cm;
 //~   SourceLoc loc = cm->sourceLocs->cont[cg->i - 1];
-//~   openCgFrame(nd, cg);
+//~   openFrame(nd, cg);
 //~   writeNewline(cg);
 //~   Function fnEnt = cg->cm->functions.cont[nd.pl1];
 //~
@@ -7619,7 +7826,6 @@ writeFnDef(Node nd, Arr(Node const) ast, CG) {
 //~   }
 //~   cg->i = j;
 //~   writeChars(((Byte[]){aParenRight, aSpace, aCurlyLeft, aNewline}), cg);
-//~   cg->indentation += 3;
 }
 
 
@@ -7639,40 +7845,55 @@ writeImpl(Node nd, Arr(Node const) ast, CG) {
 // TODO
 }
 
-private void //:cgMaybeCloseFrames
-cgMaybeCloseFrames(CG) {
+private void //:maybeCloseFrames
+maybeCloseFrames(CG) {
    for (Int j = cg->backtrack.len - 1; j > -1 && cg->backtrack.cont[j].sentinel == cg->i; j -= 1) {
-      CgFrame fr = popCgFrame(&cg->backtrack);
+      Frame fr = popFrame(&cg->backtrack);
       if (fr.tp == nodIf) {
          continue;
       }
-      cg->indentation -= 3;
       writeNewline(cg);
       writeChar(aCurlyRight, cg);
    }
 }
 
-private void //:cgToplevelFn
-cgToplevelFn(FunctionId toplevelId, CM, CG) {
+private void //:writeToplevelFn
+writeToplevelFn(FunctionId toplevelId, CM, CG) {
    Function fn = cm->functions.cont[toplevelId];
-   if (fn.genericInd != -1 || fn.tokenInd == -1)
+   if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
       { return; }
 
+   TypeHeader typeHdr = typeReadHeader(fn.typeId, cm);
    Arr(Node const) ast = cm->ast.cont;
-   writeHostConstant(hostFunction, true, cg);
-   writeName(fn.name, cg);
+   Int countParams = typeHdr.arity - 1; 
+   for (Int t = fn.typeId.v + TYPE_PREFIX_LEN; t < fn.typeId.v + TYPE_PREFIX_LEN + arity; t++) {
+      add(cm->types.cont[t], cg->params);
+   }
+   
+   
+   // create all the params 
+   Fn* newToplevel = newFn(
+      fn.name,
+      GCC_JIT_FUNCTION_EXPORTED,
+      countParams,
+      &cg->params->cont,
+      cg->primitives.voidTp,
+      cg->ctx
+   );
+   
+
+   
+   
    TypeHeader hdr = typeReadHeader(fn.typeId, cm);
    if (hdr.arity != 2 || cm->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
       writeChar(aUnderscore, cg);
       writeInt(toplevelId, cg);
    }
 
-   writeChar(aParenLeft, cg);
    Node nodeFn = ast[fn.nodeInd];
-
    Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
-   pushCgFrame(
-      ((CgFrame){ .tp = nodFnDef, .pl1 = nodeFn.pl1, .sentinel = sentinel}),
+   pushFrame(
+      ((Frame){ .tp = nodFnDef, .pl1 = nodeFn.pl1, .sentinel = sentinel}),
       &cg->backtrack
    );
    cg->local = 0;
@@ -7696,7 +7917,6 @@ cgToplevelFn(FunctionId toplevelId, CM, CG) {
       writeVarNode(cm, cg);
    }
    writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
-   cg->indentation += 3;
 
    for (; cg->i < sentinel;) {
       Node nd = cm->ast.cont[cg->i];
@@ -7713,7 +7933,7 @@ private void //:generateMainCode
 generateMainCode(CG) {
    Compiler* cm = cg->cm;
    for (int j = 0; j < cm->toplevels.len; j++) {
-      cgToplevelFn(cm->toplevels.cont[j], cm, cg);
+      toplevelFn(cm->toplevels.cont[j], cm, cg);
    }
 }
 
@@ -7723,15 +7943,10 @@ generateCode(Compiler* cm, Arena* a) {
    printParser(cm);
 #endif
 
-   if (cm->stats.wasError) {
-      return NULL;
-   }
+   if (cm->stats.wasError)
+      { return NULL; }
+
    Codegen* cg = createCodegen(cm, a);
-
-#ifndef TEST
-   //generateBuiltinsForExe(cg);
-#endif
-
    if (setjmp(excBuf) == 0) {
       generateMainCode(cg);
    } else {
@@ -7799,28 +8014,6 @@ initCompiler() {
    Arena* aGlobal = createArena(); // it's ok to leak it. Will be cleaned up on process exit
    createProtoCompiler(&PROTO, aGlobal);
    _wasInit = true;
-}
-
-private Codegen* //:createCodegen
-createCodegen(CM, Arena* a) {
-   Codegen* cg = allocate(Codegen, a);
-   CgExpr cgExpr = (CgExpr){
-      .callSpans = createStackCgeCallSpan(4, a),
-      .sortedCallSpans = createStackCgeCallSpan(4, a),
-      .closers = createStackCgeCloser(4, a)
-   };
-   (*cg) = (Codegen) {
-      .i = 0,
-      .backtrack = *createStackCgFrame(16, a),
-      .calls = *createStackCgCall(16, a),
-      .len = 0, .cap = 64, .buffer = allocateOnArena(64, a),
-      .cgExpr = cgExpr,
-      .sourceCode = cm->sourceCode,
-      .wasError = false,
-      .cm = cm, .a = a
-   };
-
-   return cg;
 }
 
 //}}}

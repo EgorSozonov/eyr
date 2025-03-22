@@ -473,57 +473,7 @@ typedef struct { // :CompStats
 } CompStats;
 
 //}}}
-//{{{ Interpreter
 
-// Instructions (opcodes)
-// An instruction is 8 byte long and consists of 6-bit opcode and some data
-// Notation: [A] is a 2-byte stack address, it's signed and is measured relative to currFrame
-//         [~A] is a 3-byte constant or offset
-//         {A} is a 4-byte constant or address
-//         {{A}} is an 8-byte constant (i.e. it takes up a whole second instruction slot)
-#define iPlus              0 // [Dest] [Operand1] [Operand2]
-#define iMinus             1
-#define iTimes             2
-#define iDivBy             3
-#define iPlusFl            4
-#define iMinusFl           5
-#define iTimesFl           6
-#define iDivByFl           7
-#define iPlusConst         8 // [Src=Dest] {Increment}
-#define iMinusConst        9
-#define iTimesConst       10
-#define iDivByConst       11
-#define iPlusFlConst      12 // [Src=Dest] {{Double constant}}
-#define iMinusFlConst     13
-#define iTimesFlConst     14
-#define iDivByFlConst     15
-#define iConcatStrs       16 // [Dest] [Operand1] [Operand2]
-#define iLoadConstString  17 // [Dest] {addr}
-#define iSubstring        18 // [Dest] [Src] {{ {Start} {Len}  }}
-#define iReverseString    19 // [Dest] [Src]
-#define iIndexOfSubstring 20 // [Dest] [String] [Substring]
-#define iGetFld           21 // [Dest] [Obj] [~Offset]
-#define iNewList          22 // [Dest] {Capacity}
-#define iGetElemPtr       23 // [Dest] [ArrAddress] {{ {0} {Elem index} }}
-#define iAddToList        24 // [List] {Value or reference}
-#define iRemoveFromList   25 // [List] {Elem Index}
-#define iSwap             26 // [List] {{ {Index1} {Index2} }}
-#define iConcatLists      27 // [Dest] [Operand1] [Operand2]
-#define iJump             28 // { Code pointer }
-#define iBranchLt         29 // [Operand] { Code pointer }
-#define iBranchEq         30
-#define iBranchGt         31
-#define iShortCircuit     32 // if [B] == [C] then [A] = [B] else ip += 1
-#define iCall             33 // [New frame start pointer] { New instruction pointer }
-#define iBuiltinCall      34 // [Builtin index]
-#define iReturn           35 // [ address to return ] [Size of return value = 0, 1 or 2]
-#define iSetLocal         36 // [Dest] {Value}
-#define iSetBigLocal      37 // [Dest] {{Value}}
-#define iPrint            38 // [String]
-#define iPrintInt         39 // [Local]
-#define iPrintErr         40 // [String]
-#define iFn               41 // {len of body, not including this instruction} Start of a function
-#define countInstructions 42 // sentinel value
 
-//}}}
+
 #endif
