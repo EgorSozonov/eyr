@@ -28,52 +28,9 @@ Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 void parseMain(Compiler* restrict lx, Arena* a);
 StandardText getStandardTextLength();
 void typePrint(Int, Compiler*);
-void pushIntokens(Token, Compiler*);
 NameId nameOfStandard(Int strId);
 void printRawOverload(Int listInd, Compiler* cm);
 void printName(Int name, Compiler* cm);
-
-//}}}
-//{{{ Lexer
-
-void printLexer(Compiler* restrict a);
-Int equalityLexer(Compiler* a, Compiler* b);
-
-extern char const errNonAscii[];
-extern char const errPrematureEndOfInput[];
-extern char const errUnrecognizedByte[];
-extern char const errWordChunkStart[];
-extern char const errWordCapitalizationOrder[];
-extern char const errWordUnderscoresOnlyAtStart[];
-extern char const errWordWrongAccessor[];
-extern char const errWordLengthExceeded[];
-extern char const errWordMutability[];
-extern char const errWordFreeFloatingFieldAcc[];
-extern char const errWordInMeta[];
-extern char const errNumericEndUnderscore[];
-extern char const errNumericWidthExceeded[];
-extern char const errNumericBinWidthExceeded[];
-extern char const errNumericFloatWidthExceeded[];
-extern char const errNumericEmpty[];
-extern char const errNumericMultipleDots[];
-extern char const errNumericIntWidthExceeded[];
-extern char const errPunctuationExtraOpening[];
-extern char const errPunctuationExtraClosing[];
-extern char const errPunctuationCommaNotClause[];
-extern char const errPunctuationOnlyInMultiline[];
-extern char const errPunctuationFnNotInStmt[];
-extern char const errPunctuationUnmatched[];
-extern char const errPunctuationScope[];
-
-extern char const errOperatorUnknown[];
-extern char const errOperatorAssignmentPunct[];
-extern char const errAssignmentEmptyRight[];
-extern char const errOperatorTypeDeclPunct[];
-extern char const errOperatorMutationInDef[];
-extern char const errCoreNotInsideStmt[];
-extern char const errCoreMisplacedElse[];
-extern char const errCoreMissingParen[];
-extern char const errIndentation[];
 
 //}}}
 //{{{ Parser

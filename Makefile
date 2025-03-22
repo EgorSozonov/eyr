@@ -8,7 +8,7 @@ endif
 
 .PHONY: all clean help lexerTest parserTest codegenTest tests
 
-CC=gcc --std=gnu2x
+CC=gcc --std=c2x
 CONFIG=-g3
 WARN=-Wpedantic -Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
@@ -54,7 +54,7 @@ clean: ## Delete cached build results
 
 
 testLexer: $(DEBUG_TGT) ## Test the lexical analyzer
-/ $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c $(APP).c
+/ $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c libeyr.c
 / $(DEBUG_TGT)/lexerTest
 
 
