@@ -3,9 +3,12 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <setjmp.h>
 #include "../include/eyrc.h"
+extern jmp_buf excBuf;
 #include "../libeyr.h"
 #include "eyrTest.h"
+
 
 //{{{ Imports
 

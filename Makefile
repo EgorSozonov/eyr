@@ -8,7 +8,7 @@ endif
 
 .PHONY: all clean help lexerTest parserTest codegenTest tests
 
-CC=gcc --std=c2x
+CC=gcc --std=gnu2x
 CONFIG=-g3
 WARN=-Wpedantic -Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
@@ -43,7 +43,7 @@ $(DEBUG_TGT):
 
 all: $(DEBUG_TGT) ## Build the whole compiler
 / clear
-/ $(COMPILE_DEBUG) -o $(EXE) $(APP).c
+/ $(COMPILE_DEBUG) -o $(EXE) $(APP).c libeyr.c
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="

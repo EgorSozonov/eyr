@@ -1,14 +1,20 @@
+//{{{ Includes
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "include/eyrc.h"
 #include "libeyr.h"
 #include <libgccjit.h>
 
+//}}}
 //{{{ Types 
 
-typedef gcc_jit_param CgParam;
+typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
-typedef gcc_jit_function CgFn;
+typedef gcc_jit_function Fn;
+typedef gcc_jit_field Field;
 typedef gcc_jit_block CodeBlock;
 typedef gcc_jit_context Module;
 typedef gcc_jit_result CgResult;
@@ -19,25 +25,33 @@ typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define toPointer(x) gcc_jit_type_get_pointer(x)
 
-typedef struct { //:Frame
-   Byte tp; // node type
+#define fraIf     1
+#define fraElse   2
+#define fraFor    3
+
+typedef struct { //:Frame Frame for the stack of nested codegen blocks
+   Byte tp; // frame type, the "fra" constants
    Int pl1; // node pl1
    Int pl3; // node pl3
+   CodeBlock* block;
+   CodeBlock* nextBlock; // if null, there is no next block
    Int sentinel; // node sentinel
 } Frame;
 
-DEFINE_STACK_HEADER(CgFrame)
-DEFINE_STACK(CgFrame)
+typedef FnParam* FnParamPtr;
+typedef Field* FieldPtr;
 
-typedef struct { //:CgTypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
+DEFINE_STACK_HEADER(Frame)
+DEFINE_STACK(Frame)
+DEFINE_STACK_HEADER(FnParamPtr)
+DEFINE_STACK(FnParamPtr)
+DEFINE_STACK_HEADER(FieldPtr)
+DEFINE_STACK(FieldPtr)
+
+typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
    Int ind;
    CgType* cgType;
-} CgTypeRef;
-
-typedef struct { //
-   CgType* intTp;
-   CgType* voidTp;
-} Primitives;
+} TypeRef;
 
 typedef struct { //:Codegen
    String sourceCode;
@@ -49,9 +63,9 @@ typedef struct { //:Codegen
    Arr(Byte) buffer;
     
    Module* md;
-   Primitives primitives;
    
    StackFnParamPtr params; // temporary buffer for function params
+   StackFieldPtr fields; // temporary buffer for struct fields
 
    StackCall calls; // temporary stack for generating expressions
    StackFrame backtrack;

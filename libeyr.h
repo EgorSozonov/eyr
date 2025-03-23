@@ -1,5 +1,5 @@
-#ifndef EYR_INTERNAL_H
-#define EYR_INTERNAL_H
+#ifndef LIB_EYR_H
+#define LIB_EYR_H
 //{{{ Utils
 
 typedef int32_t Int;
@@ -64,7 +64,60 @@ private void* allocateOnArena(size_t, Arena*);
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
 
 
+//{{{ Stack
 
+#define DEFINE_STACK_HEADER(T) \
+   typedef struct {\
+      Int cap;\
+      Int len;\
+      Arena* arena;\
+      T* cont;\
+   } Stack##T;\
+   private Stack ## T * createStack ## T (Int initCapacity, Arena* a);\
+   private Bool hasValues ## T (Stack ## T * st);\
+   private T pop ## T (Stack ## T * st);\
+   private T peek ## T(Stack ## T * st);\
+   private void push ## T (T newItem, Stack ## T * st);
+
+#define DEFINE_STACK(T)\
+   private Stack##T * createStack##T (int initCapacity, Arena* a) {\
+      int capacity = initCapacity < 4 ? 4 : initCapacity;\
+      Stack##T * result = allocate(Stack##T, a);\
+      result->cap = capacity;\
+      result->len = 0;\
+      result->arena = a;\
+      T* arr = allocateArray(capacity, T, a);\
+      result->cont = arr;\
+      return result;\
+   }\
+   private bool hasValues ## T (Stack ## T * st) {\
+      return st->len > 0;\
+   }\
+   private T pop##T (Stack ## T * st) {\
+      st->len -= 1;\
+      return st->cont[st->len];\
+   }\
+   private T peek##T(Stack##T * st) {\
+      return st->cont[st->len - 1];\
+   }\
+   private void push##T (T newItem, Stack ## T * st) {\
+      if (st->len < st->cap) {\
+         memcpy((T*)(st->cont) + (st->len), &newItem, sizeof(T));\
+      } else {\
+         T* newContent = allocateArray(2*(st->cap), T, st->arena);\
+         memcpy(newContent, st->cont, st->len*sizeof(T));\
+         memcpy((T*)(newContent) + (st->len), &newItem, sizeof(T));\
+         st->cap *= 2;\
+         st->cont = newContent;\
+      }\
+      st->len += 1;\
+   }\
+
+#define lLast(lst) lst->cont + lst->len - 1
+
+#define l(ind, lst) lst->cont[e_(ind, lst->len)]
+
+//}}}
 //}}}
 //{{{ Standard strings :standardStr
 
