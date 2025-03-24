@@ -4,12 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include "include/eyrc.h"
 #include "libeyr.h"
 #include <libgccjit.h>
 
 //}}}
-//{{{ Types 
+//{{{ Types
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -41,12 +42,12 @@ typedef struct { //:Frame Frame for the stack of nested codegen blocks
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
 
-DEFINE_STACK_HEADER(Frame)
-DEFINE_STACK(Frame)
-DEFINE_STACK_HEADER(FnParamPtr)
-DEFINE_STACK(FnParamPtr)
-DEFINE_STACK_HEADER(FieldPtr)
-DEFINE_STACK(FieldPtr)
+DEFINE_LIST_HEADER(Frame)
+DEFINE_LIST(Frame)
+DEFINE_LIST_HEADER(FnParamPtr)
+DEFINE_LIST(FnParamPtr)
+DEFINE_LIST_HEADER(FieldPtr)
+DEFINE_LIST(FieldPtr)
 
 typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
    Int ind;
@@ -56,63 +57,24 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
 typedef struct { //:Codegen
    String sourceCode;
    Compiler* cm;
-   
+
    Int i; // current node index
    Int len;
    Int cap;
    Arr(Byte) buffer;
-    
-   Module* md;
-   
-   StackFnParamPtr params; // temporary buffer for function params
-   StackFieldPtr fields; // temporary buffer for struct fields
 
-   StackCall calls; // temporary stack for generating expressions
-   StackFrame backtrack;
-   Expr Expr; // [aTmp] State for codegeneration for expressions
-   
+   Module* md;
+
+   LFnParamPtr params; // temporary buffer for function params
+   LFieldPtr fields; // temporary buffer for struct fields
+   LFrame backtrack;
+
    Int countTypeRefs;
-   Arr(CgTypeRef) typeRefs;
-   
+   Arr(TypeRef) typeRefs;
+
    Arena* a;
    Bool wasError;
 } Codegen;
-
-typedef struct { //:CgeCallSpan A function and which operands it spans (both ends inclusive)
-   Int startNode;
-   Int endNode;
-   Int firstArgEndNode; // the last operand within the first arg, e.g.
-                        // for `g` in `5 10 .f .g` it will be `10`
-   Byte countArgs; // args counted during the codegen run, not parsed
-   Byte arity;
-   FunctionId fnId; // index into @cm.functions
-   VarId varId;     // if fnId == -1, then this is used for emitting (function-typed params)
-   Int n;
-   Byte closerType; // "closer" constants
-} CgeCallSpan;
-
-#define closerPrefix   1
-#define closerInfix    2
-#define closerParen    3  // emit a closing paren for infix opers
-#define closerBracket  4  // emit a closing "]" for array accessors
-#define closerAccessor 5  // emit an opening "[" without spaces
-#define closerField    6
-#define closerNone     7
-
-typedef struct { //:CgeCloser
-   Int nodeInd; // index of node after which the closer is applied
-   Byte tp;   // "closerTp" constants
-   Byte arity;
-   FunctionId fnId; // index into @cm.functions (for emit = emitInfix) or
-                    // -1 (for emitPrefix, just adding a ")")
-} CgeCloser;    // something that needs to be codegenned when exiting an operand, like adding a ")"
-
-DEFINE_STACK_HEADER(CgeCallSpan)
-DEFINE_STACK(CgeCallSpan)
-DEFINE_STACK_HEADER(CgeCloser)
-DEFINE_STACK(CgeCloser)
-
-void cgExpr(Int start, Int endInclusive, Bool isComplex, Arr(Node const) ast, CG);
 
 //}}}
 //{{{ Host text
@@ -131,7 +93,7 @@ private Int
 hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
 
 extern void
-populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets) {
+populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
 
 //}}}
 //{{{ Generation table
@@ -139,10 +101,11 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
 #define CG Codegen* restrict cg
 #define CG_FUN(name) private void name(Node nd, Arr(Node const) nodes, CG);
-CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(cgAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
+
+CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(writeAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
 CG_FUN(writeBreakCont) CG_FUN(writeTry) CG_FUN(writeCatch) CG_FUN(writeFnDef) CG_FUN(writeDef)
-CG_FUN(writeTrait) CG_FUN(writeImpl) CG_FUN(cgReturn)
-CG_FUN(writeFor) CG_FUN(cgIf) CG_FUN(cgIfClause) CG_FUN(writeMatch)
+CG_FUN(writeTrait) CG_FUN(writeImpl) CG_FUN(writeReturn)
+CG_FUN(writeFor) CG_FUN(writeIf) CG_FUN(writeIfClause) CG_FUN(writeMatch)
 
 private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [0]                        = &writeScope,
@@ -167,10 +130,10 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
 //}}}
 //{{{ Type registry
 
-void //:registerTypes
+private void //:registerTypes
 registerTypes(CM, CG) {
    // for every type in @cm.types, create an entry in @cg.typeRefs
-   
+
 }
 
 //}}}
@@ -182,7 +145,7 @@ assignment(LValue* left, RValue* right, CodeBlock* block) {
 }
 
 private Fn*
-importFn(const char* name, int countParams, Arr(FnParam*) params, 
+importFn(const char* name, int countParams, Arr(FnParam*) params,
       CgType* returnType, Bool isVariadic, Module* md
 ) {
    return gcc_jit_context_new_function(
@@ -198,7 +161,7 @@ importFn(const char* name, int countParams, Arr(FnParam*) params,
 }
 
 private Fn*
-newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params, 
+newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params,
       CgType* returnType, Module* md
 ) {
    return gcc_jit_context_new_function(
@@ -250,7 +213,7 @@ newNamedBlock(Fn* fn, char const* name) {
 
 private RValue*
 intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->cont, cg->intTp, val);
+   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
 }
 
 private LValue*
@@ -283,10 +246,10 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
 //~     for (int i = 0; i < 4; i++) {
 //~        printf("%d\n", arr[i]);
 //~     }
-   Module* md = cg->cont;
-   CgType* intPtrTp = toPointer(cg->intTp);
+   Module* md = cg->md;
+   CgType* intPtrTp = toPointer(cg->typeRefs[0].cgType);
    CgType* voidPtrTp = getType(GCC_JIT_TYPE_VOID_PTR, md);
-   FnParam* paramSz = gcc_jit_context_new_param(md, NULL, cg->intTp, "sz");
+   FnParam* paramSz = gcc_jit_context_new_param(md, NULL, cg->typeRefs[0].cgType, "sz");
    Fn* mallocFn = importFn(
       "malloc",
       1,
@@ -304,25 +267,25 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
    assignment(arrElem(arrR, intConst(1, cg), md), intConst(-27, cg), block);
    assignment(arrElem(arrR, intConst(2, cg), md), intConst(37, cg), block);
    assignment(arrElem(arrR, intConst(3, cg), md), intConst(107, cg), block);
-   
+
    CodeBlock* loopInit = newNamedBlock(fn, "loopInit");
    CodeBlock* loopCond = newNamedBlock(fn, "loopCond");
    CodeBlock* loopBody = newNamedBlock(fn, "loopBody");
    CodeBlock* loopAfter = newNamedBlock(fn, "loopAfter");
-   
+
    jump(block, loopInit);
-   
+
    // init
    LValue* iVar = localVar("i", cg->intTp, fn);
    assignment(iVar, intConst(0, cg), loopInit);
    jump(loopInit, loopCond);
-   
-   // conditional 
+
+   // conditional
    conditional(
       loopCond, loopBody, loopAfter,
       comparison(toRValue(iVar), GCC_JIT_COMPARISON_LT, intConst(4, cg), md)
    );
-         
+
    // body
    int const countArgs = 2;
    RValue* args[countArgs];
@@ -330,13 +293,13 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
    LValue* arrVal = arrElem(toRValue(arr), toRValue(iVar), md); // arr[i]
    args[1] = toRValue(arrVal);
    evalExpr(call(printfFn, countArgs, args, md), loopBody);
-   
+
    RValue* nextI = gcc_jit_context_new_binary_op(
-      md, NULL, GCC_JIT_BINARY_OP_PLUS, cg->intTp, 
+      md, NULL, GCC_JIT_BINARY_OP_PLUS, cg->intTp,
       toRValue(iVar), intConst(1, cg));
    assignment(iVar, nextI, loopBody); //i++
    jump(loopBody, loopCond);
-   
+
    // after loop
    gcc_jit_block_end_with_void_return(loopAfter, NULL);
 }
@@ -346,9 +309,9 @@ createCodeGreet(Codegen* cg) {
    Module* md = cg->cont;
    CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
    FnParam* paramName = gcc_jit_context_new_param(md, NULL, constCharPtrTp, "name");
-   
+
    Fn* innerFn = createCodeInner(md);
-   
+
    Fn* greet = newFn(
       "greet",
       GCC_JIT_FUNCTION_EXPORTED,
@@ -357,7 +320,7 @@ createCodeGreet(Codegen* cg) {
       cg->voidTp,
       md
    );
-   
+
    FnParam* paramFormat = gcc_jit_context_new_param(md, NULL, constCharPtrTp, "format");
    Fn* printfFn = importFn(
       "printf",
@@ -369,7 +332,7 @@ createCodeGreet(Codegen* cg) {
    );
    RValue* fifteen = intConst(15, cg);
    RValue* resultOfEvalInner = call(innerFn, 1, &fifteen, md);
-   
+
    const int countArgs = 3;
    RValue* args[countArgs];
    args[0] = gcc_jit_context_new_string_literal(md, "hello %s value is %d\n");
@@ -379,33 +342,33 @@ createCodeGreet(Codegen* cg) {
    CodeBlock* block = gcc_jit_function_new_block(greet, NULL);
 
    evalExpr(call(printfFn, countArgs, args, md), block);
-   
+
    RValue* five = intConst(5, cg);
    RValue* resultOfEvalInner2 = call(innerFn, 1, &five, md);
-   
+
    RValue* args2[countArgs];
    args2[0] = gcc_jit_context_new_string_literal(md, "hello %s value is %d\n");
    args2[1] = gcc_jit_param_as_rvalue(paramName);
    args2[2] = resultOfEvalInner2;
    evalExpr(call(printfFn, countArgs, args2, md), block);
-   
+
    addArrayPrint(block, greet, printfFn, cg);
 }
 
 
 int main(int argc, char** argv) {
    printf("HW\n");
-   
+
   /* Let's try to inject the equivalent of:
      int
      inner(int x) {
         if (x > 10) {
            return x -10
-        } else { 
+        } else {
            return x * 20;
         }
      }
-     
+
      void
      greet(const char *name) {
         printf("hello %s value = %d\n", name, inner(5));
@@ -442,8 +405,8 @@ int main(int argc, char** argv) {
 
    // Compile the code
    gcc_jit_result* result = gcc_jit_context_compile(md);
-   
-   gcc_jit_context_dump_to_file(md, "outp.c", 0); 
+
+   gcc_jit_context_dump_to_file(md, "outp.c", 0);
    if (!result) {
       fprintf (stderr, "NULL result");
       exit(1);
@@ -492,7 +455,7 @@ createCodegen(CM, Arena* a) {
       .a = a,
       .wasError = false
    };
-   
+
    return cg;
 }
 
@@ -968,13 +931,13 @@ writeToplevelFn(FunctionId toplevelId, CM, CG) {
 
    TypeHeader typeHdr = typeReadHeader(fn.typeId, cm);
    Arr(Node const) ast = cm->ast.cont;
-   Int countParams = typeHdr.arity - 1; 
+   Int countParams = typeHdr.arity - 1;
    for (Int t = fn.typeId.v + TYPE_PREFIX_LEN; t < fn.typeId.v + TYPE_PREFIX_LEN + arity; t++) {
       add(cm->types.cont[t], cg->params);
    }
-   
-   
-   // create all the params 
+
+
+   // create all the params
    Fn* newToplevel = newFn(
       fn.name,
       GCC_JIT_FUNCTION_EXPORTED,
@@ -983,10 +946,10 @@ writeToplevelFn(FunctionId toplevelId, CM, CG) {
       cg->primitives.voidTp,
       cg->ctx
    );
-   
 
-   
-   
+
+
+
    TypeHeader hdr = typeReadHeader(fn.typeId, cm);
    if (hdr.arity != 2 || cm->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
       writeChar(aUnderscore, cg);

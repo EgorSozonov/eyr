@@ -62,7 +62,8 @@ private Bool endsWith(String a, String b);
 private void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-
+#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
+#define CM Compiler* restrict cm // compiler during parsing
 
 //{{{ Stack
 
@@ -116,6 +117,46 @@ private void* allocateOnArena(size_t, Arena*);
 #define lLast(lst) lst->cont + lst->len - 1
 
 #define l(ind, lst) lst->cont[e_(ind, lst->len)]
+
+//}}}
+//{{{ List
+
+#define DEFINE_LIST_HEADER(T) \
+   typedef struct {\
+      T* cont;\
+      Int len;\
+      Int cap;\
+   } L##T;\
+   typedef struct {\
+      Arena* arena;\
+      T cont[];\
+   } ListCont##T;\
+   private L##T createList ## T (Int initCapacity, Arena* a);\
+   private void removeLast##T (L##T l);\
+   private void add ## T (T newItem, L##T st);
+
+#define DEFINE_LIST(T)\
+   private L##T createList##T (int initCapacity, Arena* a) {\
+      Int capacity = initCapacity < 4 ? 4 : initCapacity;\
+      ListCont##T * result = allocateOnArena(sizeof(ListCont##T) + capacity*sizeof(T), a);\
+      result->arena = a;\
+      return (L##T){.cont = result->cont, .len = 0, .cap = capacity};\
+   }\
+   private void removeLast##T (L##T l) {\
+      l.len--;\
+   }\
+   private void add##T (T newItem, L##T l) {\
+      if (l.len < l.cap) {\
+         l.cont[l.len] = newItem;\
+      } else {\
+         Arena* a = (Arena*)containerOf(l.cont, ListCont##T, cont);\
+         l.cap *= 2;\
+         ListCont##T * newContent = allocateOnArena(sizeof(ListCont##T) + l.cap*sizeof(T), a);\
+         memcpy(newContent->cont, l.cont, l.len*sizeof(T));\
+         l.cont = newContent->cont;\
+      }\
+      l.len++;\
+   }\
 
 //}}}
 //}}}

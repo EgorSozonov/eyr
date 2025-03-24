@@ -356,7 +356,6 @@ operatorStartSymbols[] = {
 //{{{ Syntactical structure
 
 #define TOKS Arr(Token) restrict toks  // tokens that are used as input to the parser
-#define CM Compiler* restrict cm // compiler during parsing
 #define AST Arr(Node const) restrict ast  // tokens that are used as input to the parser
 typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
 
@@ -403,54 +402,6 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 //}}}
 //}}}
 //{{{ Generics
-//{{{ List
-
-#define DEFINE_LIST_HEADER(T) \
-   typedef struct {\
-      T* cont;\
-      Int len;\
-      Int cap;\
-   } List ## T;\
-   private List ## T createList ## T (Int initCapacity, Arena* a);\
-   private T removeLast##T (List##T st);\
-   private T getLast##T(List##T st);\
-   private void add##T(T newItem, List##T st);\
-
-#define notEmpty(list) (list.len > 0)
-
-#define DEFINE_LIST(T)\
-   private List##T createList##T (Int initCapacity, Arena* a) {\
-      Int capacity = initCapacity < 4 ? 4 : initCapacity;\
-      List##T result = (List##T){.len = 0, .cap = capacity};\
-      void* arr = allocateOnArena(sizeof(T*) + capacity*sizeof(T), a);\
-      *((Arena**)arr) = a;\
-      result.cont = (T*)((Arena**)arr + 1);\
-      return result;\
-   }\
-   private T removeLast##T (List##T st) {\
-      st.len -= 1;\
-      return st.cont[st.len];\
-   }\
-   private T getLast##T(List##T st) {\
-      return st.cont[st.len - 1];\
-   }\
-   private void add##T(T newItem, List ## T st) {\
-      if (st.len < st.cap) {\
-         memcpy((T*)(st.cont) + (st.len), &newItem, sizeof(T));\
-      } else {\
-         Arena** a = (Arena**)st.cont - 1;\
-         void* newContent = allocateOnArena(sizeof(T*) + 2*(st.cap)*sizeof(T), *a);\
-         *((Arena**)newContent) = *a;\
-         T* newActualContent = (T*)((Arena**)newContent + 1);\
-         memcpy(newActualContent, st.cont, st.len*sizeof(T));\
-         memcpy(newActualContent + st.len, &newItem, sizeof(T));\
-         st.cap *= 2;\
-         st.cont = newActualContent;\
-      }\
-      st.len += 1;\
-   }
-
-//}}}
 // Backtrack token, used during lexing to keep track of all the nested stuff
 typedef struct { // :BtToken
    Unt tp : 6;
@@ -528,9 +479,6 @@ typedef struct {   // :ExprFrame
 
 DEFINE_STACK_HEADER(ExprFrame)
 DEFINE_STACK(ExprFrame) //:createStackExprFrame
-
-DEFINE_LIST_HEADER(Ulong) //:createListUlong
-DEFINE_LIST(Ulong) //:addUlong
 
 DEFINE_STACK_HEADER(SourceLoc)
 DEFINE_STACK(SourceLoc) //:createStackSourceLoc
