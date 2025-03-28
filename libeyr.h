@@ -53,8 +53,8 @@ typedef struct Arena Arena;
 private void printStringNoLn(String s);
 private void printString(String s);
 
-constexpr String empty = {.cont = null, .len = 0};
-private String str(const char* content);
+constexpr String empty = {.c = null, .len = 0};
+private String str(const char* cent);
 private Bool endsWith(String a, String b);
 
 #define s(lit) str(lit)
@@ -62,7 +62,7 @@ private Bool endsWith(String a, String b);
 private void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
+#define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define CM Compiler* restrict cm // compiler during parsing
 
 //{{{ List
@@ -97,11 +97,11 @@ private void* allocateOnArena(size_t, Arena*);
       if (st->len < st->cap) {\
          memcpy((T*)(st->c) + (st->len), &newItem, sizeof(T));\
       } else {\
-         T* newContent = allocateArray(2*(st->cap), T, st->arena);\
-         memcpy(newContent, st->c, st->len*sizeof(T));\
-         memcpy((T*)(newContent) + (st->len), &newItem, sizeof(T));\
+         T* newcent = allocateArray(2*(st->cap), T, st->arena);\
+         memcpy(newcent, st->c, st->len*sizeof(T));\
+         memcpy((T*)(newcent) + (st->len), &newItem, sizeof(T));\
          st->cap *= 2;\
-         st->c = newContent;\
+         st->c = newcent;\
       }\
       st->len += 1;\
    }\
@@ -118,7 +118,7 @@ private void* allocateOnArena(size_t, Arena*);
 #define strAssert    1
 #define strBreak     2
 #define strCatch     3
-#define strContinue  4
+#define strcinue  4
 #define strDo        5
 #define strEach      6
 #define strElseIf    7
@@ -192,8 +192,8 @@ private void* allocateOnArena(size_t, Arena*);
 #define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
 
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed
-                           // It's a continue iff it's >= BIG
+#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
+                           // It's a cinue iff it's >= BIG
 #define nodCatch       15  // `catch e {`
 #define nodImport      16  // This is for test files only, no need to import anything in main
 #define nodFnDef       17  // pl1 = index into @functions

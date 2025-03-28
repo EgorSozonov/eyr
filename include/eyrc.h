@@ -1,5 +1,5 @@
 typedef struct { // :String
-    char const* cont;
+    char const* c;
     int32_t len;
 } tech_sozonov_eyr_String;
 
