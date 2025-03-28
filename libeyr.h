@@ -65,98 +65,50 @@ private void* allocateOnArena(size_t, Arena*);
 #define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define CM Compiler* restrict cm // compiler during parsing
 
-//{{{ Stack
-
-#define DEFINE_STACK_HEADER(T) \
-   typedef struct {\
-      Int cap;\
-      Int len;\
-      Arena* arena;\
-      T* cont;\
-   } Stack##T;\
-   private Stack ## T * createStack ## T (Int initCapacity, Arena* a);\
-   private Bool hasValues ## T (Stack ## T * st);\
-   private T pop ## T (Stack ## T * st);\
-   private T peek ## T(Stack ## T * st);\
-   private void push ## T (T newItem, Stack ## T * st);
-
-#define DEFINE_STACK(T)\
-   private Stack##T * createStack##T (int initCapacity, Arena* a) {\
-      int capacity = initCapacity < 4 ? 4 : initCapacity;\
-      Stack##T * result = allocate(Stack##T, a);\
-      result->cap = capacity;\
-      result->len = 0;\
-      result->arena = a;\
-      T* arr = allocateArray(capacity, T, a);\
-      result->cont = arr;\
-      return result;\
-   }\
-   private bool hasValues ## T (Stack ## T * st) {\
-      return st->len > 0;\
-   }\
-   private T pop##T (Stack ## T * st) {\
-      st->len -= 1;\
-      return st->cont[st->len];\
-   }\
-   private T peek##T(Stack##T * st) {\
-      return st->cont[st->len - 1];\
-   }\
-   private void push##T (T newItem, Stack ## T * st) {\
-      if (st->len < st->cap) {\
-         memcpy((T*)(st->cont) + (st->len), &newItem, sizeof(T));\
-      } else {\
-         T* newContent = allocateArray(2*(st->cap), T, st->arena);\
-         memcpy(newContent, st->cont, st->len*sizeof(T));\
-         memcpy((T*)(newContent) + (st->len), &newItem, sizeof(T));\
-         st->cap *= 2;\
-         st->cont = newContent;\
-      }\
-      st->len += 1;\
-   }\
-
-#define lLast(lst) lst->cont + lst->len - 1
-
-#define l(ind, lst) lst->cont[e_(ind, lst->len)]
-
-//}}}
 //{{{ List
 
 #define DEFINE_LIST_HEADER(T) \
    typedef struct {\
-      T* cont;\
+      T* c;\
       Int len;\
       Int cap;\
-   } L##T;\
-   typedef struct {\
       Arena* arena;\
-      T cont[];\
-   } ListCont##T;\
-   private L##T createList ## T (Int initCapacity, Arena* a);\
-   private void removeLast##T (L##T l);\
-   private void add ## T (T newItem, L##T st);
+   } L##T;\
+   private L ## T * createL ## T (Int initCapacity, Arena* a);\
+   private T removeLast ## T (L##T * st);\
+   private void add ## T (T newItem, L##T * st);
 
 #define DEFINE_LIST(T)\
-   private L##T createList##T (int initCapacity, Arena* a) {\
-      Int capacity = initCapacity < 4 ? 4 : initCapacity;\
-      ListCont##T * result = allocateOnArena(sizeof(ListCont##T) + capacity*sizeof(T), a);\
+   private L##T * createL##T (int initCapacity, Arena* a) {\
+      int capacity = initCapacity < 4 ? 4 : initCapacity;\
+      L##T * result = allocate(L##T, a);\
+      result->cap = capacity;\
+      result->len = 0;\
       result->arena = a;\
-      return (L##T){.cont = result->cont, .len = 0, .cap = capacity};\
+      T* arr = allocateArray(capacity, T, a);\
+      result->c = arr;\
+      return result;\
    }\
-   private void removeLast##T (L##T l) {\
-      l.len--;\
+   private T removeLast##T (L##T * st) {\
+      st->len--;\
+      return st->c[st->len];\
    }\
-   private void add##T (T newItem, L##T l) {\
-      if (l.len < l.cap) {\
-         l.cont[l.len] = newItem;\
+   private void add##T (T newItem, L##T * st) {\
+      if (st->len < st->cap) {\
+         memcpy((T*)(st->c) + (st->len), &newItem, sizeof(T));\
       } else {\
-         Arena* a = (Arena*)containerOf(l.cont, ListCont##T, cont);\
-         l.cap *= 2;\
-         ListCont##T * newContent = allocateOnArena(sizeof(ListCont##T) + l.cap*sizeof(T), a);\
-         memcpy(newContent->cont, l.cont, l.len*sizeof(T));\
-         l.cont = newContent->cont;\
+         T* newContent = allocateArray(2*(st->cap), T, st->arena);\
+         memcpy(newContent, st->c, st->len*sizeof(T));\
+         memcpy((T*)(newContent) + (st->len), &newItem, sizeof(T));\
+         st->cap *= 2;\
+         st->c = newContent;\
       }\
-      l.len++;\
+      st->len += 1;\
    }\
+
+#define last(lst) lst->c[lst->len - 1]
+
+#define l(ind, lst) lst->c[e_(ind, lst->len)]
 
 //}}}
 //}}}
@@ -325,11 +277,13 @@ typedef struct { // :SourceLoc
    Int lenBts;
 } SourceLoc;
 
-
 typedef struct StandardText StandardText;
 typedef struct Entity Entity;
 
 typedef struct ScopeChunk ScopeChunk;
+
+//}}}
+//{{{ Compilation statistics
 
 typedef struct { // :CompStats
    Int inpLength;
