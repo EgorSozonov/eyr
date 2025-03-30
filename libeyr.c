@@ -79,7 +79,9 @@ private void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
 #define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
+#define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
+#define RT Interpreter* restrict rt
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
@@ -360,7 +362,7 @@ standardKeywords[] = {
 #define opGetElemPtr     39 // Get pointer to list element
 #define countOperators   40 // sentinel
 
-constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
+//constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
 
 #define nameLoc(start, len) ((len << 24) + start)
 #define precUnary 100   // The highest precedence for operators (implies arity = 1)
@@ -2210,7 +2212,7 @@ char const errTypeFieldNotFound[]          = "Field access error in a type";
 private void closeStatement(LX);
 private NameId nameOfStandard(Int a);
 
-private void printLexer(LX);
+void printLexer(LX);
 
 private void exprCopyFromScratch(Int startNodeInd, CM);
 private Int tIsFunction(TypeId typeId, CM);
@@ -2248,13 +2250,15 @@ void printName(NameId nameId, CM);
 void printIntArray(Int count, Arr(Int) arr);
 void printParser(Compiler* cm);
 void dbgType0(TypeId type, CM);
-#define dbgType(t) dbgType0(t, cm) //:dbgType
+#define dbgType(t) dbgType0(t, cm)
 private void dbgExprFrames(Expr* st);
 private void printLInt(LInt* st);
 void dbgTypeFrames(TExpr* st);
 void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
 void dbgScopes0(Scopes* scopes);
+defstruct(Interpreter);
+void dbgCallFrames(RT);
 
 #endif
 
@@ -2333,7 +2337,7 @@ prepareInput(char const* content, Arena* a) {
    return (String){.c = result, .len = lenStandard + lenSource};
 }
 
-private NameId //:nameOfStandard
+NameId //:nameOfStandard
 nameOfStandard(Int strId) {
 // Converts a standard string to its nameId. Doesn't work for reserved words, obviously. So the
 // argument must be >= "strFirstNonreserved"
@@ -2617,7 +2621,7 @@ calcFloating(double* result, Int powerOfTen, SRC, LX) {
    return 0;
 }
 
-private int64_t
+int64_t
 longOfDoubleBits(double d) { //:longOfDoubleBits
    FloatingBits un = {.d = d};
    return un.i;
@@ -3490,7 +3494,7 @@ calcNodeSentinel(Node nd, Int nodeInd) {
    return (nd.tp >= nodScope ? (nodeInd + nd.pl2 + 1) : (nodeInd + 1));
 }
 
-private void //:newNode
+void //:newNode
 newNode(Node node, SourceLoc loc, CM) {
    pushInast(node, cm);
    add(loc, cm->sourceLocs);
@@ -5694,7 +5698,7 @@ pToplevelSignatures(TOKS, CM) {
    }
 }
 
-private void //:parseMain
+void //:parseMain
 parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
@@ -6932,7 +6936,7 @@ generateCode(CM) {
 //}}}
 //}}}
 //{{{ Interpreter
-//{{{ Constants
+//{{{ Constants & types
 
 // Instructions (opcodes)
 // An instruction is 8 byte long and consists of 6-bit opcode and some data
@@ -6984,8 +6988,7 @@ generateCode(CM) {
 #define iFn               41 // {len of body, not including this instruction} Start of a function
 #define countInstructions 42 // sentinel value
 
-//}}}
-//{{{ Types
+#define UNT_MAX 4294967295
 
 typedef int16_t StackAddr; //:StackAddr Offset from "currFrame" in units of 4 bytes.
 typedef uint32_t EyrPtr;   //:EyrPtr Pointers are aligned to 4 bytes
@@ -7014,6 +7017,7 @@ struct Interpreter {   //:Interpreter
    Arr(Unt) memory;
 };
 
+
 // Interpeter memory segmentation:
 // [constants | code | heap -> (free space) <- stacks]
 // New call stacks are allocated right to left, but memory within one grows left to right
@@ -7029,7 +7033,92 @@ typedef struct { //:CallHeader
 constexpr Int CALLHDR_SIZE = sizeof(CallHeader)/4;
 
 //}}}
+//{{{ Builtins
+
+#define countBuiltins 1
+
+typedef void (*BuiltinFn)(Interpreter*);
+BuiltinFn BUILTINS_TABLE[countBuiltins]; // filled in by "tabulateBuiltins"
+#define EYR_NULL 0
+
+//}}}
+//{{{ Runtime (virtual table)
+
+typedef Unt (*InterpreterFn)(Ulong, Unt, Interpreter* restrict);
+#define RT Interpreter* restrict rt
+#define RUN_FN(name) private Unt name(Ulong instr, Unt ip, RT);
+#define UNT_MAX 4294967295 // 2^32 - 1
+
+RUN_FN(runPlus) RUN_FN(runMinus) RUN_FN(runTimes) RUN_FN(runDivBy)
+RUN_FN(runLoadConstString) RUN_FN(runNewString) RUN_FN(runConcatStrings) RUN_FN(runReverseString)
+RUN_FN(runSetLocal) RUN_FN(runBuiltinCall) RUN_FN(runCall) RUN_FN(runReturn)
+RUN_FN(runPrint) RUN_FN(runPrintInt)
+
+private InterpreterFn const INTERPRET_TABLE[countInstructions] = {
+   [iPlus]       = &runPlus,
+   [iTimes]      = &runTimes,
+   [iMinus]      = &runMinus,
+   [iDivBy]      = &runDivBy,
+   /*
+   [iPlusFl]     = &runPlus;
+   [iMinusFl]      = &runMinusFl;
+   [iTimesFl]      = &runTimesFl;
+   [iDivByFl]      = &runDivByFl;
+   [iPlusConst]      = &runPlusConst;
+   [iMinusConst]      = &runMinusConst;
+   [iTimesConst]      = &runTimesConst;
+   [iDivByConst]      = &runDivByConst;
+   [iPlusFlConst]      = &runPlusFlConst;
+   [iMinusFlConst]      = &runMinusFlConst;
+   [iTimesFlConst]      = &runTimesFlConst;
+   [iDivByFlConst]      = &runDivByFlConst;
+   [iIndexOfSubstring]      = &runIndexOfSubstring;
+   [iGetFld]      = &runGetFld;
+   [iNewList]      = &runNewList;
+   [iSubstring]      = &runSubstring;
+   */
+   [iLoadConstString] = &runLoadConstString,
+   [iConcatStrs]      = &runConcatStrings,
+   [iReverseString]   = &runReverseString,
+   [iSetLocal]        = &runSetLocal,
+   [iBuiltinCall]     = &runBuiltinCall,
+   [iCall]            = &runCall,
+   [iReturn]          = &runReturn,
+   [iPrint]           = &runPrint,
+   [iPrintInt]        = &runPrintInt
+};
+
+//}}}
 //{{{ Utils
+
+#define DEFINE_INTERPRETER_LIST_TYPE(T)\
+typedef struct {\
+   Int len;\
+   Int cap;\
+   Arr(T) c;\
+} RtList##T;
+
+#define DEFINE_INTERPRETER_LIST_CONSTRUCTOR(T)             \
+private RtList##T createRtList##T(Int initCap, Arena* a) { \
+   return (RtList##T){                            \
+      .c = allocateArray(initCap, T, a),   \
+      .len = 0, .cap = initCap };             \
+}
+
+#define DEFINE_INTERPRETER_LIST(fieldName, T, aName)         \
+   private void pushCg##fieldName(T newItem, Interpreter* rt) {\
+      if (rt->fieldName.len < rt->fieldName.cap) {\
+         memcpy((T*)(rt->fieldName.cont) + (rt->fieldName.len), &newItem, sizeof(T));\
+      } else {\
+         T* newContent = allocateArray(2*(rt->fieldName.cap), T, rt->aName);\
+         memcpy(newContent, rt->fieldName.cont, rt->fieldName.len*sizeof(T));\
+         memcpy((T*)(newContent) + (rt->fieldName.len), &newItem, sizeof(T));\
+         rt->fieldName.cap *= 2;\
+         rt->fieldName.cont = newContent;\
+      }\
+      rt->fieldName.len += 1;\
+   }
+
 
 DEFINE_INTERPRETER_LIST_TYPE(Ulong)
 DEFINE_INTERPRETER_LIST_CONSTRUCTOR(Ulong) //:createRtListEmitFrame
@@ -7522,7 +7611,7 @@ equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
    return (a->tokens.len == b->tokens.len) ? -2 : i;
 }
 
-private void
+void
 printLexer(LX) { //:printLexer
    if (lx->stats.wasLexerError) {
       printf("Error: ");
@@ -8055,6 +8144,22 @@ dbgCallFrames(RT) {
 //{{{ Tests only
 
 #ifdef TEST
+//{{{ Definitions
+
+#define S   70000000 // A constant larger than the largest allowed file size.
+                // Separates parsed entities from others
+#define I  140000000 // The base index for imported entities/overloads
+#define S2 210000000 // A constant larger than the largest allowed file size.
+                //  Separates parsed entities from others
+#define O  280000000 // The base index for operators
+
+typedef struct { // :TestEntityImport
+    Int nameInd; // 0, 1 or 2. Corresponds to the "foobarinner" in standardText
+    Int typeInd; // index in the intermediary array of types that is imported alongside
+} TestEntityImport;
+
+//}}}
+
 Int
 tryGetOper0(Int opType, Int typeId, Compiler* protoOvs) {
 // Try and convert test value to operator entityId

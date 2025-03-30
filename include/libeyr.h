@@ -3,8 +3,7 @@ typedef struct { // :String
     int32_t len;
 } tech_sozonov_eyr_String;
 
-int32_t
-tech_sozonov_eyr_compileFile(tech_sozonov_eyr_String filename);
 
-tech_sozonov_eyr_String
-tech_sozonov_eyr_compile(tech_sozonov_eyr_String sourceCode);
+void tech_sozonov_eyr_runFile(tech_sozonov_eyr_String filename);
+
+void tech_sozonov_eyr_run(tech_sozonov_eyr_String sourceCode);
