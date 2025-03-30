@@ -9,21 +9,80 @@
 #include <stdint.h>
 #include <math.h>
 #include <setjmp.h>
-#include "include/eyrc.h"
+#include "include/libeyr.h"
 
 jmp_buf excBuf;
-#include "libeyr.h"
-
-#if defined(TEST)
-#include "test/eyrTest.h"
-#endif
-
 
 //}}}
 //{{{ Basic definitions
 
 typedef int32_t NameId;   // name index (in @stringTable)
 typedef uint32_t NameLoc; // 8 bit of length, 24 bits of startBt (in @standardText)
+typedef int32_t Int;
+typedef uint32_t Unt;
+typedef int64_t Long;
+typedef uint64_t Ulong;
+typedef int16_t Short;
+typedef uint16_t Ushort;
+typedef char Byte;
+typedef bool Bool;
+typedef tech_sozonov_eyr_String String;
+#define StackInt Stackint32_t
+#define StackUnt Stackuint32_t
+#define InListUlong InListuint64_t
+#define InListUnt InListuint32_t
+#define Any void
+#define Arr(T) T*
+#define AARG(var, T) var, sizeof(var)/sizeof(T) // For passing array args to functions with length
+#define null NULL
+#define VarId int32_t
+#define FunctionId int32_t
+#ifdef TEST
+   #define private
+#else
+   #define private static
+#endif
+#define OUT // the "out" parameters and args in functions
+#define BIG 70000000
+#define LOWER24BITS 0x00FFFFFF
+#define LOWER26BITS 0x03FFFFFF
+#define LOWER16BITS 0x0000FFFF
+#define LOWER32BITS 0x00000000FFFFFFFF
+#define PENULTIMATE8BITS 0xFF00
+#define THIRTYFIRSTBIT 0x40000000
+#define MAXTOKENLEN 67108864 // 2^26
+#define SIXTEENPLUSONE 65537 // 2^16 + 1
+#define LEXER_INIT_SIZE 1000
+#define ei else if
+#define defstruct(T) typedef struct T T
+#define print(...) \
+  printf(__VA_ARGS__);\
+  printf("\n");
+
+#define dg(...) \
+  printf(__VA_ARGS__);\
+  printf("\n");
+
+typedef struct Arena Arena;
+typedef struct Compiler Compiler;
+
+private void printStringNoLn(String s);
+private void printString(String s);
+
+constexpr String empty = {.c = null, .len = 0};
+private String str(const char* cent);
+private Bool endsWith(String a, String b);
+
+#define s(lit) str(lit)
+
+private void* allocateOnArena(size_t, Arena*);
+#define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
+#define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
+#define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
+#define CM Compiler* restrict cm // compiler during parsing
+
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
 //}}}
 //{{{ Language definition
@@ -256,6 +315,53 @@ standardKeywords[] = {
 //}}}
 //{{{ Operators
 
+// :OperatorType
+// Values must exactly agree in order with the operatorSymbols array in the tl.c file.
+// The order is defined by ASCII. Operator is bitwise <=> it ends with dot
+#define opBitwiseNeg      0 // !. bitwise negation
+#define opNotEqual        1 // !=
+#define opBoolNeg         2 // !
+#define opSize            3 // #
+#define opToString        4 // $
+#define opRemainder       5 // %
+#define opBitwiseAnd      6 // &&. bitwise "and"
+#define opBoolAnd         7 // &&  logical "and"
+#define opRef             8 // '  References
+#define opTimesExt        9 // *:
+#define opTimes          10 // * Multiplication and nullable pointers
+#define opIncrement      11 // ++
+#define opPlusExt        12 // +:
+#define opPlus           13 // +
+#define opDecrement      14 // --
+#define opMinusExt       15 // -:
+#define opMinus          16 // -
+#define opNegate         17 // -
+#define opDivByExt       18 // /:
+#define opIntersect      19 // /\   type-level trait intersection ?
+#define opDivBy          20 // /
+#define opBitShiftL      21 // <<.
+#define opComparator     22 // <=>
+#define opLTZero         23 // <0   less than zero
+#define opLTEQ           24 // <=
+#define opLessTh         25 // <
+#define opRefEquality    26 // ===
+#define opEquality       27 // ==
+#define opBitShiftR      28 // >>.  unsigned right bit shift
+#define opGTZero         29 // >0   greater than zero
+#define opGTEQ           30 // >=
+#define opGreaterTh      31 // >
+#define opNullCoalesce   32 // ?:   null coalescing operator
+#define opQuestionMark   33 // ?   Initially nullable pointers
+#define opAwait          34 // @
+#define opBitwiseXor     35 // ^.   bitwise XOR
+#define opBitwiseOr      36 // ||.  bitwise or
+#define opBoolOr         37 // ||   logical or
+#define opGetElem        38 // Get list element
+#define opGetElemPtr     39 // Get pointer to list element
+#define countOperators   40 // sentinel
+
+constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
+
 #define nameLoc(start, len) ((len << 24) + start)
 #define precUnary 100   // The highest precedence for operators (implies arity = 1)
 #define precFn 10       // The precedence for function calls. Must be highest except "precUnary"
@@ -354,6 +460,69 @@ operatorStartSymbols[] = {
 
 //}}}
 //{{{ Syntactical structure
+//{{{ AST nodes & operators
+
+// AST nodes
+#define nodVar          7  // pl1 = index into @vars.
+                           // pl2 = iff pl3 = assiFnVarUse, assiFnVarDef then fnId
+                           // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
+                           // of the "assi" constants
+#define nodCall         8  // pl1 =
+                           //   index into @functions (after type resolution) when pl3 = callNormal,
+                           //   into @monos if pl3 = callMonomorph,
+                           //   into @vars if pl3 = callVar
+                           //     pl2 = arg count, pl3 = one of "call" constants.
+                           // iff pl3 = callField, then pl1 = nameId, pl2 = 0
+
+// Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
+#define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
+                           // inner scope. See parser tests for examples
+#define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
+#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the inner
+                           // right side, which is always an atom, nodExpr or a nodDataAlloc
+#define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
+
+#define nodAssert      13  // pl1 = 1 iff it's a debug assert
+#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
+                           // It's a cinue iff it's >= BIG
+#define nodCatch       15  // `catch e {`
+#define nodImport      16  // This is for test files only, no need to import anything in main
+#define nodFnDef       17  // pl1 = index into @functions
+#define nodDef         18  // pl1 = entityId, pl3 = nameId. For non-function compile-time consts
+#define nodTrait       19
+#define nodReturn      20
+#define nodTry         21
+#define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
+                           // have a label in codegen; pl3 = number of nodes to skip to get to body
+
+#define nodIf          23
+#define nodIfClause    24  // pl3 = "ifcl" constants
+#define nodImpl        25
+#define nodMatch       26  // pattern matching on sum type tag
+#define countAstForms  27  // sentinel
+
+#define countSpanForms (countAstForms - nodScope)
+
+#define metaDoc         1  // Doc comments
+#define metaDefault     2  // Default values for type arguments
+
+
+typedef struct Compiler Compiler;
+
+typedef struct { // :Node
+   Unt tp : 6;
+   Unt pl3: 26;
+   Int pl1;
+   Int pl2;
+} Node;
+
+struct SourceLoc { // :SourceLoc
+   Int startBt;
+   Int lenBts;
+};
+
+//}}}
+//{{{ Parse table
 
 #define TOKS Arr(Token) restrict toks  // tokens that are used as input to the parser
 #define AST Arr(Node const) restrict ast  // tokens that are used as input to the parser
@@ -401,160 +570,70 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 
 //}}}
 //}}}
-//{{{ Generics
+//{{{ Standard strings :standardStr
 
-DEFINE_LIST_HEADER(Int)
-DEFINE_LIST(Int)
-DEFINE_LIST_HEADER(Unt)
-DEFINE_LIST(Unt)
-DEFINE_LIST_HEADER(Ulong)
-DEFINE_LIST(Ulong)
-
-// Backtrack token, used during lexing to keep track of all the nested stuff
-typedef struct { // :BtToken
-   Unt tp : 6;
-   Int tokenInd;
-   Unt spanLevel : 3;
-} BtToken;
-
-DEFINE_LIST_HEADER(BtToken)
-DEFINE_LIST(BtToken) //:createLBtToken
-
-DEFINE_LIST_HEADER(Token)
-DEFINE_LIST(Token) //:createLToken
-
-//{{{ Types
-
-typedef struct { //:TypeId
-    Int v;
-} TypeId;
-
-constexpr TypeId boolTy = { .v = tokBool };
-constexpr TypeId intTy = { .v = tokInt };
-constexpr TypeId ZERO_ARITY_TYPE = { .v = -1 };
-constexpr TypeId VOID_TYPE = { .v = voidType };
-
-Bool eq_TypeId(TypeId a, TypeId b) {
-    return a.v == b.v;
-}
-
-//}}}
-
-#define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
-#define pfrLoop  2 // this frame is a scope and a loop (allows break and continue)
-#define pfrFn    3 // this frame is a function definition
-
-typedef struct { // :ParseFrame
-   Int startNodeInd;
-   Int sentinel;   // sentinel token
-   Byte level;     // the "pfr" constants above
-   TypeId typeId;  // valid only for fnDef (then it's the function's type) and loops
-                   // (then it's the loop counter)
-} ParseFrame;
-
-DEFINE_LIST_HEADER(ParseFrame)
-DEFINE_LIST(ParseFrame) //:createLParseFrame
-
-
-typedef struct {   // :TypeFrame
-   Byte tp;      // "tfr" constants
-   Int sentinel;  // token id sentinel
-   Int countArgs; // accumulated number of type arguments
-   TypeId id;      // For types, TypeId. For type params, their id within the params list
-} TypeFrame;
-
-DEFINE_LIST_HEADER(TypeFrame)
-DEFINE_LIST(TypeFrame) //:createLTypeFrame
-
-typedef struct { //:BtCodegen Backtrack for generating code
-   Byte tp;        // instructions, i.e. the "i*" constants
-   Int startInstr; // index of starting instruction
-   Int sentinel;   // sentinel node of current function
-} BtCodegen;
-
-typedef struct {   // :ExprFrame
-   Byte tp;        // "exfr" constants below
-   NameId name;
-   Int sentinel;   // token sentinel
-   Int precedence;
-   Int argCount;   // accumulated number of arguments. Used for exfrCall & exfrDataAlloc only
-   Int startNode;  // The id of first written node in @scr. Used for data allocators
-   SourceLoc loc;  // The original token this frame is based on
-   Bool isVarCall; // Iff it's a local variable being called rather than an overloaded fn name
-} ExprFrame;
-
-
-DEFINE_LIST_HEADER(ExprFrame)
-DEFINE_LIST(ExprFrame) //:createLExprFrame
-
-DEFINE_LIST_HEADER(SourceLoc)
-DEFINE_LIST(SourceLoc) //:createLSourceLoc
-
-DEFINE_LIST_HEADER(Node)
-DEFINE_LIST(Node)
-
-#define add(A, X) _Generic((X),\
-   LBtToken*: addBtToken,\
-   LParseFrame*: addParseFrame,\
-   LExprFrame*: addExprFrame,\
-   LTypeFrame*: addTypeFrame,\
-   LMonomorphization*: addMonomorphization,\
-   LTypeLoc*: addTypeLoc,\
-   LInt*: addInt,\
-   LUnt*: addUnt,\
-   LUlong*: addUlong,\
-   LNode*: addNode,\
-   LSourceLoc*: addSourceLoc\
-)(A, X)
-
-typedef struct Monomorphization Monomorphization;
-DEFINE_LIST_HEADER(Monomorphization)
-
-#define removeLast(X) _Generic((X),\
-   LBtToken*: removeLastBtToken,\
-   LParseFrame*: removeLastParseFrame,\
-   LExprFrame*: removeLastExprFrame,\
-   LTypeFrame*: removeLastTypeFrame,\
-   LInt*: removeLastInt,\
-   LUnt*: removeLastUnt,\
-   LUlong: removeLastUlong,\
-   LNode*: removeLastNode,\
-   LSourceLoc*: removeLastSourceLoc\
-)(X)
-
-
-typedef struct { //:TypeLoc
-   Int currPos;
-   Int sentinel;
-} TypeLoc;
-
-DEFINE_LIST_HEADER(TypeLoc)
-DEFINE_LIST(TypeLoc)
-
-#ifdef TEST
-private void dbgLNode(LNode*, Arena*);
+#define strAlias     0
+#define strAssert    1
+#define strBreak     2
+#define strCatch     3
+#define strcinue  4
+#define strDo        5
+#define strEach      6
+#define strElseIf    7
+#define strElse      8
+#define strFalse     9
+#define strFor      10
+#define strIf       11
+#define strImpl     12
+#define strImport   13
+#define strMatch    14
+#define strPub      15
+#define strReturn   16
+#define strTrait    17
+#define strTrue     18
+#define strTry      19
+#define strFirstNonReserved 20
+#define strInt      strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
+#define strLong     21
+#define strDouble   22
+#define strBool     23
+#define strString   24
+#define strVoid     25
+#define strF        26 // F(unction type)
+#define strL        27 // L(ist)
+#define strArray    28
+#define strD        29 // D(ictionary)
+#define strRec      30 // Record
+#define strEnum     31 // Enum
+#define strTu       32 // Tu(ple)
+#define strPromise  33 // Promise
+#define strLen      34
+#define strCap      35
+#define strF1       36
+#define strF2       37
+#define strPrint    38
+#define strPrintErr 39
+#define strMathPi   40
+#define strMathE    41
+#define strTypeVarT 42
+#define strTypeVarU 43
+#define strLength   44
+#define strAdd      45
+#define strMain     46
+#ifndef TEST
+#define strSentinel 47
+#else
+#define strSentinel 50
 #endif
 
-#define eq(X, Y) _Generic((X),\
-   TypeId: eq_TypeId\
-   )(X, Y)
-
-
+//}}}
 //}}}
 //{{{ Utils
-//{{{ General
-
-#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
-#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
-
-
-
-
-//}}}
 //{{{ Arena
 
 #define CHUNK_QUANT 32768
 
+typedef struct ArenaChunk ArenaChunk;
 
 struct ArenaChunk { // :ArenaChunk
    size_t size;
@@ -574,7 +653,7 @@ minChunkSize(void) {
    return (size_t)(CHUNK_QUANT - 32);
 }
 
-private Arena*
+Arena*
 createArena(void) { //:createArena
    Arena* result = malloc(sizeof(Arena));
 
@@ -665,6 +744,49 @@ clearArena(Arena* a) { //:clearArena
 //}}}
 //{{{ List
 
+#define DEFINE_LIST_HEADER(T) \
+   typedef struct {\
+      T* c;\
+      Int len;\
+      Int cap;\
+      Arena* arena;\
+   } L##T;\
+   private L ## T * createL ## T (Int initCapacity, Arena* a);\
+   private T removeLast ## T (L##T * st);\
+   private void add ## T (T newItem, L##T * st);
+
+#define DEFINE_LIST(T)\
+   private L##T * createL##T (int initCapacity, Arena* a) {\
+      int capacity = initCapacity < 4 ? 4 : initCapacity;\
+      L##T * result = allocate(L##T, a);\
+      result->cap = capacity;\
+      result->len = 0;\
+      result->arena = a;\
+      T* arr = allocateArray(capacity, T, a);\
+      result->c = arr;\
+      return result;\
+   }\
+   private T removeLast##T (L##T * st) {\
+      st->len--;\
+      return st->c[st->len];\
+   }\
+   private void add##T (T newItem, L##T * st) {\
+      if (st->len < st->cap) {\
+         memcpy((T*)(st->c) + (st->len), &newItem, sizeof(T));\
+      } else {\
+         T* newcent = allocateArray(2*(st->cap), T, st->arena);\
+         memcpy(newcent, st->c, st->len*sizeof(T));\
+         memcpy((T*)(newcent) + (st->len), &newItem, sizeof(T));\
+         st->cap *= 2;\
+         st->c = newcent;\
+      }\
+      st->len++;\
+   }\
+
+#define last(lst) lst->c[lst->len - 1]
+
+#define l(ind, lst) lst->c[e_(ind, lst->len)]
+
 Int
 e_(Int ind, Int len) {
    if ((Unt)ind < (Unt) len) {
@@ -672,6 +794,63 @@ e_(Int ind, Int len) {
    }
    longjmp(excBuf, 1);
 }
+
+defstruct(BtToken);
+defstruct(ParseFrame);
+defstruct(TypeFrame);
+defstruct(ExprFrame);
+defstruct(Monomorphization);
+defstruct(SourceLoc);
+defstruct(TypeLoc);
+defstruct(Var);
+defstruct(Function);
+defstruct(BtInstr);
+defstruct(EmitFrame);
+
+DEFINE_LIST_HEADER(Int)
+DEFINE_LIST_HEADER(Unt)
+DEFINE_LIST_HEADER(Ulong)
+DEFINE_LIST_HEADER(BtToken)
+DEFINE_LIST_HEADER(Token)
+DEFINE_LIST_HEADER(ParseFrame)
+DEFINE_LIST_HEADER(TypeFrame)
+DEFINE_LIST_HEADER(ExprFrame)
+DEFINE_LIST_HEADER(SourceLoc)
+DEFINE_LIST_HEADER(Node)
+DEFINE_LIST_HEADER(Monomorphization)
+DEFINE_LIST_HEADER(TypeLoc)
+DEFINE_LIST_HEADER(Var)
+DEFINE_LIST_HEADER(Function)
+DEFINE_LIST_HEADER(BtInstr)
+DEFINE_LIST_HEADER(EmitFrame)
+
+#define add(A, X) _Generic((X),\
+   LBtToken*: addBtToken,\
+   LParseFrame*: addParseFrame,\
+   LExprFrame*: addExprFrame,\
+   LTypeFrame*: addTypeFrame,\
+   LMonomorphization*: addMonomorphization,\
+   LTypeLoc*: addTypeLoc,\
+   LInt*: addInt,\
+   LUnt*: addUnt,\
+   LUlong*: addUlong,\
+   LNode*: addNode,\
+   LSourceLoc*: addSourceLoc,\
+   LBtInstr*: addBtInstr\
+)(A, X)
+
+#define removeLast(X) _Generic((X),\
+   LBtToken*: removeLastBtToken,\
+   LParseFrame*: removeLastParseFrame,\
+   LExprFrame*: removeLastExprFrame,\
+   LTypeFrame*: removeLastTypeFrame,\
+   LInt*: removeLastInt,\
+   LUnt*: removeLastUnt,\
+   LUlong: removeLastUlong,\
+   LNode*: removeLastNode,\
+   LSourceLoc*: removeLastSourceLoc,\
+   LBtInstr*: removeLastBtInstr\
+)(X)
 
 //}}}
 //{{{ Internal lists
@@ -1141,7 +1320,6 @@ typedef struct { //:StringValue
    Int indString;
 } StringValue;
 
-
 typedef struct { //:Bucket
    Unt capAndLen;
    StringValue c[];
@@ -1210,8 +1388,7 @@ addValueToBucket(Bucket** ptrToBucket, Int newIndString, Unt hash, Arena* a) {
 
 
 private Int //:addStringDict
-addStringDict(char const* text, Int startBt, Int lenBts, LUnt* stringTable,
-           StringDict* hm) {
+addStringDict(char const* text, Int startBt, Int lenBts, LUnt* stringTable, StringDict* hm) {
 // Unique'ing of symbols within source code
    Unt hash = hashCode(text + startBt, lenBts);
    Int hashOffset = hash % (hm->dictSize);
@@ -1516,8 +1693,106 @@ minPositiveOf(Int count, ...) {
 
 //}}}
 //}}}
+//{{{ Generics
+
+DEFINE_LIST(Int)
+DEFINE_LIST(Ulong)
+DEFINE_LIST(Unt)
+
+// Backtrack token, used during lexing to keep track of all the nested stuff
+struct BtToken { // :BtToken
+   Unt tp : 6;
+   Int tokenInd;
+   Unt spanLevel : 3;
+};
+
+DEFINE_LIST(BtToken) //:createLBtToken
+DEFINE_LIST(Token) //:createLToken
+
+//{{{ Types
+
+typedef struct { //:TypeId
+    Int v;
+} TypeId;
+
+constexpr TypeId boolTy = { .v = tokBool };
+constexpr TypeId intTy = { .v = tokInt };
+constexpr TypeId ZERO_ARITY_TYPE = { .v = -1 };
+constexpr TypeId VOID_TYPE = { .v = voidType };
+
+Bool eq_TypeId(TypeId a, TypeId b) {
+    return a.v == b.v;
+}
+
+//}}}
+
+#define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
+#define pfrLoop  2 // this frame is a scope and a loop (allows break and continue)
+#define pfrFn    3 // this frame is a function definition
+
+struct ParseFrame { // :ParseFrame
+   Int startNodeInd;
+   Int sentinel;   // sentinel token
+   Byte level;     // the "pfr" constants above
+   TypeId typeId;  // valid only for fnDef (then it's the function's type) and loops
+                   // (then it's the loop counter)
+};
+
+DEFINE_LIST(ParseFrame) //:createLParseFrame
+
+
+struct TypeFrame { // :TypeFrame
+   Byte tp;        // "tfr" constants
+   Int sentinel;   // token id sentinel
+   Int countArgs;  // accumulated number of type arguments
+   TypeId id;      // For types, TypeId. For type params, their id within the params list
+};
+
+DEFINE_LIST(TypeFrame) //:createLTypeFrame
+
+typedef struct { //:BtCodegen Backtrack for generating code
+   Byte tp;        // instructions, i.e. the "i*" constants
+   Int startInstr; // index of starting instruction
+   Int sentinel;   // sentinel node of current function
+} BtCodegen;
+
+struct ExprFrame {   // :ExprFrame
+   Byte tp;        // "exfr" constants below
+   NameId name;
+   Int sentinel;   // token sentinel
+   Int precedence;
+   Int argCount;   // accumulated number of arguments. Used for exfrCall & exfrDataAlloc only
+   Int startNode;  // The id of first written node in @scr. Used for data allocators
+   SourceLoc loc;  // The original token this frame is based on
+   Bool isVarCall; // Iff it's a local variable being called rather than an overloaded fn name
+};
+
+DEFINE_LIST(ExprFrame) //:createLExprFrame
+
+DEFINE_LIST(SourceLoc) //:createLSourceLoc
+
+DEFINE_LIST(Node)
+
+struct TypeLoc { //:TypeLoc
+   Int currPos;
+   Int sentinel;
+};
+
+DEFINE_LIST(TypeLoc)
+
+#ifdef TEST
+private void dbgLNode(LNode*, Arena*);
+#endif
+
+#define eq(X, Y) _Generic((X),\
+   TypeId: eq_TypeId\
+   )(X, Y)
+
+
+//}}}
 //{{{ Internal types
 
+typedef struct ScopeChunk ScopeChunk;
 #define SCOPE_CHUNK_SZ 6 // 1024 - 4 for the pointers
 struct ScopeChunk { //:ScopeChunk
    ScopeChunk *prev;
@@ -1551,17 +1826,16 @@ typedef struct { // :Scopes
 #define classMutable   2
 #define classPubMut    3
 
-typedef struct { //:Var Local variable inside function
+struct Var { //:Var Local variable inside function
    TypeId typeId;
    NameId name;  // if negative, then it's a nameless local & refers to @cg.local via (-x - 1)
    Byte class;   // mutable or immutable, public or private
    Int fnId;     // only for aliases to functions, otherwise -1
-} Var;
+};
 
-DEFINE_LIST_HEADER(Var)
 DEFINE_LIST(Var)
 
-typedef struct { //:Function Parsed function
+struct Function { //:Function Parsed function
    TypeId typeId;
    NameId name;
    Int tokenInd;   // Index into @tokens
@@ -1569,9 +1843,8 @@ typedef struct { //:Function Parsed function
    Int genericInd; // index into @monos (get full mono type & code from arg types)
    Byte emit;
    Int hostName;   // for host-emitted function names
-} Function;
+};
 
-DEFINE_LIST_HEADER(Function)
 DEFINE_LIST(Function)
 
 typedef struct { //:Expr State for parsing expressions
@@ -1637,6 +1910,28 @@ struct Monomorphization { //:Monomorphization
 };
 
 DEFINE_LIST(Monomorphization)
+
+typedef struct { // :CompStats
+   Int inpLength;
+   Bool wasLexerError;
+
+   Int countNonparsedVars;
+   Int countNonparsedFns;
+   Int countOverloads;
+   Int countOverloadedNames;
+   Int countOperatorFns;
+   Int toksLen;
+   Int astLen;
+   Int typesLen;
+   Int loopCounter;
+   Bool wasError;
+   String errMsg;
+   Int listType;
+
+   Int standardTextLen; // length of standardText
+   Int firstParsedName; // the name index for the first parsed word
+   Int firstBuiltin;    // the name for the first built-in word in standardStrings
+} CompStats;
 
 struct Compiler { // :Compiler
    // LEXING
@@ -3328,7 +3623,7 @@ scopesNewLexicalScope(CM) {
 private void //:updateStats
 updateStats(Compiler* restrict cm) {
    cm->stats.toksLen = cm->tokens.len;
-   cm->stats.nodesLen = cm->ast.len;
+   cm->stats.astLen = cm->ast.len;
    cm->stats.typesLen = cm->types.len;
 }
 
@@ -6492,6 +6787,560 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 
 //}}}
 //}}}
+//{{{ Code generator
+//{{{ Definitions
+
+defstruct(Codegen);
+private Codegen* createCodegen(CM, Arena* a);
+
+typedef struct { //:CgCall
+    Int startInd; // or externalNameId
+    Int len;      // only for native names
+    uint8_t arity;
+    uint8_t countArgs;
+    Bool needClosingParen;
+} CgCall;
+
+DEFINE_LIST_HEADER(CgCall)
+DEFINE_LIST(CgCall)
+
+struct BtInstr { //:BtInstr
+   Unt tp : 6;
+   Int sentinel; // index of sentinel node
+   Int startInstr; // index of instruction where this frame started
+};
+
+struct EmitFrame { //:EmitFrame Frame of a stack used for emitting expressions & ifs
+   Byte tp;      // node* constants
+   Int startIns; // Index of starting instruction
+};
+
+
+DEFINE_LIST(BtInstr) //:addBtInstr
+
+DEFINE_LIST(EmitFrame) //:addUlong
+
+struct Codegen { //:Codegen
+   LBtInstr* bt; // pl3 = index of start instruction
+   LEmitFrame* emits;
+   LUlong* bytecode;
+   Compiler* cm;
+   Int local;
+   Int i;
+   Arena* a;
+};
+
+#define CG Codegen* restrict cg
+
+//}}}
+//{{{ Codegen utils
+
+
+
+//}}}
+//{{{ Codegen init
+
+private Codegen* //:createCodegen
+createCodegen(CM, Arena* a) {
+   Codegen* cg = allocate(Codegen, a);
+   *cg = (Codegen) {
+      .bt = createLBtInstr(10, a),
+      .bytecode = createLUlong(16, a),
+      .emits = createLEmitFrame(8, a),
+      .cm = cm,
+      .i = 0,
+      .a = a
+   };
+   return cg;
+}
+
+//}}}
+//{{{ Codegen table
+
+typedef void (*CodegenFn)(Node nd, Arr(Node const) const, Codegen* restrict);
+#define CODEGEN_FN(name) private void name(Node nd, Arr(Node const) const, CG);
+CODEGEN_FN(cgFoo) 
+private CodegenFn const CODEGEN_TABLE[1] = {
+   [tokInt]        = &cgFoo,
+};
+
+//}}}
+//{{{ Codegen proper
+
+private void //:maybeCloseCgFrames
+maybeCloseCgFrames(CG) {
+   for (Int j = cg->bt->len - 1; j > -1 && cg->bt->c[j].sentinel != cg->i; j--) {
+      removeLast(cg->bt);
+   }
+}
+
+private void
+cgFoo(Node nd, Arr(Node const) const ast, CG) {
+   
+}
+
+private void //:cgToplevelFn
+cgToplevelFn(Function fn, CM, CG) {
+   Arr(Node const) ast = cm->ast.c;
+
+   add(((BtInstr){ .tp = nodFnDef, .sentinel = 0, .startInstr = cg->bytecode->len }), cg->bt);
+   add(0, cg->bytecode);
+   Node nodeFn = ast[fn.nodeInd];
+
+   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
+   //add(((Node){ .tp = nodFnDef, .pl3 = sentinel}), cg->bt);
+   cg->local = 0;
+
+   cg->i = fn.nodeInd + 1;
+   for (; ast[cg->i].tp == nodVar && ast[cg->i].pl3 == assiFnParam; cg->i++) {}
+   for (; cg->i < sentinel;) {
+      Node nd = cm->ast.c[cg->i];
+      cg->i++; // CONSUME the span node
+      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cm->ast.c, cg);
+      maybeCloseCgFrames(cg);
+   }
+}
+
+private void //:generateMainCode
+generateMainCode(CG) {
+   Compiler* cm = cg->cm;
+   printParser(cm);
+   for (int j = 0; j < cm->toplevels.len; j++) {
+      cgToplevelFn(cm->functions.c[cm->toplevels.c[j]], cm, cg);
+   }
+}
+
+Codegen* //:generateCode
+generateCode(CM) {
+// Returns null in case of error
+#ifdef TRACE
+   printParser(cm);
+#endif
+
+   if (cm->stats.wasError)
+      { return null; }
+   Codegen* cg = createCodegen(cm, cm->a);
+
+#ifndef TEST
+   generateBuiltinsForExe(cg);
+#endif
+
+   generateMainCode(cg);
+   return cg;
+}
+
+//}}}
+//}}}
+//{{{ Interpreter
+//{{{ Constants
+
+// Instructions (opcodes)
+// An instruction is 8 byte long and consists of 6-bit opcode and some data
+// Notation: [A] is a 2-byte stack address, it's signed and is measured relative to currFrame
+//         [~A] is a 3-byte constant or offset
+//         {A} is a 4-byte constant or address
+//         {{A}} is an 8-byte constant (i.e. it takes up a whole second instruction slot)
+#define iPlus              0 // [Dest] [Operand1] [Operand2]
+#define iMinus             1
+#define iTimes             2
+#define iDivBy             3
+#define iPlusFl            4
+#define iMinusFl           5
+#define iTimesFl           6
+#define iDivByFl           7
+#define iPlusConst         8 // [Src=Dest] {Increment}
+#define iMinusConst        9
+#define iTimesConst       10
+#define iDivByConst       11
+#define iPlusFlConst      12 // [Src=Dest] {{Double constant}}
+#define iMinusFlConst     13
+#define iTimesFlConst     14
+#define iDivByFlConst     15
+#define iConcatStrs       16 // [Dest] [Operand1] [Operand2]
+#define iLoadConstString  17 // [Dest] {addr}
+#define iSubstring        18 // [Dest] [Src] {{ {Start} {Len}  }}
+#define iReverseString    19 // [Dest] [Src]
+#define iIndexOfSubstring 20 // [Dest] [String] [Substring]
+#define iGetFld           21 // [Dest] [Obj] [~Offset]
+#define iNewList          22 // [Dest] {Capacity}
+#define iGetElemPtr       23 // [Dest] [ArrAddress] {{ {0} {Elem index} }}
+#define iAddToList        24 // [List] {Value or reference}
+#define iRemoveFromList   25 // [List] {Elem Index}
+#define iSwap             26 // [List] {{ {Index1} {Index2} }}
+#define iConcatLists      27 // [Dest] [Operand1] [Operand2]
+#define iJump             28 // { Code pointer }
+#define iBranchLt         29 // [Operand] { Code pointer }
+#define iBranchEq         30
+#define iBranchGt         31
+#define iShortCircuit     32 // if [B] == [C] then [A] = [B] else ip++
+#define iCall             33 // [New frame start pointer] { New instruction pointer }
+#define iBuiltinCall      34 // [Builtin index]
+#define iReturn           35 // [ address to return ] [Size of return value = 0, 1 or 2]
+#define iSetLocal         36 // [Dest] {Value}
+#define iSetBigLocal      37 // [Dest] {{Value}}
+#define iPrint            38 // [String]
+#define iPrintInt         39 // [Local]
+#define iPrintErr         40 // [String]
+#define iFn               41 // {len of body, not including this instruction} Start of a function
+#define countInstructions 42 // sentinel value
+
+//}}}
+//{{{ Types
+
+typedef int16_t StackAddr; //:StackAddr Offset from "currFrame" in units of 4 bytes.
+typedef uint32_t EyrPtr;   //:EyrPtr Pointers are aligned to 4 bytes
+                           // Negative values mean previous stack frame -- useless? Or maybe
+                           // interpret it as negative iff it's an iReturn? But then better
+                           // to interpret is as positive but within the prev stack frame.
+
+struct Interpreter {   //:Interpreter
+   EyrPtr ip; // current instruction pointer
+
+   Arr(EyrPtr) fns;   // indices into @code. Immutable
+   Int entryPoint; // index into @fns to find the main function. Immutable
+
+   // memory is 16GB in size, segmented as follows:
+   // [constants code        heap         --> (free space) <-- stack1 stack2 ... stackN]
+   //  ^0        ^codeStart  ^heapStart  ^heapTop              ^bottomStack
+   EyrPtr codeStart; // const after init
+   EyrPtr heapStart; // const after init
+   EyrPtr heapTop;
+   EyrPtr stackBottom;
+
+   EyrPtr currFrame;   // this will be thread-local
+   StackAddr stackTop; // this too
+
+   String errMsg; // in case of error this won't be empty
+   Arr(Unt) memory;
+};
+
+// Interpeter memory segmentation:
+// [constants | code | heap -> (free space) <- stacks]
+// New call stacks are allocated right to left, but memory within one grows left to right
+
+typedef struct { //:CallHeader
+   EyrPtr prevFrame;
+   EyrPtr ip;
+} CallHeader;
+
+// Offset into a call frame header
+#define CALLHDR_PREV_FRAME 0
+#define CALLHDR_IP         1
+constexpr Int CALLHDR_SIZE = sizeof(CallHeader)/4;
+
+//}}}
+//{{{ Utils
+
+DEFINE_INTERPRETER_LIST_TYPE(Ulong)
+DEFINE_INTERPRETER_LIST_CONSTRUCTOR(Ulong) //:createRtListEmitFrame
+constexpr Int STACK_SZ = 64000; // in units of 4 bytes, so 256 KB
+constexpr Long MEMORY_SZ = 4'000'000'000; // in units of 4 bytes, so 16 GB
+
+private Unt //:rtDeref0
+rtDeref0(EyrPtr address, RT) {
+// Gets value at pointer as an integer
+   return *(rt->memory + address);
+}
+
+#define rtDeref(ptr) rtDeref0(ptr, rt)
+
+
+private Any* //:rtToRaw0
+rtToRaw0(EyrPtr address, RT) {
+// Gets value at pointer as an integer
+   return (Any*)(rt->memory + address);
+}
+
+#define rtToRaw(ptr) rtToRaw0(ptr, rt)
+
+private EyrPtr //:rtPtrFromStack
+rtPtrFromStack(StackAddr stackAddr, RT) {
+   return rt->currFrame + (Unt)stackAddr;
+}
+
+private Unt //:rtStackDeref0
+rtStackDeref0(StackAddr address, RT) {
+// Gets value at stack address within current frame as an integer
+   return *(rt->memory + rtPtrFromStack(address, rt));
+}
+
+#define rtStackDeref(ptr) rtStackDeref0(ptr, rt) //:rtStackDeref
+
+private void //:rtSetOnStack
+rtSetOnStack(StackAddr dest, Unt value, RT) {
+   *(rt->memory + rtPtrFromStack(dest, rt)) = value;
+}
+
+private void
+rtMoveHeapTop(Unt sz, RT) { //:rtMoveHeapTop
+// Moves the top of the heap after an allocation. "sz" is total size in bytes
+   rt->heapTop += sz / 4;
+   if (sz % 4 > 0)  {
+      rt->heapTop++;
+   }
+}
+
+private CallHeader
+getCallFrame(EyrPtr frame, RT) {
+   return (CallHeader){
+      .prevFrame = (EyrPtr)rt->memory[frame + CALLHDR_PREV_FRAME],
+      .ip = rt->memory[frame + CALLHDR_IP]
+   };
+}
+
+private void
+setCallFrame(EyrPtr frame, CallHeader hdr, RT) {
+   rt->memory[frame] = (Unt)hdr.prevFrame;
+   rt->memory[frame + 1] = (Unt)hdr.ip;
+}
+
+private void
+printEyrString(EyrPtr strPtr, Unt len, RT) {
+
+#ifdef DEBUG
+   print("printing Eyr string with address %d and len %d", strPtr, len);
+#endif
+
+   char* chars = (char*)(rt->memory + strPtr);
+   fwrite(chars, 1, len, stdout);
+   printf("\n");
+}
+
+//}}}
+//{{{ Code running
+
+private Unt //:runPlus
+runPlus(Ulong instr, Unt ip, Interpreter* rt) {
+   StackAddr dest = (instr >> 32) & LOWER16BITS;
+   StackAddr op1 = (instr >> 16) & LOWER16BITS;
+   StackAddr op2 = instr & LOWER16BITS;
+   Unt result = (Unt)((Int)rtStackDeref(op1) + (Int)rtStackDeref(op2));
+   print("plus deref %d and %d at %u and %u", (Int)rtStackDeref(op1), (Int)rtStackDeref(op2),
+         rt->currFrame + op1, rt->currFrame + op2)
+   print("+ setting %u to result %d", dest, result)
+   rtSetOnStack(dest, result, rt);
+   return ip + 2;
+}
+
+private Unt //:runMinus
+runMinus(Ulong instr, Unt ip, Interpreter* rt) { return ip + 2; }
+
+private Unt //:runTimes
+runTimes(Ulong instr, Unt ip, Interpreter* rt) {
+   StackAddr dest = (instr >> 32) & LOWER16BITS;
+   StackAddr op1 = (instr >> 16) & LOWER16BITS;
+   StackAddr op2 = instr & LOWER16BITS;
+   print("times deref %d and %d at %u and %u", (Int)rtStackDeref(op1), (Int)rtStackDeref(op2),
+         rt->currFrame + op1, rt->currFrame + op2)
+   Unt result = (Unt)((Int)rtStackDeref(op1) * (Int)rtStackDeref(op2));
+   print("* setting %u to result %u", dest, result)
+   rtSetOnStack(dest, result, rt);
+   return ip + 2;
+}
+
+private Unt
+runDivBy(Ulong instr, Unt ip, Interpreter* rt) { return ip + 2; }
+
+private Unt //:runLoadConstString
+runLoadConstString(Ulong instr, Unt ip, Interpreter* rt) {
+// Stores pointer to a string from the constant pool on the stack
+   StackAddr dest = (StackAddr)((instr >> 32) & LOWER16BITS);
+   EyrPtr constAddr = instr & LOWER32BITS;
+   Int len = rtDeref(constAddr);
+   rtSetOnStack(dest, constAddr + 1, rt); // + 1 b/c the actual string lies after its length
+   rtSetOnStack(dest + 1, len, rt);
+
+   return ip + 2;
+}
+
+private Unt //:runConcatStrings
+runConcatStrings(Ulong instr, Unt ip, Interpreter* rt) {
+   return ip + 2;
+}
+
+private Unt //:runReverseString
+runReverseString(Ulong instr, Unt ip, Interpreter* rt) {
+   return ip + 2;
+}
+
+private Unt //:runSetLocal
+runSetLocal(Ulong instr, Unt ip, Interpreter* restrict rt) {
+// iSetLocal Sets the value of a local variable in the stack
+   StackAddr dest = (instr >> 32) & LOWER16BITS;
+
+   EyrPtr address = rtPtrFromStack(dest, rt);
+   *(rt->memory + address) = (Unt)(instr & LOWER32BITS);
+   return ip + 2;
+}
+
+private Unt //:runBuiltinCall
+runBuiltinCall(Ulong instr, Unt ip, RT) {
+   BUILTINS_TABLE[instr & (0xFF)](rt);
+   return ip + 2;
+}
+
+private Unt //:runCall
+runCall(Ulong instr, Unt ip, RT) {
+// iCall Creates and activates a new call frame.
+   EyrPtr newIp = (Unt)(instr & LOWER32BITS);
+   StackAddr newFrameAddr = (StackAddr)((instr >> 32) & LOWER16BITS);
+
+   // save the current IP to the old frame
+   *(rt->memory + rt->currFrame + CALLHDR_IP) = ip + 2; // +2 to progress after we return from func
+
+#ifdef DEBUG
+   print("frame before call currFrame %u:", rt->currFrame)
+   dbgCallFrames(rt);
+#endif
+
+   EyrPtr const oldFrame = rt->currFrame;
+   rt->currFrame += newFrameAddr;
+   rt->stackTop = CALLHDR_SIZE;
+
+   // create new call frame
+   setCallFrame(
+      rt->currFrame,
+      (CallHeader){.prevFrame = oldFrame },
+      rt
+   );
+
+#ifdef DEBUG
+   print("frame after call:")
+   dbgCallFrames(rt);
+#endif
+
+   return newIp + 2;
+}
+
+private Unt //:runReturn
+runReturn(Ulong instr, Unt ip, RT) {
+// Return from function. The return value, if any, will be stored right over the header
+   //Int returnSize = instr & (0xFF);
+   CallHeader callFrame = getCallFrame(rt->currFrame, rt);
+   if (callFrame.prevFrame == UNT_MAX) {
+      return UNT_MAX; // End of interpretation because we've returned from "main"
+   }
+
+   StackAddr src = (instr >> 16) & LOWER16BITS;
+   print("RETURN got curr frame from %u and prev frame is %u ip %u src %u",
+         rt->currFrame, callFrame.prevFrame, callFrame.ip, src
+   )
+   *(rt->memory + rt->currFrame) = rtStackDeref(src);
+   rt->currFrame = callFrame.prevFrame; // take a call off the stack
+   EyrPtr callerIp = rtDeref(rt->currFrame + CALLHDR_IP); // ip of previous frame
+
+#ifdef DEBUG
+   print("caller's Ip restored as %u", callerIp);
+#endif
+
+   return callerIp;
+}
+
+private Unt //:runPrint iPrint
+runPrint(Ulong instr, Unt ip, RT) {
+   StackAddr local = (instr & LOWER16BITS);
+   EyrPtr addr = rtStackDeref(local);
+   Unt len = rtStackDeref(local + 1);
+   printEyrString(addr, len, rt);
+   return ip + 2;
+}
+
+private Unt //:runPrintInt
+runPrintInt(Ulong instr, Unt ip, RT) {
+   StackAddr local = (instr & LOWER16BITS);
+   Int value = (Int)rtStackDeref(local);
+   print("%d", value);
+   return ip + 2;
+}
+
+//}}}
+//{{{ Interpreter init
+
+#define OP_CODE(opc) (((Ulong)opc) << 58)
+
+private void //:tmpInitEverything
+tmpInitEverything(Interpreter* rt, Arena* a) { // Temporary, for testing purposes.
+   char txt[] = "asdfBBCC";
+   Int const txtLen = sizeof(txt);
+   rt->memory[0] = txtLen - 1;
+   char* dest = (char*)(rt->memory + 1); // 1 to hold the length of the string
+   memcpy(dest, txt, txtLen - 1);
+   *(dest + txtLen) = '\0';
+
+   rt->codeStart = 1 + ceiling4(txtLen)/4; // 1 for the length of string
+
+
+   // 11 + (27 * 10)
+   Ulong code[] =  {
+      OP_CODE(iFn) + ((Ulong)7),
+      OP_CODE(iSetLocal) + (((Ulong) 4) << 32) + ((Ulong) 11), // load int 11 at 0 into local var at 4
+      OP_CODE(iSetLocal) + (((Ulong) 7) << 32) + ((Ulong) 27), // load int at 27 into local var at 7
+      OP_CODE(iSetLocal) + (((Ulong) 8) << 32) + ((Ulong) 10), // load int at 10 into local var at 8
+      OP_CODE(iCall) + (((Ulong) 5) << 32) + ((Ulong) 26),      // Call the multiplication at 5 (with args at 6, 7)
+      OP_CODE(iCall) + (((Ulong) 2) << 32) + ((Ulong) 20),      // Call the addition at 2, args at 4, 5
+      OP_CODE(iPrintInt) + ((Ulong) 2),                         // print the result which will be at 2
+      OP_CODE(iReturn) + ((Ulong) 1),
+
+      // plus at ip = 16
+      OP_CODE(iFn) + ((Ulong)2),
+      OP_CODE(iPlus) + (((Ulong) 2) << 32) + (((Ulong) 2) << 16) + ((Ulong) 3),
+      OP_CODE(iReturn) + (((Ulong) 2) << 16) + ((Ulong) 1), // return address 2 of size 1
+
+      // multiply at ip = 22
+      OP_CODE(iFn) + ((Ulong)2),
+      OP_CODE(iTimes) + (((Ulong) 2) << 32) + (((Ulong) 2) << 16) + ((Ulong) 3),
+      OP_CODE(iReturn) + (((Ulong) 2) << 16) + ((Ulong) 1) // return address 2 of size 1
+   };
+
+   rt->fns = allocateArray(3, EyrPtr, a);
+   rt->fns[0] = rt->codeStart;
+   rt->fns[1] = rt->codeStart + 8;
+   rt->fns[2] = rt->codeStart + 11;
+
+   rt->entryPoint = 0; // index of "main" function
+
+   Int const codeLen = sizeof(code);
+   memcpy(rt->memory + rt->codeStart, code, codeLen);
+
+   rt->heapStart = rt->codeStart + ceiling4(codeLen)/4;
+   rt->heapTop = rt->heapStart;
+
+   print("heap start %d", rt->heapStart);
+   rt->stackBottom = MEMORY_SZ - STACK_SZ;
+   print("stack bottom %u", rt->stackBottom);
+   rt->currFrame = rt->stackBottom;
+   rt->stackTop = CALLHDR_SIZE;
+
+   print("-------")
+}
+
+private void
+tabulateBuiltins() { //:tabulateBuiltins
+   //BuiltinFn* p = BUILTINS_TABLE;
+   //p[0]       = &buiToStringInt;
+}
+
+private void //:initInterpreter
+initInterpreter(Arena* a, OUT Interpreter* rt) {
+   (*rt) = (Interpreter)  {
+      .fns = allocateArray(1, EyrPtr, a),
+      .entryPoint = 0,
+      .heapTop = 50000,
+      .currFrame = 0,
+      .memory = malloc(MEMORY_SZ*4),
+      .errMsg = empty
+   };
+   if (!rt->memory) {
+      rt->errMsg = s("Could not allocate memory");
+      return;
+   }
+   // tmp for development
+   tmpInitEverything(rt, a);
+   setCallFrame(rt->currFrame, (CallHeader){.prevFrame = UNT_MAX, .ip = 0 }, rt);
+}
+
+//}}}
+//}}}
 //{{{ Init
 
 private void //:createProtoCompiler
@@ -7036,6 +7885,172 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 }
 
 //}}}
+//{{{ Interpreter utils
+
+// Must agree in order with instruction types in eyr.internal.h
+char const* instructionNames[] = {
+   "Int", "Long", "Double", "Bool", "String", "_", "misc",
+   "id", "call", "binding", ".fld", "GEP", "GElem",
+   "(do", "Expr", "=", "[]",
+   "alias", "assert", "breakCont", "catch", "defer",
+   "import", "(\\ fn)", "trait", "return", "try",
+   "for", "if", "eif", "impl", "match"
+};
+
+void //:dbgBytecode
+dbgBytecode(RT) {
+// Print the bytecode
+   for (EyrPtr j = rt->codeStart; j < rt->heapStart; j += 2) {
+      Ulong instr = *((Ulong*)(rt->memory + j));
+      Byte opCode = instr >> 58;
+      printf("%d: ", j);
+      switch (opCode) {
+      case iPlus:    {
+         print("+"); break;
+      }
+      case iMinus: {
+         print("-"); break;
+      }
+      case iTimes: {
+         print("*"); break;
+      }
+      case iDivBy: {
+         print("/"); break;
+      }
+      case iPlusFl: {
+         print("floating +"); break;
+      }
+      case iMinusFl: {
+         print("floating -"); break;
+      }
+      case iTimesFl: {
+         print("floating *"); break;
+      }
+      case iDivByFl: {
+         print("floating /"); break;
+      }
+      case iPlusConst: {
+         print("+ const"); break;
+      }
+      case iMinusConst: {
+         print("- const"); break;
+      }
+      case iTimesConst: {
+         print("* const"); break;
+      }
+      case iDivByConst: {
+         print("/ const"); break;
+      }
+      case iPlusFlConst:  {
+         print("+ floating const"); break;
+      }
+      case iMinusFlConst: {
+         print("- floating const"); break;
+      }
+      case iTimesFlConst: {
+         print("* floating const"); break;
+      }
+      case iDivByFlConst: {
+         print("/ floating const"); break;
+      }
+      case iConcatStrs: {
+         print("string +"); break;
+      }
+      case iLoadConstString: {
+         print("load const string"); break;
+      }
+      case iSubstring: {
+         print("substring"); break;
+      }
+      case iReverseString: {
+         print("reverse string"); break;
+      }
+      case iIndexOfSubstring: {
+         print("index of substring"); break;
+      }
+      case iGetFld: {
+         print(".get field"); break;
+      }
+      case iNewList: {
+         print("new list"); break;
+      }
+      case iGetElemPtr: {
+         print(".get pointer to element"); break;
+      }
+      case iAddToList: {
+         print("list add"); break;
+      }
+      case iRemoveFromList: {
+         print("list remove"); break;
+      }
+      case iSwap: {
+         print("swap"); break;
+      }
+      case iConcatLists: {
+         print("list +"); break;
+      }
+      case iJump: {
+         print("jump"); break;
+      }
+      case iBranchLt: {
+         print("branch if <"); break;
+      }
+      case iBranchEq: {
+         print("branch if =="); break;
+      }
+      case iBranchGt: {
+         print("branch if >"); break;
+      }
+      case iShortCircuit: {
+         print("short-circuit"); break;
+      }
+      case iCall: {
+         print("call function"); break;
+      }
+      case iBuiltinCall: {
+         print("call builtin"); break;
+      }
+      case iReturn: {
+         print("return"); break;
+      }
+      case iSetLocal: {
+         print("set local variable"); break;
+      }
+      case iSetBigLocal: {
+         print("set 8-byte local variable"); break;
+      }
+      case iPrint: {
+         print("print"); break;
+      }
+      case iPrintInt: {
+         print("print integer"); break;
+      }
+      case iPrintErr: {
+         print("print err"); break;
+      }
+      case iFn: {
+         print("fn of len %d", instr & 0xFFFFFFFF); break;
+      }
+      }
+   }
+}
+
+void //:dbgCallFrames
+dbgCallFrames(RT) {
+// Print the current call frame header, and the previous frame too (if applicable)
+   CallHeader currFrame = getCallFrame(rt->currFrame, rt);
+
+   printf("Current call frame located at %u: prevFrame = %u, fn code at %u\n",
+         rt->currFrame,
+         currFrame.prevFrame, currFrame.ip);
+   if (currFrame.prevFrame != UNT_MAX) {
+      CallHeader prevFrame = getCallFrame(currFrame.prevFrame, rt);
+      print("Prev call frame: ancestorFrame = %u, execution stopped at ip %u",
+            prevFrame.prevFrame, prevFrame.ip);
+   }
+}
+
+//}}}
 #endif
 //{{{ Tests only
 
@@ -7114,7 +8129,7 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
    if (statsA.wasError != statsB.wasError || (!endsWith(statsA.errMsg, statsB.errMsg))) {
       return -1;
    }
-   Int const commonLength = MIN(statsA.nodesLen, statsB.nodesLen);
+   Int const commonLength = MIN(statsA.astLen, statsB.astLen);
    int i = 0;
    for (; i < commonLength; i++) {
       Node nodA = a->ast.c[i];
@@ -7159,5 +8174,72 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
 #endif
 
 //}}}
+
+//}}}
+//{{{ Main
+
+private Interpreter //:compile
+compile(String sourceCode) {
+   Interpreter rt = (Interpreter){ .errMsg = empty };
+   if (sourceCode.len == 0) {
+      return rt;
+   }
+   initCompiler();
+   Arena* a = createArena();
+   Compiler* cm = lexicallyAnalyze(sourceCode, a);
+   if (cm->stats.wasLexerError) {
+      rt.errMsg = str("lexer error");
+      return rt;
+   }
+
+   cm = parse(cm, a);
+   if (cm->stats.wasError) {
+      rt.errMsg = str("parse error");
+      return rt;
+   }
+
+   initInterpreter(cm->a, OUT &rt);
+   return rt;
+}
+
+private Interpreter //:eyrCompileFile
+compileFile(String fn) {
+   Interpreter rt = (Interpreter){ .errMsg = empty };
+   if (fn.len == 0) {
+      return rt;
+   }
+   initCompiler();
+   Arena* a = createArena();
+   String sourceCode = readSourceFile(fn, a);
+   deleteArena(a);
+   return compile(sourceCode);
+}
+
+private void //:interpretCode
+interpretCode(RT) {
+   EyrPtr ip = rt->fns[rt->entryPoint]; // skipping the function size
+   //print("entry point ip %d fn len is %d", ip, rtDeref(ip))
+   EyrPtr entryPointSentinel = ip + 2*rtDeref(ip) + 2; // *2 because fn length is in instructions (8 bytes)
+   ip += 2; // CONSUME the iFn
+   print("starting at ip = %d entry point sentinel %d", ip, entryPointSentinel);
+   while (ip < 34) {
+      Ulong instr = *((Ulong*)(rt->memory + ip));
+      //print("at ip %d opcode %d", ip, instr >> 58)
+      ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, rt);
+   }
+   print("finished with ip = %u", ip)
+}
+
+void //:tech_sozonov_eyr_runFile
+tech_sozonov_eyr_runFile(String filename) {
+   Interpreter rt = compileFile(filename);
+   interpretCode(&rt);
+}
+
+void //:tech_sozonov_eyr_run
+tech_sozonov_eyr_run(String sourceCode) {
+   Interpreter rt = compile(sourceCode);
+   interpretCode(&rt);
+}
 
 //}}}

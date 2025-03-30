@@ -3,9 +3,8 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include "../include/eyrc.h"
-#include "../libeyr.h"
-#include "eyrTest.h"
+#include "../include/libeyr.h"
+#include "lexerTest.h"
 
 //{{{ Tokens
 

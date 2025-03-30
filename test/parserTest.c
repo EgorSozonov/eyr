@@ -19,74 +19,138 @@ extern jmp_buf excBuf;
 #define assiFnVarDef       5 // definition of a local var that is a function
 #define assiFnVarUse       6 // usage (NOT an assignment) of a variable that is a function
 
-//{{{ Tokens
+//{{{ Compilation statistics
 
-typedef struct { // :Token
+typedef struct { // :CompStats
+   Int inpLength;
+   Bool wasLexerError;
+
+   Int countNonparsedVars;
+   Int countNonparsedFns;
+   Int countOverloads;
+   Int countOverloadedNames;
+   Int countOperatorFns;
+   Int toksLen;
+   Int nodesLen;
+   Int typesLen;
+   Int loopCounter;
+   Bool wasError;
+   String errMsg;
+   Int listType;
+
+   Int standardTextLen; // length of standardText
+   Int firstParsedName; // the name index for the first parsed word
+   Int firstBuiltin;    // the name for the first built-in word in standardStrings
+} CompStats;
+
+//}}}
+//{{{ AST nodes
+
+// AST nodes
+#define nodVar          7  // pl1 = index into @vars.
+                           // pl2 = iff pl3 = assiFnVarUse, assiFnVarDef then fnId
+                           // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
+                           // of the "assi" constants
+#define nodCall         8  // pl1 =
+                           //   index into @functions (after type resolution) when pl3 = callNormal,
+                           //   into @monos if pl3 = callMonomorph,
+                           //   into @vars if pl3 = callVar
+                           //     pl2 = arg count, pl3 = one of "call" constants.
+                           // iff pl3 = callField, then pl1 = nameId, pl2 = 0
+
+// Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
+#define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
+                           // inner scope. See parser tests for examples
+#define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
+#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the inner
+                           // right side, which is always an atom, nodExpr or a nodDataAlloc
+#define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
+
+#define nodAssert      13  // pl1 = 1 iff it's a debug assert
+#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
+                           // It's a cinue iff it's >= BIG
+#define nodCatch       15  // `catch e {`
+#define nodImport      16  // This is for test files only, no need to import anything in main
+#define nodFnDef       17  // pl1 = index into @functions
+#define nodDef         18  // pl1 = entityId, pl3 = nameId. For non-function compile-time consts
+#define nodTrait       19
+#define nodReturn      20
+#define nodTry         21
+#define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
+                           // have a label in codegen; pl3 = number of nodes to skip to get to body
+
+#define nodIf          23
+#define nodIfClause    24  // pl3 = "ifcl" constants
+#define nodImpl        25
+#define nodMatch       26  // pattern matching on sum type tag
+#define countAstForms  27  // sentinel
+
+#define countSpanForms (countAstForms - nodScope)
+
+#define metaDoc         1  // Doc comments
+#define metaDefault     2  // Default values for type arguments
+
+
+// :OperatorType
+// Values must exactly agree in order with the operatorSymbols array in the tl.c file.
+// The order is defined by ASCII. Operator is bitwise <=> it ends with dot
+#define opBitwiseNeg      0 // !. bitwise negation
+#define opNotEqual        1 // !=
+#define opBoolNeg         2 // !
+#define opSize            3 // #
+#define opToString        4 // $
+#define opRemainder       5 // %
+#define opBitwiseAnd      6 // &&. bitwise "and"
+#define opBoolAnd         7 // &&  logical "and"
+#define opRef             8 // '  References
+#define opTimesExt        9 // *:
+#define opTimes          10 // * Multiplication and nullable pointers
+#define opIncrement      11 // ++
+#define opPlusExt        12 // +:
+#define opPlus           13 // +
+#define opDecrement      14 // --
+#define opMinusExt       15 // -:
+#define opMinus          16 // -
+#define opNegate         17 // -
+#define opDivByExt       18 // /:
+#define opIntersect      19 // /\   type-level trait intersection ?
+#define opDivBy          20 // /
+#define opBitShiftL      21 // <<.
+#define opComparator     22 // <=>
+#define opLTZero         23 // <0   less than zero
+#define opLTEQ           24 // <=
+#define opLessTh         25 // <
+#define opRefEquality    26 // ===
+#define opEquality       27 // ==
+#define opBitShiftR      28 // >>.  unsigned right bit shift
+#define opGTZero         29 // >0   greater than zero
+#define opGTEQ           30 // >=
+#define opGreaterTh      31 // >
+#define opNullCoalesce   32 // ?:   null coalescing operator
+#define opQuestionMark   33 // ?   Initially nullable pointers
+#define opAwait          34 // @
+#define opBitwiseXor     35 // ^.   bitwise XOR
+#define opBitwiseOr      36 // ||.  bitwise or
+#define opBoolOr         37 // ||   logical or
+#define opGetElem        38 // Get list element
+#define opGetElemPtr     39 // Get pointer to list element
+#define countOperators   40 // sentinel
+
+constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
+
+typedef struct Compiler Compiler;
+
+typedef struct { // :Node
    Unt tp : 6;
-   Unt lenBts: 26;
-   Unt startBt;
-   Unt pl1;
-   Unt pl2;
-} Token;
+   Unt pl3: 26;
+   Int pl1;
+   Int pl2;
+} Node;
 
-
-// :Token types
-// The following group of variants are transferred to the AST byte for byte, with no analysis
-// Their values must exactly correspond with the initial group of variants in "Node"
-// The largest value must be stored in "topVerbatimTokenVariant" constant
-#define tokInt          0
-#define tokLong         1
-#define tokDouble       2
-#define tokBool         3  // pl2 = value (1 or 0)
-#define tokString       4
-
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
-                           // Also stands for "Void" among the primitive types
-#define tokWord         6  // pl1 = nameId (index in the string table). pl2 = 1 iff followed by $
-#define tokTypeName     7  // pl1 same as tokWord
-#define tokTypeVar      8  // pl1 same as tokWord. The `$A`
-#define tokKwArg        9  // pl2 = same as tokWord. The ":argName"
-#define tokOperator    10  // pl1 = nameId = operId, pl2 = precedence. `+`
-#define tokFieldAcc    11  // pl2 = nameId
-
-// Statement or subexpr span types. pl2 = count of inner tokens
-#define tokStmt        12  // firstSpanTokenType
-#define tokClause      13  // Element of a comma-separated list
-#define tokDef         14  // Compile-time known constant's definition. pl1 == 2 iff type def
-#define tokParens      15  // subexpressions and struct/sum type instances
-#define tokTypeCall    16  // `(Tu Int Str)`
-#define tokData        17  // []
-#define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
-#define tokAccessIn    19  // The internal `[]` block inside an accessor
-#define tokAssignment  20
-#define tokAssignRight 21  // Right-hand side of assignment
-#define tokAlias       22
-#define tokAssert      23
-#define tokBreakCont   24  // pl1 = 1 iff it's a continue
-#define tokTrait       25
-#define tokImport      26  // For test files and package decls
-#define tokReturn      27
-
-// Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       28  // `(do ...)` firstScopeTokenType
-#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      30  // `eif ... {`
-#define tokElse        31  // `else { `
-#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
-#define tokFn          33  // `{{ a Int -> Str } body)`. pl1 = entityId
-#define tokFnParams    34  //  `{ a Int -> Str }`. pl1 = entityId
-#define tokTry         35  // `(try`
-#define tokCatch       36  // `(catch e MyExc:`
-#define tokImpl        37
-#define tokFor         38
-#define tokEach        39
-
-#define topVerbatimTokenVariant tokString
-#define topVerbatimType     tokMisc
-#define voidType            tokMisc
-#define firstSpanTokenType  tokStmt
-#define firstScopeTokenType tokScope
-#define countSyntaxForms    (tokEach + 1)
+typedef struct { // :SourceLoc
+   Int startBt;
+   Int lenBts;
+} SourceLoc;
 
 //}}}
 //}}}
