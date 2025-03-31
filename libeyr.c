@@ -31,7 +31,6 @@ typedef tech_sozonov_eyr_String String;
 #define StackUnt Stackuint32_t
 #define InListUlong InListuint64_t
 #define InListUnt InListuint32_t
-#define Any void
 #define Arr(T) T*
 #define AARG(var, T) var, sizeof(var)/sizeof(T) // For passing array args to functions with length
 #define null NULL
@@ -81,7 +80,7 @@ private void* allocateOnArena(size_t, Arena*);
 #define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
-#define RT Interpreter* restrict rt
+#define VM VirtMachine* restrict vm
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
@@ -689,7 +688,7 @@ calculateChunkSize(size_t allocSize) { //:calculateChunkSize
    return mallocMemory - 32;
 }
 
-private Any*
+private void*
 allocateOnArena(size_t allocSize, Arena* a) { //:allocateOnArena
 // Allocate memory in the arena, malloc'ing a new chunk if needed
    if ((size_t)a->currInd + allocSize >= a->currChunk->size) {
@@ -716,7 +715,7 @@ allocateOnArena(size_t allocSize, Arena* a) { //:allocateOnArena
       }
 
    }
-   Any* result = (Any*)(a->currChunk->memory + (a->currInd));
+   void* result = (void*)(a->currChunk->memory + (a->currInd));
    a->currInd += allocSize;
    if (allocSize % 4 != 0)  {
       a->currInd += (4 - (allocSize % 4));
@@ -2257,8 +2256,8 @@ void dbgTypeFrames(TExpr* st);
 void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
 void dbgScopes0(Scopes* scopes);
-defstruct(Interpreter);
-void dbgCallFrames(RT);
+defstruct(VirtMachine);
+void dbgCallFrames(VM);
 
 #endif
 
@@ -2800,9 +2799,8 @@ wordChunk(SRC, LX) { //:wordChunk
 private void
 mbCloseAssignRight(BtToken* top, CM) { //:mbCloseAssignRight
 // Handles the case we are closing a tokAssignRight: we need to close its parent tokAssignment!
-   if (top->tp != tokAssignRight) {
-      return;
-   }
+   if (top->tp != tokAssignRight)
+      { return; }
    setStmtSpanLength(top->tokenInd, cm);
 #ifdef SAFETY
    VALIDATEI(cm->lexBtrack->len > 0 &&
@@ -2819,9 +2817,8 @@ lxCloseFnDef(BtToken* top, CM) { //:lxCloseFnDef
 // Handles the case we are closing a function definition: we need to close its parent tokAssignment!
    LBtToken* bt = cm->lexBtrack;
    setStmtSpanLength(top->tokenInd, cm);
-   if (bt->len == 0 || last(bt).tp != tokAssignRight) {
-      return;
-   }
+   if (bt->len == 0 || last(bt).tp != tokAssignRight)
+      { return; }
    *top = removeLast(bt); // the tokAssignRight
    setStmtSpanLength(top->tokenInd, cm);
 
@@ -3113,9 +3110,8 @@ lexNewline(SRC, LX) { //:lexNewline
 
    lx->i++;    // CONSUME the LF
    while (lx->i < lx->stats.inpLength) {
-      if (!isSpace(CURR_BT)) {
-         break;
-      }
+      if (!isSpace(CURR_BT))
+         { break; }
       lx->i++; // CONSUME a space or tab
    }
 }
@@ -6905,6 +6901,11 @@ cgToplevelFn(Function fn, CM, CG) {
    }
 }
 
+private void
+generateBuiltinsForExe(CG) {
+   
+}
+
 private void //:generateMainCode
 generateMainCode(CG) {
    Compiler* cm = cg->cm;
@@ -6935,10 +6936,9 @@ generateCode(CM) {
 
 //}}}
 //}}}
-//{{{ Interpreter
-//{{{ Constants & types
+//{{{ VirtMachine
+//{{{ Instructions (opcodes) 
 
-// Instructions (opcodes)
 // An instruction is 8 byte long and consists of 6-bit opcode and some data
 // Notation: [A] is a 2-byte stack address, it's signed and is measured relative to currFrame
 //         [~A] is a 3-byte constant or offset
@@ -6989,6 +6989,7 @@ generateCode(CM) {
 #define countInstructions 42 // sentinel value
 
 #define UNT_MAX 4294967295
+constexpr Int STACK_SZ = 64000; // in units of 4 bytes, so 256 KB
 
 typedef int16_t StackAddr; //:StackAddr Offset from "currFrame" in units of 4 bytes.
 typedef uint32_t EyrPtr;   //:EyrPtr Pointers are aligned to 4 bytes
@@ -6996,25 +6997,18 @@ typedef uint32_t EyrPtr;   //:EyrPtr Pointers are aligned to 4 bytes
                            // interpret it as negative iff it's an iReturn? But then better
                            // to interpret is as positive but within the prev stack frame.
 
-struct Interpreter {   //:Interpreter
+struct VirtMachine {   //:VirtMachine
    EyrPtr ip; // current instruction pointer
+   Arr(Unt) code;
 
    Arr(EyrPtr) fns;   // indices into @code. Immutable
    Int entryPoint; // index into @fns to find the main function. Immutable
 
-   // memory is 16GB in size, segmented as follows:
-   // [constants code        heap         --> (free space) <-- stack1 stack2 ... stackN]
-   //  ^0        ^codeStart  ^heapStart  ^heapTop              ^bottomStack
-   EyrPtr codeStart; // const after init
-   EyrPtr heapStart; // const after init
-   EyrPtr heapTop;
-   EyrPtr stackBottom;
-
+   Arr(Unt) stack;
    EyrPtr currFrame;   // this will be thread-local
    StackAddr stackTop; // this too
 
    String errMsg; // in case of error this won't be empty
-   Arr(Unt) memory;
 };
 
 
@@ -7037,16 +7031,16 @@ constexpr Int CALLHDR_SIZE = sizeof(CallHeader)/4;
 
 #define countBuiltins 1
 
-typedef void (*BuiltinFn)(Interpreter*);
+typedef void (*BuiltinFn)(VirtMachine*);
 BuiltinFn BUILTINS_TABLE[countBuiltins]; // filled in by "tabulateBuiltins"
 #define EYR_NULL 0
 
 //}}}
-//{{{ Runtime (virtual table)
+//{{{ Runtime (virtual machine)
 
-typedef Unt (*InterpreterFn)(Ulong, Unt, Interpreter* restrict);
-#define RT Interpreter* restrict rt
-#define RUN_FN(name) private Unt name(Ulong instr, Unt ip, RT);
+typedef Unt (*VirtMachineFn)(Ulong, Unt, VirtMachine* restrict);
+#define VM VirtMachine* restrict vm
+#define RUN_FN(name) private Unt name(Ulong instr, Unt ip, VM);
 #define UNT_MAX 4294967295 // 2^32 - 1
 
 RUN_FN(runPlus) RUN_FN(runMinus) RUN_FN(runTimes) RUN_FN(runDivBy)
@@ -7054,7 +7048,7 @@ RUN_FN(runLoadConstString) RUN_FN(runNewString) RUN_FN(runConcatStrings) RUN_FN(
 RUN_FN(runSetLocal) RUN_FN(runBuiltinCall) RUN_FN(runCall) RUN_FN(runReturn)
 RUN_FN(runPrint) RUN_FN(runPrintInt)
 
-private InterpreterFn const INTERPRET_TABLE[countInstructions] = {
+private VirtMachineFn const INTERPRET_TABLE[countInstructions] = {
    [iPlus]       = &runPlus,
    [iTimes]      = &runTimes,
    [iMinus]      = &runMinus,
@@ -7091,275 +7085,128 @@ private InterpreterFn const INTERPRET_TABLE[countInstructions] = {
 //}}}
 //{{{ Utils
 
-#define DEFINE_INTERPRETER_LIST_TYPE(T)\
+#define DEFINE_VM_LIST_HEADER(T)\
 typedef struct {\
+   Arr(T) c;\
    Int len;\
    Int cap;\
-   Arr(T) c;\
-} RtList##T;
+} VmList##T;
 
-#define DEFINE_INTERPRETER_LIST_CONSTRUCTOR(T)             \
-private RtList##T createRtList##T(Int initCap, Arena* a) { \
-   return (RtList##T){                            \
+#define DEFINE_VM_LIST_CONSTRUCTOR(T)             \
+private VmList##T createVmList##T(Int initCap, Arena* a) { \
+   return (VmList##T){                            \
       .c = allocateArray(initCap, T, a),   \
       .len = 0, .cap = initCap };             \
+}\
+
+#define DEFINE_VM_LIST(T, fieldName)             \
+private void addVm##fieldName(T newItem, VirtMachine* restrict vm) {\
+   if (vm->fieldName.len < vm->fieldName.cap) {\
+      memcpy((T*)(vm->fieldName.cont) + (vm->fieldName.len), &newItem, sizeof(T));\
+   } else {\
+      T* newContent = allocateArray(2*(vm->fieldName.cap), T, vm->aName);\
+      memcpy(newContent, vm->fieldName.cont, vm->fieldName.len*sizeof(T));\
+      memcpy((T*)(newContent) + (vm->fieldName.len), &newItem, sizeof(T));\
+      vm->fieldName.cap *= 2;\
+      vm->fieldName.cont = newContent;\
+   }\
+   vm->fieldName.len += 1;\
 }
 
-#define DEFINE_INTERPRETER_LIST(fieldName, T, aName)         \
-   private void pushCg##fieldName(T newItem, Interpreter* rt) {\
-      if (rt->fieldName.len < rt->fieldName.cap) {\
-         memcpy((T*)(rt->fieldName.cont) + (rt->fieldName.len), &newItem, sizeof(T));\
-      } else {\
-         T* newContent = allocateArray(2*(rt->fieldName.cap), T, rt->aName);\
-         memcpy(newContent, rt->fieldName.cont, rt->fieldName.len*sizeof(T));\
-         memcpy((T*)(newContent) + (rt->fieldName.len), &newItem, sizeof(T));\
-         rt->fieldName.cap *= 2;\
-         rt->fieldName.cont = newContent;\
-      }\
-      rt->fieldName.len += 1;\
-   }
+
+DEFINE_VM_LIST_HEADER(Ulong)
+DEFINE_VM_LIST_CONSTRUCTOR(Ulong)
 
 
-DEFINE_INTERPRETER_LIST_TYPE(Ulong)
-DEFINE_INTERPRETER_LIST_CONSTRUCTOR(Ulong) //:createRtListEmitFrame
-constexpr Int STACK_SZ = 64000; // in units of 4 bytes, so 256 KB
-constexpr Long MEMORY_SZ = 4'000'000'000; // in units of 4 bytes, so 16 GB
-
-private Unt //:rtDeref0
-rtDeref0(EyrPtr address, RT) {
+private Unt
+vmDeref0(EyrPtr address, VM) {
 // Gets value at pointer as an integer
-   return *(rt->memory + address);
+   return *(vm->memory + address);
 }
 
-#define rtDeref(ptr) rtDeref0(ptr, rt)
+#define vmDeref(ptr) vmDeref0(ptr, vm)
 
 
-private Any* //:rtToRaw0
-rtToRaw0(EyrPtr address, RT) {
+private void*
+vmToRaw0(EyrPtr address, VM) {
 // Gets value at pointer as an integer
-   return (Any*)(rt->memory + address);
+   return (void*)(vm->memory + address);
 }
 
-#define rtToRaw(ptr) rtToRaw0(ptr, rt)
+#define vmToRaw(ptr) vmToRaw0(ptr, vm)
 
-private EyrPtr //:rtPtrFromStack
-rtPtrFromStack(StackAddr stackAddr, RT) {
-   return rt->currFrame + (Unt)stackAddr;
+private EyrPtr //:vmPtrFromStack
+vmPtrFromStack(StackAddr stackAddr, VM) {
+   return vm->currFrame + (Unt)stackAddr;
 }
 
-private Unt //:rtStackDeref0
-rtStackDeref0(StackAddr address, RT) {
+private Unt
+vmStackDeref0(StackAddr address, VM) {
 // Gets value at stack address within current frame as an integer
-   return *(rt->memory + rtPtrFromStack(address, rt));
+   return *(vm->memory + vmPtrFromStack(address, vm));
 }
 
-#define rtStackDeref(ptr) rtStackDeref0(ptr, rt) //:rtStackDeref
+#define vmStackDeref(ptr) vmStackDeref0(ptr, VM) //:vmStackDeref
 
 private void //:rtSetOnStack
-rtSetOnStack(StackAddr dest, Unt value, RT) {
-   *(rt->memory + rtPtrFromStack(dest, rt)) = value;
+vmSetOnStack(StackAddr dest, Unt value, VM) {
+   *(vm->memory + vmPtrFromStack(dest, VM)) = value;
 }
 
 private void
-rtMoveHeapTop(Unt sz, RT) { //:rtMoveHeapTop
+vmMoveHeapTop(Unt sz, VM) { //:rtMoveHeapTop
 // Moves the top of the heap after an allocation. "sz" is total size in bytes
-   rt->heapTop += sz / 4;
-   if (sz % 4 > 0)  {
-      rt->heapTop++;
-   }
+   vm->heapTop += sz / 4;
+   if (sz % 4 > 0)
+      { vm->heapTop++; }
 }
 
 private CallHeader
-getCallFrame(EyrPtr frame, RT) {
+getCallFrame(EyrPtr frame, VM) {
    return (CallHeader){
-      .prevFrame = (EyrPtr)rt->memory[frame + CALLHDR_PREV_FRAME],
-      .ip = rt->memory[frame + CALLHDR_IP]
+      .prevFrame = (EyrPtr)vm->memory[frame + CALLHDR_PREV_FRAME],
+      .ip = vm->memory[frame + CALLHDR_IP]
    };
 }
 
 private void
-setCallFrame(EyrPtr frame, CallHeader hdr, RT) {
-   rt->memory[frame] = (Unt)hdr.prevFrame;
-   rt->memory[frame + 1] = (Unt)hdr.ip;
+setCallFrame(EyrPtr frame, CallHeader hdr, VM) {
+   vm->memory[frame] = (Unt)hdr.prevFrame;
+   vm->memory[frame + 1] = (Unt)hdr.ip;
 }
 
 private void
-printEyrString(EyrPtr strPtr, Unt len, RT) {
+printEyrString(EyrPtr strPtr, Unt len, VM) {
 
 #ifdef DEBUG
    print("printing Eyr string with address %d and len %d", strPtr, len);
 #endif
 
-   char* chars = (char*)(rt->memory + strPtr);
+   char* chars = (char*)(vm->memory + strPtr);
    fwrite(chars, 1, len, stdout);
    printf("\n");
 }
 
 //}}}
-//{{{ Code running
-
-private Unt //:runPlus
-runPlus(Ulong instr, Unt ip, Interpreter* rt) {
-   StackAddr dest = (instr >> 32) & LOWER16BITS;
-   StackAddr op1 = (instr >> 16) & LOWER16BITS;
-   StackAddr op2 = instr & LOWER16BITS;
-   Unt result = (Unt)((Int)rtStackDeref(op1) + (Int)rtStackDeref(op2));
-   print("plus deref %d and %d at %u and %u", (Int)rtStackDeref(op1), (Int)rtStackDeref(op2),
-         rt->currFrame + op1, rt->currFrame + op2)
-   print("+ setting %u to result %d", dest, result)
-   rtSetOnStack(dest, result, rt);
-   return ip + 2;
-}
-
-private Unt //:runMinus
-runMinus(Ulong instr, Unt ip, Interpreter* rt) { return ip + 2; }
-
-private Unt //:runTimes
-runTimes(Ulong instr, Unt ip, Interpreter* rt) {
-   StackAddr dest = (instr >> 32) & LOWER16BITS;
-   StackAddr op1 = (instr >> 16) & LOWER16BITS;
-   StackAddr op2 = instr & LOWER16BITS;
-   print("times deref %d and %d at %u and %u", (Int)rtStackDeref(op1), (Int)rtStackDeref(op2),
-         rt->currFrame + op1, rt->currFrame + op2)
-   Unt result = (Unt)((Int)rtStackDeref(op1) * (Int)rtStackDeref(op2));
-   print("* setting %u to result %u", dest, result)
-   rtSetOnStack(dest, result, rt);
-   return ip + 2;
-}
-
-private Unt
-runDivBy(Ulong instr, Unt ip, Interpreter* rt) { return ip + 2; }
-
-private Unt //:runLoadConstString
-runLoadConstString(Ulong instr, Unt ip, Interpreter* rt) {
-// Stores pointer to a string from the constant pool on the stack
-   StackAddr dest = (StackAddr)((instr >> 32) & LOWER16BITS);
-   EyrPtr constAddr = instr & LOWER32BITS;
-   Int len = rtDeref(constAddr);
-   rtSetOnStack(dest, constAddr + 1, rt); // + 1 b/c the actual string lies after its length
-   rtSetOnStack(dest + 1, len, rt);
-
-   return ip + 2;
-}
-
-private Unt //:runConcatStrings
-runConcatStrings(Ulong instr, Unt ip, Interpreter* rt) {
-   return ip + 2;
-}
-
-private Unt //:runReverseString
-runReverseString(Ulong instr, Unt ip, Interpreter* rt) {
-   return ip + 2;
-}
-
-private Unt //:runSetLocal
-runSetLocal(Ulong instr, Unt ip, Interpreter* restrict rt) {
-// iSetLocal Sets the value of a local variable in the stack
-   StackAddr dest = (instr >> 32) & LOWER16BITS;
-
-   EyrPtr address = rtPtrFromStack(dest, rt);
-   *(rt->memory + address) = (Unt)(instr & LOWER32BITS);
-   return ip + 2;
-}
-
-private Unt //:runBuiltinCall
-runBuiltinCall(Ulong instr, Unt ip, RT) {
-   BUILTINS_TABLE[instr & (0xFF)](rt);
-   return ip + 2;
-}
-
-private Unt //:runCall
-runCall(Ulong instr, Unt ip, RT) {
-// iCall Creates and activates a new call frame.
-   EyrPtr newIp = (Unt)(instr & LOWER32BITS);
-   StackAddr newFrameAddr = (StackAddr)((instr >> 32) & LOWER16BITS);
-
-   // save the current IP to the old frame
-   *(rt->memory + rt->currFrame + CALLHDR_IP) = ip + 2; // +2 to progress after we return from func
-
-#ifdef DEBUG
-   print("frame before call currFrame %u:", rt->currFrame)
-   dbgCallFrames(rt);
-#endif
-
-   EyrPtr const oldFrame = rt->currFrame;
-   rt->currFrame += newFrameAddr;
-   rt->stackTop = CALLHDR_SIZE;
-
-   // create new call frame
-   setCallFrame(
-      rt->currFrame,
-      (CallHeader){.prevFrame = oldFrame },
-      rt
-   );
-
-#ifdef DEBUG
-   print("frame after call:")
-   dbgCallFrames(rt);
-#endif
-
-   return newIp + 2;
-}
-
-private Unt //:runReturn
-runReturn(Ulong instr, Unt ip, RT) {
-// Return from function. The return value, if any, will be stored right over the header
-   //Int returnSize = instr & (0xFF);
-   CallHeader callFrame = getCallFrame(rt->currFrame, rt);
-   if (callFrame.prevFrame == UNT_MAX) {
-      return UNT_MAX; // End of interpretation because we've returned from "main"
-   }
-
-   StackAddr src = (instr >> 16) & LOWER16BITS;
-   print("RETURN got curr frame from %u and prev frame is %u ip %u src %u",
-         rt->currFrame, callFrame.prevFrame, callFrame.ip, src
-   )
-   *(rt->memory + rt->currFrame) = rtStackDeref(src);
-   rt->currFrame = callFrame.prevFrame; // take a call off the stack
-   EyrPtr callerIp = rtDeref(rt->currFrame + CALLHDR_IP); // ip of previous frame
-
-#ifdef DEBUG
-   print("caller's Ip restored as %u", callerIp);
-#endif
-
-   return callerIp;
-}
-
-private Unt //:runPrint iPrint
-runPrint(Ulong instr, Unt ip, RT) {
-   StackAddr local = (instr & LOWER16BITS);
-   EyrPtr addr = rtStackDeref(local);
-   Unt len = rtStackDeref(local + 1);
-   printEyrString(addr, len, rt);
-   return ip + 2;
-}
-
-private Unt //:runPrintInt
-runPrintInt(Ulong instr, Unt ip, RT) {
-   StackAddr local = (instr & LOWER16BITS);
-   Int value = (Int)rtStackDeref(local);
-   print("%d", value);
-   return ip + 2;
-}
-
-//}}}
-//{{{ Interpreter init
+//{{{ VirtMachine init
 
 #define OP_CODE(opc) (((Ulong)opc) << 58)
 
-private void //:tmpInitEverything
-tmpInitEverything(Interpreter* rt, Arena* a) { // Temporary, for testing purposes.
+private void //:tmpCode
+tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    char txt[] = "asdfBBCC";
    Int const txtLen = sizeof(txt);
-   rt->memory[0] = txtLen - 1;
-   char* dest = (char*)(rt->memory + 1); // 1 to hold the length of the string
+   vm->memory[0] = txtLen - 1;
+   char* dest = (char*)(vm->memory + 1); // 1 to hold the length of the string
    memcpy(dest, txt, txtLen - 1);
    *(dest + txtLen) = '\0';
 
-   rt->codeStart = 1 + ceiling4(txtLen)/4; // 1 for the length of string
+   vm->codeStart = 1 + ceiling4(txtLen)/4; // 1 for the length of string
 
 
+   /////////////////
    // 11 + (27 * 10)
+   /////////////////
    Ulong code[] =  {
       OP_CODE(iFn) + ((Ulong)7),
       OP_CODE(iSetLocal) + (((Ulong) 4) << 32) + ((Ulong) 11), // load int 11 at 0 into local var at 4
@@ -7381,24 +7228,24 @@ tmpInitEverything(Interpreter* rt, Arena* a) { // Temporary, for testing purpose
       OP_CODE(iReturn) + (((Ulong) 2) << 16) + ((Ulong) 1) // return address 2 of size 1
    };
 
-   rt->fns = allocateArray(3, EyrPtr, a);
-   rt->fns[0] = rt->codeStart;
-   rt->fns[1] = rt->codeStart + 8;
-   rt->fns[2] = rt->codeStart + 11;
+   vm->fns = allocateArray(3, EyrPtr, a);
+   vm->fns[0] = vm->codeStart;
+   vm->fns[1] = vm->codeStart + 8;
+   vm->fns[2] = vm->codeStart + 11;
 
-   rt->entryPoint = 0; // index of "main" function
+   vm->entryPoint = 0; // index of "main" function
 
    Int const codeLen = sizeof(code);
-   memcpy(rt->memory + rt->codeStart, code, codeLen);
+   memcpy(vm->memory + vm->codeStart, code, codeLen);
 
-   rt->heapStart = rt->codeStart + ceiling4(codeLen)/4;
-   rt->heapTop = rt->heapStart;
+   vm->heapStart = vm->codeStart + ceiling4(codeLen)/4;
+   vm->heapTop = vm->heapStart;
 
-   print("heap start %d", rt->heapStart);
-   rt->stackBottom = MEMORY_SZ - STACK_SZ;
-   print("stack bottom %u", rt->stackBottom);
-   rt->currFrame = rt->stackBottom;
-   rt->stackTop = CALLHDR_SIZE;
+   print("heap start %d", vm->heapStart);
+   vm->stackBottom = MEMORY_SZ - STACK_SZ;
+   print("stack bottom %u", vm->stackBottom);
+   vm->currFrame = vm->stackBottom;
+   vm->stackTop = CALLHDR_SIZE;
 
    print("-------")
 }
@@ -7409,23 +7256,172 @@ tabulateBuiltins() { //:tabulateBuiltins
    //p[0]       = &buiToStringInt;
 }
 
-private void //:initInterpreter
-initInterpreter(Arena* a, OUT Interpreter* rt) {
-   (*rt) = (Interpreter)  {
+private void //:initVirtMachine
+initVirtMachine(Arr(Unt) code, Arena* a, OUT VirtMachine* VM) {
+   (*vm) = (VirtMachine)  {
+      .ip = 0,
+      .code = code,
       .fns = allocateArray(1, EyrPtr, a),
       .entryPoint = 0,
-      .heapTop = 50000,
+      .stack = malloc(STACK_SZ*4),
       .currFrame = 0,
-      .memory = malloc(MEMORY_SZ*4),
+      .stackTop = 0,
       .errMsg = empty
    };
-   if (!rt->memory) {
-      rt->errMsg = s("Could not allocate memory");
+   if (!vm->code) {
+      vm->errMsg = s("Could not allocate memory");
       return;
    }
-   // tmp for development
-   tmpInitEverything(rt, a);
-   setCallFrame(rt->currFrame, (CallHeader){.prevFrame = UNT_MAX, .ip = 0 }, rt);
+   /////// tmp for development
+   tmpCode(rt, a);
+   ///////////////////////////
+   setCallFrame(vm->currFrame, (CallHeader){.prevFrame = UNT_MAX, .ip = 0 }, VM);
+}
+
+//}}}
+//{{{ Code running
+
+private Unt //:runPlus
+runPlus(Ulong instr, Unt ip, VirtMachine* VM) {
+   StackAddr dest = (instr >> 32) & LOWER16BITS;
+   StackAddr op1 = (instr >> 16) & LOWER16BITS;
+   StackAddr op2 = instr & LOWER16BITS;
+   Unt result = (Unt)((Int)vmStackDeref(op1) + (Int)vmStackDeref(op2));
+   print("plus deref %d and %d at %u and %u", (Int)vmStackDeref(op1), (Int)vmStackDeref(op2),
+         vm->currFrame + op1, vm->currFrame + op2)
+   print("+ setting %u to result %d", dest, result)
+   vmSetOnStack(dest, result, VM);
+   return ip + 2;
+}
+
+private Unt //:runMinus
+runMinus(Ulong instr, Unt ip, VirtMachine* VM) { return ip + 2; }
+
+private Unt //:runTimes
+runTimes(Ulong instr, Unt ip, VirtMachine* VM) {
+   StackAddr dest = (instr >> 32) & LOWER16BITS;
+   StackAddr op1 = (instr >> 16) & LOWER16BITS;
+   StackAddr op2 = instr & LOWER16BITS;
+   print("times deref %d and %d at %u and %u", (Int)vmStackDeref(op1), (Int)vmStackDeref(op2),
+         vm->currFrame + op1, vm->currFrame + op2)
+   Unt result = (Unt)((Int)vmStackDeref(op1) * (Int)vmStackDeref(op2));
+   print("* setting %u to result %u", dest, result)
+   vmSetOnStack(dest, result, VM);
+   return ip + 2;
+}
+
+private Unt //:runDivBy
+runDivBy(Ulong instr, Unt ip, VirtMachine* VM) { return ip + 2; }
+
+private Unt //:runLoadConstString
+runLoadConstString(Ulong instr, Unt ip, VirtMachine* VM) {
+// Stores pointer to a string from the constant pool on the stack
+   StackAddr dest = (StackAddr)((instr >> 32) & LOWER16BITS);
+   EyrPtr constAddr = instr & LOWER32BITS;
+   Int len = vmDeref(constAddr);
+   vmSetOnStack(dest, constAddr + 1, vm); // + 1 b/c the actual string lies after its length
+   vmSetOnStack(dest + 1, len, vm);
+
+   return ip + 2;
+}
+
+private Unt //:runConcatStrings
+runConcatStrings(Ulong instr, Unt ip, VirtMachine* VM) {
+   return ip + 2;
+}
+
+private Unt //:runReverseString
+runReverseString(Ulong instr, Unt ip, VirtMachine* VM) {
+   return ip + 2;
+}
+
+private Unt //:runSetLocal
+runSetLocal(Ulong instr, Unt ip, VirtMachine* restrict VM) {
+// iSetLocal Sets the value of a local variable in the stack
+   StackAddr dest = (instr >> 32) & LOWER16BITS;
+
+   EyrPtr address = vmPtrFromStack(dest, VM);
+   *(vm->memory + address) = (Unt)(instr & LOWER32BITS);
+   return ip + 2;
+}
+
+private Unt //:runBuiltinCall
+runBuiltinCall(Ulong instr, Unt ip, VM) {
+   BUILTINS_TABLE[instr & (0xFF)](vm);
+   return ip + 2;
+}
+
+private Unt //:runCall
+runCall(Ulong instr, Unt ip, VM) {
+// iCall Creates and activates a new call frame.
+   EyrPtr newIp = (Unt)(instr & LOWER32BITS);
+   StackAddr newFrameAddr = (StackAddr)((instr >> 32) & LOWER16BITS);
+
+   // save the current IP to the old frame
+   *(vm->memory + vm->currFrame + CALLHDR_IP) = ip + 2; // +2 to progress after we return from func
+
+#ifdef DEBUG
+   print("frame before call currFrame %u:", vm->currFrame)
+   dbgCallFrames(vm);
+#endif
+
+   EyrPtr const oldFrame = vm->currFrame;
+   vm->currFrame += newFrameAddr;
+   vm->stackTop = CALLHDR_SIZE;
+
+   // create new call frame
+   setCallFrame(
+      vm->currFrame,
+      (CallHeader){.prevFrame = oldFrame },
+      vm
+   );
+
+#ifdef DEBUG
+   print("frame after call:")
+   dbgCallFrames(vm);
+#endif
+
+   return newIp + 2;
+}
+
+private Unt //:runReturn
+runReturn(Ulong instr, Unt ip, VM) {
+// Return from function. The return value, if any, will be stored right over the header
+   //Int returnSize = instr & (0xFF);
+   CallHeader callFrame = getCallFrame(vm->currFrame, vm);
+   if (callFrame.prevFrame == UNT_MAX)
+      { return UNT_MAX; } // End of interpretation because we've returned from "main"
+
+   StackAddr src = (instr >> 16) & LOWER16BITS;
+   print("RETURN got curr frame from %u and prev frame is %u ip %u src %u",
+         vm->currFrame, callFrame.prevFrame, callFrame.ip, src
+   )
+   *(vm->memory + vm->currFrame) = vmStackDeref(src);
+   vm->currFrame = callFrame.prevFrame; // take a call off the stack
+   EyrPtr callerIp = vmDeref(vm->currFrame + CALLHDR_IP); // ip of previous frame
+
+#ifdef DEBUG
+   print("caller's Ip restored as %u", callerIp);
+#endif
+
+   return callerIp;
+}
+
+private Unt //:runPrint iPrint
+runPrint(Ulong instr, Unt ip, VM) {
+   StackAddr local = (instr & LOWER16BITS);
+   EyrPtr addr = vmStackDeref(local);
+   Unt len = vmStackDeref(local + 1);
+   printEyrString(addr, len, vm);
+   return ip + 2;
+}
+
+private Unt //:runPrintInt
+runPrintInt(Ulong instr, Unt ip, VM) {
+   StackAddr local = (instr & LOWER16BITS);
+   Int value = (Int)vmStackDeref(local);
+   print("%d", value);
+   return ip + 2;
 }
 
 //}}}
@@ -7471,7 +7467,7 @@ initCompiler() {
 // This function should only be called once, at compiler init.
 // Its results are global shared const.
    static_assert(TYPE_PREFIX_LEN == sizeof(TypeHeader)/4 + 1, "Sizeof TypeHeader check");
-   static_assert(sizeof(TypeId) == 4, "C added useless padding to opaque id TypeId!");
+   static_assert(sizeof(TypeId) == 4, "C has added useless some padding to opaque id TypeId!");
 
    if (_wasInit)
       { return; }
@@ -7974,7 +7970,7 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 }
 
 //}}}
-//{{{ Interpreter utils
+//{{{ Virtual machine utils
 
 // Must agree in order with instruction types in eyr.internal.h
 char const* instructionNames[] = {
@@ -7987,10 +7983,10 @@ char const* instructionNames[] = {
 };
 
 void //:dbgBytecode
-dbgBytecode(RT) {
+dbgBytecode(VM) {
 // Print the bytecode
-   for (EyrPtr j = rt->codeStart; j < rt->heapStart; j += 2) {
-      Ulong instr = *((Ulong*)(rt->memory + j));
+   for (EyrPtr j = vm->codeStart; j < vm->heapStart; j += 2) {
+      Ulong instr = *((Ulong*)(vm->memory + j));
       Byte opCode = instr >> 58;
       printf("%d: ", j);
       switch (opCode) {
@@ -8125,25 +8121,27 @@ dbgBytecode(RT) {
 }
 
 void //:dbgCallFrames
-dbgCallFrames(RT) {
+dbgCallFrames(VM) {
 // Print the current call frame header, and the previous frame too (if applicable)
-   CallHeader currFrame = getCallFrame(rt->currFrame, rt);
+   CallHeader currFrame = getCallFrame(vm->currFrame, VM);
 
    printf("Current call frame located at %u: prevFrame = %u, fn code at %u\n",
-         rt->currFrame,
+         vm->currFrame,
          currFrame.prevFrame, currFrame.ip);
    if (currFrame.prevFrame != UNT_MAX) {
-      CallHeader prevFrame = getCallFrame(currFrame.prevFrame, rt);
+      CallHeader prevFrame = getCallFrame(currFrame.prevFrame, VM);
       print("Prev call frame: ancestorFrame = %u, execution stopped at ip %u",
             prevFrame.prevFrame, prevFrame.ip);
    }
 }
 
 //}}}
+
 #endif
 //{{{ Tests only
 
 #ifdef TEST
+
 //{{{ Definitions
 
 #define S   70000000 // A constant larger than the largest allowed file size.
@@ -8209,7 +8207,8 @@ importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
 
 void
 importTestFns(Arr(Int) types, Int countTypes,
-              Arr(TestEntityImport) imports, Int const countImports, Arena* a, OUT CM) {
+              Arr(TestEntityImport) imports, Int const countImports, Arena* a, OUT CM
+) {
    if (countImports == 0)
       { return; }
 
@@ -8283,36 +8282,34 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
 //}}}
 //{{{ Main
 
-private Interpreter //:compile
+private VirtMachine //:compile
 compile(String sourceCode) {
-   Interpreter rt = (Interpreter){ .errMsg = empty };
-   if (sourceCode.len == 0) {
-      return rt;
-   }
+   VirtMachine vm = (VirtMachine){ .errMsg = empty };
+   if (sourceCode.len == 0)
+      { return vm; }
    initCompiler();
    Arena* a = createArena();
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
    if (cm->stats.wasLexerError) {
-      rt.errMsg = str("lexer error");
-      return rt;
+      vm.errMsg = str("lexer error");
+      return vm;
    }
 
    cm = parse(cm, a);
    if (cm->stats.wasError) {
-      rt.errMsg = str("parse error");
-      return rt;
+      vm.errMsg = str("parse error");
+      return vm;
    }
 
-   initInterpreter(cm->a, OUT &rt);
-   return rt;
+   initVirtMachine(cm->a, OUT &vm);
+   return vm;
 }
 
-private Interpreter //:eyrCompileFile
+private VirtMachine //:compileFile
 compileFile(String fn) {
-   Interpreter rt = (Interpreter){ .errMsg = empty };
-   if (fn.len == 0) {
-      return rt;
-   }
+   VirtMachine vm = (VirtMachine){ .errMsg = empty };
+   if (fn.len == 0)
+      { return vm; }
    initCompiler();
    Arena* a = createArena();
    String sourceCode = readSourceFile(fn, a);
@@ -8321,30 +8318,59 @@ compileFile(String fn) {
 }
 
 private void //:interpretCode
-interpretCode(RT) {
-   EyrPtr ip = rt->fns[rt->entryPoint]; // skipping the function size
-   //print("entry point ip %d fn len is %d", ip, rtDeref(ip))
-   EyrPtr entryPointSentinel = ip + 2*rtDeref(ip) + 2; // *2 because fn length is in instructions (8 bytes)
+interpretCode(VM) {
+   EyrPtr ip = vm->fns[vm->entryPoint]; // skipping the function size
+   EyrPtr entryPointSentinel = ip + 2*vmDeref(ip) + 2; // *2 because fn length is in instructions (8 bytes)
    ip += 2; // CONSUME the iFn
    print("starting at ip = %d entry point sentinel %d", ip, entryPointSentinel);
    while (ip < 34) {
-      Ulong instr = *((Ulong*)(rt->memory + ip));
+      Ulong instr = *((Ulong*)(vm->memory + ip));
       //print("at ip %d opcode %d", ip, instr >> 58)
-      ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, rt);
+      ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, VM);
    }
    print("finished with ip = %u", ip)
 }
 
 void //:tech_sozonov_eyr_runFile
 tech_sozonov_eyr_runFile(String filename) {
-   Interpreter rt = compileFile(filename);
-   interpretCode(&rt);
+   VirtMachine vm = compileFile(filename);
+   interpretCode(&vm);
 }
 
 void //:tech_sozonov_eyr_run
 tech_sozonov_eyr_run(String sourceCode) {
-   Interpreter rt = compile(sourceCode);
-   interpretCode(&rt);
+   VirtMachine vm = compile(sourceCode);
+   interpretCode(&vm);
 }
+
+
+#ifndef TEST
+
+Int //:main
+main(int argc, char** argv) {
+   Arena* a = createArena();
+
+//~   String sourceCode = s("def main = {{} a = 78; a .print;}");
+//~   VirtMachine vm = compile(sourceCode);
+   VirtMachine vm;
+   initVirtMachine(a, OUT &vm);
+   
+   dbgBytecode(&vm);
+   print("------- Unt max %u", UNT_MAX)
+
+   interpretCode(&vm);
+   //eyrRun(&vm);
+
+   printf("SHOULD BE 281\n");
+
+   cleanup:
+   deleteArena(a);
+
+
+   return 0;
+}
+
+#endif
+
 
 //}}}

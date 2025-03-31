@@ -8,7 +8,7 @@ endif
 
 .PHONY: all clean help lexerTest parserTest codegenTest tests
 
-CC=gcc --std=gnu2x
+CC=gcc --std=c2x
 CONFIG=-g3
 WARN=-Wpedantic -Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
@@ -17,8 +17,8 @@ SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
 OPT=-march=native
 TEST_LIBS=-lm
-LIBS=-lm -lgccjit
-APP=eyrc
+LIBS=-lm
+APP=libeyr
 
 RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS)
@@ -27,7 +27,7 @@ TEST_INCLUDES = -iquote test
 TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DTEST -DSAFETY 
 COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(TEST_LIBS)
 
-DEBUG_FLAGS = $(TEST_FLAGS) -g3 -DDEBUG -DSAFETY
+DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DSAFETY 
 COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS)
 
 
@@ -43,10 +43,11 @@ $(DEBUG_TGT):
 
 all: $(DEBUG_TGT) ## Build the whole compiler
 / clear
-/ $(COMPILE_DEBUG) -o $(EXE) $(APP).c libeyr.c
+/ $(COMPILE_DEBUG) -o $(EXE) $(APP).c
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
+/ $(EXE)
 
 
 clean: ## Delete cached build results
