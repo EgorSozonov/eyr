@@ -3,19 +3,20 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include "../include/eyrc.h"
-#include "../eyrc.internal.h"
-#include "eyrTest.h"
 #include <setjmp.h>
+#include "../include/libeyr.h"
+#include "codegenTest.h"
 
 //{{{ Definitions
 
-typedef struct {
-    String name;
-    String input;
-    String expectedOutput;
-} CodegenTest;
+typedef struct Codegen Codegen;
 
+typedef struct {
+  String name;
+   Codegen* test;
+   Int countInstructions;
+   Arr(Unt) control;
+} CodegenTest;
 
 typedef struct {
     String name;
@@ -344,7 +345,7 @@ CodegenTestSet* coreFormTests(Arena* a) {
 //}}}
 int main(int argc, char** argv) {
     printf("----------------------------\n");
-    printf("--  CODEGEN TEST  --\n");
+    printf("    --  CODEGEN TEST  --\n");
     printf("----------------------------\n");
 
     TestContext ct = (TestContext){ .countTests = 0, .countPassed = 0, .a = createArena() };

@@ -17,11 +17,12 @@ extern jmp_buf excBuf;
 #define callMonomorph  3 // monomorphized version of a generic function
 #define callGetElem    4
 
+typedef struct Codegen Codegen;
+
 typedef struct { //:ParserTest
    String name;
-   Compiler* test;
-   Compiler* control;
-   Bool compareLocsToo;
+   Codegen* test;
+   Arr(Unt) control;
 } ParserTest;
 
 
@@ -141,15 +142,13 @@ private ParserTest createTestWithLocs0(String name, String input, Arr(Node) node
    ParserTest theTest = createTest0(name, input, nodes, countNodes, types, countTypes, entities,
                             countEntities, a);
    CompStats stats = getStats(theTest.control);
-   if (stats.wasLexerError) {
-      return theTest;
-   }
+   if (stats.wasLexerError)
+      { return theTest; }
    for (Int j = 0; j < countLocs; ++j) {
       SourceLoc loc = locs[j];
       loc.startBt += stats.standardTextLen;
       setLoc(loc, j, theTest.control);
    }
-   theTest.compareLocsToo = true;
    return theTest;
 }
 

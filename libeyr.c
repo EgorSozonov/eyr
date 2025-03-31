@@ -1693,7 +1693,6 @@ minPositiveOf(Int count, ...) {
 }
 
 //}}}
-//}}}
 //{{{ Generics
 
 DEFINE_LIST(Int)
@@ -1790,6 +1789,7 @@ private void dbgLNode(LNode*, Arena*);
    )(X, Y)
 
 
+//}}}
 //}}}
 //{{{ Internal types
 
@@ -2018,9 +2018,6 @@ typedef struct { //:TypeHeader
 #define TYPE_PREFIX_LEN 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 
 #define typeOf(x) (TypeId){.v = x}
-
-//}}}
-//{{{ Proto compiler
 
 private Compiler PROTO = {
       .sourceCode = null,
@@ -6936,7 +6933,7 @@ generateCode(CM) {
 
 //}}}
 //}}}
-//{{{ VirtMachine
+//{{{ Virtual machine
 //{{{ Instructions (opcodes) 
 
 // An instruction is 8 byte long and consists of 6-bit opcode and some data
@@ -7425,61 +7422,6 @@ runPrintInt(Ulong instr, Unt ip, VM) {
 }
 
 //}}}
-//}}}
-//{{{ Init
-
-private void //:createProtoCompiler
-createProtoCompiler(OUT Compiler* proto, Arena* a) {
-// Creates a proto-compiler, which is used not for compilation but as a seed value to be cloned
-// for every source code module. The proto-compiler contains the following data:
-// - types that are sufficient for the built-in operators
-// - entities with the built-in operator entities
-// - overloadIds with counts
-   LUnt* st = createLUnt(16, a);
-   (*proto) = (Compiler){
-      .vars = createInListVar(32, a),
-      .functions = createInListFunction(8, a),
-      .sourceCode = str(standardText),
-      .stringTable = st, .stringDict = createStringDict(128, a),
-      .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
-      .activeBindings = allocateArray(countOperators, Int, a),
-      .rawOverloads = createMultiAssocList(a),
-      .stats = (CompStats) {
-         .loopCounter = 0,
-         .standardTextLen = sizeof(standardText) - 1,
-         .firstParsedName = (strSentinel + countOperators),
-         .firstBuiltin = countOperators,
-         .countOverloads = PROTO.stats.countOverloads,
-         .countOverloadedNames = PROTO.stats.countOverloadedNames,
-         .wasLexerError = false, .wasError = false, .errMsg = empty
-      },
-      .a = a
-   };
-
-   // operators are always active, and take up the initial chunk of stringTable
-   memset(proto->activeBindings, 0xFF, 4*countOperators);
-   createBuiltins(proto);
-}
-
-private void //:initCompiler
-initCompiler() {
-// Definition of the operators, lexer dispatch, parser dispatch etc tables for the compiler.
-// This function should only be called once, at compiler init.
-// Its results are global shared const.
-   static_assert(TYPE_PREFIX_LEN == sizeof(TypeHeader)/4 + 1, "Sizeof TypeHeader check");
-   static_assert(sizeof(TypeId) == 4, "C has added useless some padding to opaque id TypeId!");
-
-   if (_wasInit)
-      { return; }
-
-   populateStringOffsets(standardStringLens, standardOperatorsLength, sizeof(standardStringLens),
-                         OUT standardOffsets);
-   tabulateLexer();
-   Arena* aGlobal = createArena(); // it's ok to leak it. Will be cleaned up on process exit
-   createProtoCompiler(&PROTO, aGlobal);
-   _wasInit = true;
-}
-
 //}}}
 //{{{ Utils for tests & debugging
 
@@ -8281,6 +8223,61 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
 
 //}}}
 //{{{ Main
+//{{{ Init
+
+private void //:createProtoCompiler
+createProtoCompiler(OUT Compiler* proto, Arena* a) {
+// Creates a proto-compiler, which is used not for compilation but as a seed value to be cloned
+// for every source code module. The proto-compiler contains the following data:
+// - types that are sufficient for the built-in operators
+// - entities with the built-in operator entities
+// - overloadIds with counts
+   LUnt* st = createLUnt(16, a);
+   (*proto) = (Compiler){
+      .vars = createInListVar(32, a),
+      .functions = createInListFunction(8, a),
+      .sourceCode = str(standardText),
+      .stringTable = st, .stringDict = createStringDict(128, a),
+      .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
+      .activeBindings = allocateArray(countOperators, Int, a),
+      .rawOverloads = createMultiAssocList(a),
+      .stats = (CompStats) {
+         .loopCounter = 0,
+         .standardTextLen = sizeof(standardText) - 1,
+         .firstParsedName = (strSentinel + countOperators),
+         .firstBuiltin = countOperators,
+         .countOverloads = PROTO.stats.countOverloads,
+         .countOverloadedNames = PROTO.stats.countOverloadedNames,
+         .wasLexerError = false, .wasError = false, .errMsg = empty
+      },
+      .a = a
+   };
+
+   // operators are always active, and take up the initial chunk of stringTable
+   memset(proto->activeBindings, 0xFF, 4*countOperators);
+   createBuiltins(proto);
+}
+
+private void //:initCompiler
+initCompiler() {
+// Definition of the operators, lexer dispatch, parser dispatch etc tables for the compiler.
+// This function should only be called once, at compiler init.
+// Its results are global shared const.
+   static_assert(TYPE_PREFIX_LEN == sizeof(TypeHeader)/4 + 1, "Sizeof TypeHeader check");
+   static_assert(sizeof(TypeId) == 4, "C has added useless some padding to opaque id TypeId!");
+
+   if (_wasInit)
+      { return; }
+
+   populateStringOffsets(standardStringLens, standardOperatorsLength, sizeof(standardStringLens),
+                         OUT standardOffsets);
+   tabulateLexer();
+   Arena* aGlobal = createArena(); // it's ok to leak it. Will be cleaned up on process exit
+   createProtoCompiler(&PROTO, aGlobal);
+   _wasInit = true;
+}
+
+//}}}
 
 private VirtMachine //:compile
 compile(String sourceCode) {
