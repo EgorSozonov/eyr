@@ -7115,22 +7115,14 @@ DEFINE_VM_LIST_HEADER(Ulong)
 DEFINE_VM_LIST_CONSTRUCTOR(Ulong)
 
 
-private Unt
-vmDeref0(EyrPtr address, VM) {
-// Gets value at pointer as an integer
-   return *(vm->memory + address);
-}
-
-#define vmDeref(ptr) vmDeref0(ptr, vm)
-
-
 private void*
-vmToRaw0(EyrPtr address, VM) {
-// Gets value at pointer as an integer
-   return (void*)(vm->memory + address);
+vmGetRef0(EyrPtr address, VM) {
+// Gets pointer's value for a pointer stored in the call stack
+   return (void*)(vm->stack + address);
 }
 
-#define vmToRaw(ptr) vmToRaw0(ptr, vm)
+#define vmGetRef(ptr) vmGetRef0(ptr, vm)
+
 
 private EyrPtr //:vmPtrFromStack
 vmPtrFromStack(StackAddr stackAddr, VM) {
@@ -7140,36 +7132,28 @@ vmPtrFromStack(StackAddr stackAddr, VM) {
 private Unt
 vmStackDeref0(StackAddr address, VM) {
 // Gets value at stack address within current frame as an integer
-   return *(vm->memory + vmPtrFromStack(address, vm));
+   return *(vm->stack + vmPtrFromStack(address, vm));
 }
 
 #define vmStackDeref(ptr) vmStackDeref0(ptr, VM) //:vmStackDeref
 
 private void //:rtSetOnStack
 vmSetOnStack(StackAddr dest, Unt value, VM) {
-   *(vm->memory + vmPtrFromStack(dest, VM)) = value;
-}
-
-private void
-vmMoveHeapTop(Unt sz, VM) { //:rtMoveHeapTop
-// Moves the top of the heap after an allocation. "sz" is total size in bytes
-   vm->heapTop += sz / 4;
-   if (sz % 4 > 0)
-      { vm->heapTop++; }
+   *(vm->stack + vmPtrFromStack(dest, VM)) = value;
 }
 
 private CallHeader
 getCallFrame(EyrPtr frame, VM) {
    return (CallHeader){
-      .prevFrame = (EyrPtr)vm->memory[frame + CALLHDR_PREV_FRAME],
-      .ip = vm->memory[frame + CALLHDR_IP]
+      .prevFrame = (EyrPtr)vm->stack[frame + CALLHDR_PREV_FRAME],
+      .ip = vm->stack[frame + CALLHDR_IP]
    };
 }
 
 private void
 setCallFrame(EyrPtr frame, CallHeader hdr, VM) {
-   vm->memory[frame] = (Unt)hdr.prevFrame;
-   vm->memory[frame + 1] = (Unt)hdr.ip;
+   vm->stack[frame] = (Unt)hdr.prevFrame;
+   vm->stack[frame + 1] = (Unt)hdr.ip;
 }
 
 private void
@@ -7179,7 +7163,7 @@ printEyrString(EyrPtr strPtr, Unt len, VM) {
    print("printing Eyr string with address %d and len %d", strPtr, len);
 #endif
 
-   char* chars = (char*)(vm->memory + strPtr);
+   char* chars = (char*)(vm->stack + strPtr);
    fwrite(chars, 1, len, stdout);
    printf("\n");
 }
@@ -7193,8 +7177,8 @@ private void //:tmpCode
 tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    char txt[] = "asdfBBCC";
    Int const txtLen = sizeof(txt);
-   vm->memory[0] = txtLen - 1;
-   char* dest = (char*)(vm->memory + 1); // 1 to hold the length of the string
+   vm->code[0] = txtLen - 1;
+   char* dest = (char*)(vm->stack + 1); // 1 to hold the length of the string
    memcpy(dest, txt, txtLen - 1);
    *(dest + txtLen) = '\0';
 
@@ -7226,9 +7210,9 @@ tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    };
 
    vm->fns = allocateArray(3, EyrPtr, a);
-   vm->fns[0] = vm->codeStart;
-   vm->fns[1] = vm->codeStart + 8;
-   vm->fns[2] = vm->codeStart + 11;
+   vm->fns[0] = 0;
+   vm->fns[1] = 8;
+   vm->fns[2] = 11;
 
    vm->entryPoint = 0; // index of "main" function
 
@@ -7236,9 +7220,7 @@ tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    vm->bytecode = allocateArray(sizeof(code), a);
    memcpy(vm->bytecode, code, sizeof(code));
 
-   vm->stackBottom = MEMORY_SZ - STACK_SZ;
-   print("stack bottom %u", vm->stackBottom);
-   vm->currFrame = vm->stackBottom;
+   vm->currFrame = 0;
    vm->stackTop = CALLHDR_SIZE;
 
    print("-------")
@@ -7925,7 +7907,7 @@ void //:dbgBytecode
 dbgBytecode(VM) {
 // Print the bytecode
    for (EyrPtr j = vm->codeStart; j < vm->heapStart; j += 2) {
-      Ulong instr = *((Ulong*)(vm->memory + j));
+      Ulong instr = *((Ulong*)(vm->stack + j));
       Byte opCode = instr >> 58;
       printf("%d: ", j);
       switch (opCode) {
@@ -8331,7 +8313,7 @@ interpretCode(VM) {
    ip += 2; // CONSUME the iFn
    print("starting at ip = %d entry point sentinel %d", ip, entryPointSentinel);
    while (ip < 34) {
-      Ulong instr = *((Ulong*)(vm->memory + ip));
+      Ulong instr = *((Ulong*)(vm->code + ip));
       //print("at ip %d opcode %d", ip, instr >> 58)
       ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, VM);
    }

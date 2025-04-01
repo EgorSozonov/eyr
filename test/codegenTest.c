@@ -11,7 +11,6 @@
 
 typedef struct Codegen Codegen;
 
-DEFINE_LIST_HEADER(Ulong)
 DEFINE_LIST(Ulong)
 
 typedef struct { //:CodegenTest
@@ -32,6 +31,35 @@ typedef struct { //:CodegenTestSet
 #define S   70000000 // A constant larger than the largest allowed file size. Separates parsed
                      // names from others
 
+//~#define add(A, X) _Generic((X),\
+//~   LBtToken*: addBtToken,\
+//~   LParseFrame*: addParseFrame,\
+//~   LExprFrame*: addExprFrame,\
+//~   LTypeFrame*: addTypeFrame,\
+//~   LMonomorphization*: addMonomorphization,\
+//~   LTypeLoc*: addTypeLoc,\
+//~   LInt*: addInt,\
+//~   LUnt*: addUnt,\
+//~   LUlong*: addUlong,\
+//~   LNode*: addNode,\
+//~   LSourceLoc*: addSourceLoc,\
+//~   LBtInstr*: addBtInstr\
+//~)(A, X)
+//~
+//~#define removeLast(X) _Generic((X),\
+//~   LBtToken*: removeLastBtToken,\
+//~   LParseFrame*: removeLastParseFrame,\
+//~   LExprFrame*: removeLastExprFrame,\
+//~   LTypeFrame*: removeLastTypeFrame,\
+//~   LInt*: removeLastInt,\
+//~   LUnt*: removeLastUnt,\
+//~   LUlong: removeLastUlong,\
+//~   LNode*: removeLastNode,\
+//~   LSourceLoc*: removeLastSourceLoc,\
+//~   LBtInstr*: removeLastBtInstr\
+//~)(X)
+
+
 
 private CodegenTestSet* createTestSet0(String name, Arena *a, int count, Arr(CodegenTest) tests) {
     CodegenTestSet* result = allocateOnArena(sizeof(CodegenTestSet), a);
@@ -50,21 +78,27 @@ private CodegenTestSet* createTestSet0(String name, Arena *a, int count, Arr(Cod
 typedef struct Codegen Codegen;
 
 private CodegenTest
-createTest0(String name, String sourceCode, Arr(Unt) instrs, Int countInstrs, Arena* a) {
+createTest0(String name, String sourceCode, Arr(Ulong) instrs, Int countInstrs, Arena* a) {
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
 
    initializeParser(cm, a);
    updateStats(cm);
    LUlong* test =  generateBytecode(sourceCode, a);
-   
+   LUlong* control = createLUlong(countInstrs, a);
+   memcpy(control->c, instrs, countInstrs*8);
    
    //importTestFns(types, countTypes, imports, countImports, a, OUT test);
-   return (CodegenTest){ .name = name, .test = test, .control = instrs, .countInstrs = countInstrs };
+   return (CodegenTest){ .name = name, .test = test, .control = control };
 }
 
 //:createTest
 #define createTest(name, sourceCode, instrs) \
    createTest0((name), (sourceCode), (instrs), sizeof(instrs)/sizeof(Ulong), a)
+   
+Int
+compare(CodegenTest test) {
+   return 0;
+}
 
 
 void runCodegenTest(CodegenTest test, TestContext* ct) {
@@ -77,10 +111,7 @@ void runCodegenTest(CodegenTest test, TestContext* ct) {
         print("------------- -----")
         printf("\n\nERROR IN [");
         printStringNoLn(test.name);
-        printf("]\nExpected len = %d: \n", test.expectedOutput.len);
-        printString(test.expectedOutput);
-        printf("\nBut got: len = %d Discrepancy at %d\n", result.len, cmpRes);
-        printString(result);
+        printf("]\n @ %d: \n", cmpRes);
         print("------------- -----")
     }
 }

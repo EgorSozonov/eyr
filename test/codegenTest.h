@@ -213,70 +213,8 @@ CompStats getStats(CM);
 
 #define l(ind, lst) lst->c[e_(ind, lst->len)]
 
-Int
-e_(Int ind, Int len) {
-   if ((Unt)ind < (Unt) len) {
-      return ind;
-   }
-   longjmp(excBuf, 1);
-}
-
-defstruct(BtToken);
-defstruct(ParseFrame);
-defstruct(TypeFrame);
-defstruct(ExprFrame);
-defstruct(Monomorphization);
-defstruct(SourceLoc);
-defstruct(TypeLoc);
-defstruct(Var);
-defstruct(Function);
-defstruct(BtInstr);
-defstruct(EmitFrame);
-
-DEFINE_LIST_HEADER(Int)
-DEFINE_LIST_HEADER(Unt)
 DEFINE_LIST_HEADER(Ulong)
-DEFINE_LIST_HEADER(BtToken)
-DEFINE_LIST_HEADER(Token)
-DEFINE_LIST_HEADER(ParseFrame)
-DEFINE_LIST_HEADER(TypeFrame)
-DEFINE_LIST_HEADER(ExprFrame)
-DEFINE_LIST_HEADER(SourceLoc)
-DEFINE_LIST_HEADER(Node)
-DEFINE_LIST_HEADER(Monomorphization)
-DEFINE_LIST_HEADER(TypeLoc)
-DEFINE_LIST_HEADER(Var)
-DEFINE_LIST_HEADER(Function)
-DEFINE_LIST_HEADER(BtInstr)
-DEFINE_LIST_HEADER(EmitFrame)
 
-#define add(A, X) _Generic((X),\
-   LBtToken*: addBtToken,\
-   LParseFrame*: addParseFrame,\
-   LExprFrame*: addExprFrame,\
-   LTypeFrame*: addTypeFrame,\
-   LMonomorphization*: addMonomorphization,\
-   LTypeLoc*: addTypeLoc,\
-   LInt*: addInt,\
-   LUnt*: addUnt,\
-   LUlong*: addUlong,\
-   LNode*: addNode,\
-   LSourceLoc*: addSourceLoc,\
-   LBtInstr*: addBtInstr\
-)(A, X)
-
-#define removeLast(X) _Generic((X),\
-   LBtToken*: removeLastBtToken,\
-   LParseFrame*: removeLastParseFrame,\
-   LExprFrame*: removeLastExprFrame,\
-   LTypeFrame*: removeLastTypeFrame,\
-   LInt*: removeLastInt,\
-   LUnt*: removeLastUnt,\
-   LUlong: removeLastUlong,\
-   LNode*: removeLastNode,\
-   LSourceLoc*: removeLastSourceLoc,\
-   LBtInstr*: removeLastBtInstr\
-)(X)
 
 //}}}
 //{{{ Lexer tests
