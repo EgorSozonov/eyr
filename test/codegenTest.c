@@ -11,11 +11,13 @@
 
 typedef struct Codegen Codegen;
 
+DEFINE_LIST_HEADER(Ulong)
+DEFINE_LIST(Ulong)
+
 typedef struct { //:CodegenTest
    String name;
-   Codegen* test;
-   Int countInstrs;
-   Arr(Unt) control;
+   LUlong* test;
+   LUlong* control;
 } CodegenTest;
 
 typedef struct { //:CodegenTestSet
@@ -53,7 +55,9 @@ createTest0(String name, String sourceCode, Arr(Unt) instrs, Int countInstrs, Ar
 
    initializeParser(cm, a);
    updateStats(cm);
-   Codegen* test = generateCode(cm);
+   LUlong* test =  generateBytecode(sourceCode, a);
+   
+   
    //importTestFns(types, countTypes, imports, countImports, a, OUT test);
    return (CodegenTest){ .name = name, .test = test, .control = instrs, .countInstrs = countInstrs };
 }

@@ -57,7 +57,7 @@ private Bool endsWith(String a, String b);
 private void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-#define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
+#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
 
@@ -166,6 +166,117 @@ CompStats getStats(CM);
 #else
 #define strSentinel 50
 #endif
+
+//}}}
+//{{{ List
+
+#define DEFINE_LIST_HEADER(T) \
+   typedef struct {\
+      T* c;\
+      Int len;\
+      Int cap;\
+      Arena* arena;\
+   } L##T;\
+   private L ## T * createL ## T (Int initCapacity, Arena* a);\
+   private T removeLast ## T (L##T * st);\
+   private void add ## T (T newItem, L##T * st);
+
+#define DEFINE_LIST(T)\
+   private L##T * createL##T (int initCapacity, Arena* a) {\
+      int capacity = initCapacity < 4 ? 4 : initCapacity;\
+      L##T * result = allocate(L##T, a);\
+      result->cap = capacity;\
+      result->len = 0;\
+      result->arena = a;\
+      T* arr = allocateArray(capacity, T, a);\
+      result->c = arr;\
+      return result;\
+   }\
+   private T removeLast##T (L##T * st) {\
+      st->len--;\
+      return st->c[st->len];\
+   }\
+   private void add##T (T newItem, L##T * st) {\
+      if (st->len < st->cap) {\
+         memcpy((T*)(st->c) + (st->len), &newItem, sizeof(T));\
+      } else {\
+         T* newcent = allocateArray(2*(st->cap), T, st->arena);\
+         memcpy(newcent, st->c, st->len*sizeof(T));\
+         memcpy((T*)(newcent) + (st->len), &newItem, sizeof(T));\
+         st->cap *= 2;\
+         st->c = newcent;\
+      }\
+      st->len++;\
+   }\
+
+#define last(lst) lst->c[lst->len - 1]
+
+#define l(ind, lst) lst->c[e_(ind, lst->len)]
+
+Int
+e_(Int ind, Int len) {
+   if ((Unt)ind < (Unt) len) {
+      return ind;
+   }
+   longjmp(excBuf, 1);
+}
+
+defstruct(BtToken);
+defstruct(ParseFrame);
+defstruct(TypeFrame);
+defstruct(ExprFrame);
+defstruct(Monomorphization);
+defstruct(SourceLoc);
+defstruct(TypeLoc);
+defstruct(Var);
+defstruct(Function);
+defstruct(BtInstr);
+defstruct(EmitFrame);
+
+DEFINE_LIST_HEADER(Int)
+DEFINE_LIST_HEADER(Unt)
+DEFINE_LIST_HEADER(Ulong)
+DEFINE_LIST_HEADER(BtToken)
+DEFINE_LIST_HEADER(Token)
+DEFINE_LIST_HEADER(ParseFrame)
+DEFINE_LIST_HEADER(TypeFrame)
+DEFINE_LIST_HEADER(ExprFrame)
+DEFINE_LIST_HEADER(SourceLoc)
+DEFINE_LIST_HEADER(Node)
+DEFINE_LIST_HEADER(Monomorphization)
+DEFINE_LIST_HEADER(TypeLoc)
+DEFINE_LIST_HEADER(Var)
+DEFINE_LIST_HEADER(Function)
+DEFINE_LIST_HEADER(BtInstr)
+DEFINE_LIST_HEADER(EmitFrame)
+
+#define add(A, X) _Generic((X),\
+   LBtToken*: addBtToken,\
+   LParseFrame*: addParseFrame,\
+   LExprFrame*: addExprFrame,\
+   LTypeFrame*: addTypeFrame,\
+   LMonomorphization*: addMonomorphization,\
+   LTypeLoc*: addTypeLoc,\
+   LInt*: addInt,\
+   LUnt*: addUnt,\
+   LUlong*: addUlong,\
+   LNode*: addNode,\
+   LSourceLoc*: addSourceLoc,\
+   LBtInstr*: addBtInstr\
+)(A, X)
+
+#define removeLast(X) _Generic((X),\
+   LBtToken*: removeLastBtToken,\
+   LParseFrame*: removeLastParseFrame,\
+   LExprFrame*: removeLastExprFrame,\
+   LTypeFrame*: removeLastTypeFrame,\
+   LInt*: removeLastInt,\
+   LUnt*: removeLastUnt,\
+   LUlong: removeLastUlong,\
+   LNode*: removeLastNode,\
+   LSourceLoc*: removeLastSourceLoc,\
+   LBtInstr*: removeLastBtInstr\
+)(X)
 
 //}}}
 //{{{ Lexer tests
@@ -413,6 +524,6 @@ NameId nameOfStandard(Int strId);
 //}}}
 //{{{ Codegen tests
 
-Codegen* generateCode(CM);
+LUlong* generateBytecode(String sourceCode, Arena* a); // return value is nullable!
 
 //}}}

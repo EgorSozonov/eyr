@@ -77,7 +77,7 @@ private Bool endsWith(String a, String b);
 private void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-#define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
+#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
 #define VM VirtMachine* restrict vm
@@ -6996,7 +6996,7 @@ typedef uint32_t EyrPtr;   //:EyrPtr Pointers are aligned to 4 bytes
 
 struct VirtMachine {   //:VirtMachine
    EyrPtr ip; // current instruction pointer
-   Arr(Unt) code;
+   Arr(Ulong) bytecode;
 
    Arr(EyrPtr) fns;   // indices into @code. Immutable
    Int entryPoint; // index into @fns to find the main function. Immutable
@@ -7233,12 +7233,9 @@ tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    vm->entryPoint = 0; // index of "main" function
 
    Int const codeLen = sizeof(code);
-   memcpy(vm->memory + vm->codeStart, code, codeLen);
+   vm->bytecode = allocateArray(sizeof(code), a);
+   memcpy(vm->bytecode, code, sizeof(code));
 
-   vm->heapStart = vm->codeStart + ceiling4(codeLen)/4;
-   vm->heapTop = vm->heapStart;
-
-   print("heap start %d", vm->heapStart);
    vm->stackBottom = MEMORY_SZ - STACK_SZ;
    print("stack bottom %u", vm->stackBottom);
    vm->currFrame = vm->stackBottom;
@@ -7254,10 +7251,10 @@ tabulateBuiltins() { //:tabulateBuiltins
 }
 
 private void //:initVirtMachine
-initVirtMachine(Arr(Unt) code, Arena* a, OUT VirtMachine* VM) {
+initVirtMachine(LUlong bytecode, Arena* a, OUT VirtMachine* VM) {
    (*vm) = (VirtMachine)  {
       .ip = 0,
-      .code = code,
+      .bytecode = bytecode,
       .fns = allocateArray(1, EyrPtr, a),
       .entryPoint = 0,
       .stack = malloc(STACK_SZ*4),
@@ -8279,6 +8276,19 @@ initCompiler() {
 
 //}}}
 
+LUlong* //:generateBytecode
+generateBytecode(String sourceCode, Arena* a) {
+   initCompiler();
+   Compiler* cm = lexicallyAnalyze(sourceCode, a);
+   if (cm->stats.wasLexerError)
+      { return null; }
+   cm = parse(cm, a);
+   if (cm->stats.wasError)
+      { return null; }
+   Codegen* cg = generateCode(cm);
+   return cg->bytecode;
+}
+
 private VirtMachine //:compile
 compile(String sourceCode) {
    VirtMachine vm = (VirtMachine){ .errMsg = empty };
@@ -8297,8 +8307,8 @@ compile(String sourceCode) {
       vm.errMsg = str("parse error");
       return vm;
    }
-
-   initVirtMachine(cm->a, OUT &vm);
+   LUlong* bytecode = generateCode(cm);
+   initVirtMachine(bytecode, cm->a, OUT &vm);
    return vm;
 }
 
@@ -8350,7 +8360,7 @@ main(int argc, char** argv) {
 //~   String sourceCode = s("def main = {{} a = 78; a .print;}");
 //~   VirtMachine vm = compile(sourceCode);
    VirtMachine vm;
-   initVirtMachine(a, OUT &vm);
+   initVirtMachine(null, a, OUT &vm);
    
    dbgBytecode(&vm);
    print("------- Unt max %u", UNT_MAX)
