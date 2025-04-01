@@ -168,38 +168,251 @@ CompStats getStats(CM);
 #endif
 
 //}}}
+//{{{ Lexer tests
+
+void printLexer(LX);
+void createCompiler(Compiler* lx, Arena* a);
+Compiler* lexicallyAnalyze(String input, Arena*);
+private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
+
+#define tokInt          0
+#define tokLong         1
+#define tokDouble       2
+#define tokBool         3  // pl2 = value (1 or 0)
+#define tokString       4
+#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
+
+#define voidType            tokMisc
+
+//}}}
+//{{{ Parser
+//{{{ AST nodes
+
+// AST nodes
+#define nodVar          7  // pl1 = index into @vars.
+                           // pl2 = iff pl3 = assiFnVarUse, assiFnVarDef then fnId
+                           // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
+                           // of the "assi" constants
+#define nodCall         8  // pl1 =
+                           //   index into @functions (after type resolution) when pl3 = callNormal,
+                           //   into @monos if pl3 = callMonomorph,
+                           //   into @vars if pl3 = callVar
+                           //     pl2 = arg count, pl3 = one of "call" constants.
+                           // iff pl3 = callField, then pl1 = nameId, pl2 = 0
+
+// Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
+#define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
+                           // inner scope. See parser tests for examples
+#define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
+#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the inner
+                           // right side, which is always an atom, nodExpr or a nodDataAlloc
+#define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
+
+#define nodAssert      13  // pl1 = 1 iff it's a debug assert
+#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
+                           // It's a cinue iff it's >= BIG
+#define nodCatch       15  // `catch e {`
+#define nodImport      16  // This is for test files only, no need to import anything in main
+#define nodFnDef       17  // pl1 = index into @functions
+#define nodDef         18  // pl1 = entityId, pl3 = nameId. For non-function compile-time consts
+#define nodTrait       19
+#define nodReturn      20
+#define nodTry         21
+#define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
+                           // have a label in codegen; pl3 = number of nodes to skip to get to body
+
+#define nodIf          23
+#define nodIfClause    24  // pl3 = "ifcl" constants
+#define nodImpl        25
+#define nodMatch       26  // pattern matching on sum type tag
+#define countAstForms  27  // sentinel
+
+#define countSpanForms (countAstForms - nodScope)
+
+#define metaDoc         1  // Doc comments
+#define metaDefault     2  // Default values for type arguments
+
+
+// :OperatorType
+// Values must exactly agree in order with the operatorSymbols array in the tl.c file.
+// The order is defined by ASCII. Operator is bitwise <=> it ends with dot
+#define opBitwiseNeg      0 // !. bitwise negation
+#define opNotEqual        1 // !=
+#define opBoolNeg         2 // !
+#define opSize            3 // #
+#define opToString        4 // $
+#define opRemainder       5 // %
+#define opBitwiseAnd      6 // &&. bitwise "and"
+#define opBoolAnd         7 // &&  logical "and"
+#define opRef             8 // '  References
+#define opTimesExt        9 // *:
+#define opTimes          10 // * Multiplication and nullable pointers
+#define opIncrement      11 // ++
+#define opPlusExt        12 // +:
+#define opPlus           13 // +
+#define opDecrement      14 // --
+#define opMinusExt       15 // -:
+#define opMinus          16 // -
+#define opNegate         17 // -
+#define opDivByExt       18 // /:
+#define opIntersect      19 // /\   type-level trait intersection ?
+#define opDivBy          20 // /
+#define opBitShiftL      21 // <<.
+#define opComparator     22 // <=>
+#define opLTZero         23 // <0   less than zero
+#define opLTEQ           24 // <=
+#define opLessTh         25 // <
+#define opRefEquality    26 // ===
+#define opEquality       27 // ==
+#define opBitShiftR      28 // >>.  unsigned right bit shift
+#define opGTZero         29 // >0   greater than zero
+#define opGTEQ           30 // >=
+#define opGreaterTh      31 // >
+#define opNullCoalesce   32 // ?:   null coalescing operator
+#define opQuestionMark   33 // ?   Initially nullable pointers
+#define opAwait          34 // @
+#define opBitwiseXor     35 // ^.   bitwise XOR
+#define opBitwiseOr      36 // ||.  bitwise or
+#define opBoolOr         37 // ||   logical or
+#define opGetElem        38 // Get list element
+#define opGetElemPtr     39 // Get pointer to list element
+#define countOperators   40 // sentinel
+
+constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
+
+typedef struct Compiler Compiler;
+
+typedef struct { // :Node
+   Unt tp : 6;
+   Unt pl3: 26;
+   Int pl1;
+   Int pl2;
+} Node;
+
+//}}}
+
+typedef struct { // :TestEntityImport
+    Int nameInd; // 0, 1 or 2. Corresponds to the "foobarinner" in standardText
+    Int typeInd; // index in the intermediary array of types that is imported alongside
+} TestEntityImport;
+
+typedef struct {
+   Int startBt;
+   Int lenBts;
+} SourceLoc;
+
+#define CM Compiler* restrict cm
+void printParser(Compiler* cm);
+Int tryGetOper0(Int opType, Int typeId, Compiler* protoOvs);
+void createOverloads(CM);
+void initializeParser(Compiler* lx, Arena* a);
+void setParserError(String errMsg, Compiler* restrict cm);
+void updateStats(Compiler* restrict cm);
+Int getBinding(Int id, Compiler* restrict cm);
+void setLoc(SourceLoc loc, Int j, CM);
+void pushIntypes(Int v, CM);
+void importTestFns(Arr(Int) types, Int countTypes,
+                   Arr(TestEntityImport) imports, Int countImports, Arena* a, OUT CM);
+Int equalityParser(Compiler* a, Compiler* b, Bool compareLocsToo);
+void newNode(Node node, SourceLoc loc, CM);
+
+extern char const errBareAtom[];
+extern char const errImportsNonUnique[];
+extern char const errCannotMutateImmutable[];
+extern char const errPrematureEndOfTokens[];
+extern char const errUnexpectedToken[];
+extern char const errInconsistentSpan[];
+extern char const errCoreFormTooShort[];
+extern char const errCoreFormUnexpected[];
+extern char const errCoreFormAssignment[];
+extern char const errCoreFormInappropriate[];
+extern char const errIfLeft[];
+extern char const errIfRight[];
+extern char const errIfEmpty[];
+extern char const errIfMalformed[];
+extern char const errIfElseMustBeLast[];
+extern char const errTypeDefCountNames[];
+extern char const errFnNameAndParams[];
+extern char const errFnDuplicateParams[];
+extern char const errFnMissingBody[];
+extern char const errLoopSyntaxError[];
+extern char const errLoopNoCondition[];
+extern char const errLoopWrongFormInStepper[];
+extern char const errLoopEmptyStepBody[];
+extern char const errLoopBreakOutside[];
+extern char const errBreakContinueTooComplex[];
+extern char const errBreakContinueInvalidDepth[];
+extern char const errDuplicateFunction[];
+extern char const errExpressionError[];
+extern char const errExpressionWrongArgCount[];
+extern char const errExpressionCannotContain[];
+extern char const errExpressionFunctionless[];
+extern char const errExpressionHeadFormOperators[];
+extern char const errTypeDefCannotContain[];
+extern char const errTypeDefError[];
+extern char const errUnknownType[];
+extern char const errUnknownTypeFunction[];
+extern char const errOperatorWrongArity[];
+extern char const errUnknownBinding[];
+extern char const errUnknownFunction[];
+extern char const errIncorrectPrefixSequence[];
+extern char const errOperatorUsedInappropriately[];
+extern char const errAssignment[];
+extern char const errListDifferentEltTypes[];
+extern char const errAssignmentShadowing[];
+extern char const errAssignmentToplevelFn[];
+extern char const errAssignmentLeftSide[];
+extern char const errMutation[];
+extern char const errReturn[];
+extern char const errScope[];
+extern char const errTemp[];
+extern char const errTypeUnknownFirstArg[];
+extern char const errExpectedType[];
+extern char const errUnexpectedType[];
+extern char const errTypeZeroArityOverload[];
+extern char const errTypeNoMatchingOverload[];
+extern char const errTypeWrongArgumentType[];
+extern char const errTypeWrongReturnType[];
+extern char const errTypeMismatch[];
+extern char const errTypeMustBeBool[];
+extern char const errTypeTooManyParameters[];
+extern char const errAssignmentAccessOnToplevel[];
+extern char const errAssignmentToFunctionVar[];
+extern char const errTypeOfNotList[];
+extern char const errTypeOfListIndex[];
+extern char const errTypePolymorphicAssignment[];
+extern char const errTypeGenericCallDoesntUnify[];
+extern char const errTypeFieldNotFound[];
+
+#define S   70000000 // A constant larger than the largest allowed file size.
+extern char const errTypeOfNotList[];
+extern char const errTypeOfListIndex[];
+
+
+#define S   70000000 // A constant larger than the largest allowed file size.
+                // Separates parsed entities from others
+#define I  140000000 // The base index for imported entities/overloads
+#define S2 210000000 // A constant larger than the largest allowed file size.
+                //  Separates parsed entities from others
+#define O  280000000 // The base index for operators
+
+
+
+#define assiVarAssignment  1 // definition of a var
+#define assiTypeDefinition 2 // definition of a type
+#define assiFnParam        3 // introduction of a function parameter
+#define assiReassignment   4 // reassignment to a previously defined var
+#define assiFnVarDef       5 // definition of a local var that is a function
+#define assiFnVarUse       6 // usage (NOT an assignment) of a variable that is a function
+
+
+void parseMain(CM, Arena* a);
+Long longOfDoubleBits(double d);
+NameId nameOfStandard(Int strId);
+
+//}}}
 //{{{ Codegen tests
 
-typedef struct Codegen Codegen;
-
-
-private CodegenTest
-createTest0(String name, String sourceCode, Arr(Unt) instrs, Int countInstrs, Arr(Int) types,
-         Int countTypes, Arr(TestEntityImport) imports, Int countImports, Arena* a
-) {
-// Creates a test with two parsers: one is the init parser (contains all the "imported" bindings and
-// pre-defined nodes), and the other is the output parser (with all the stuff parsed from source code).
-// When the test is run, the init parser will parse the tokens and then will be compared to the
-// expected output parser.
-// Nontrivial: this handles binding ids inside nodes, so that e.g. if the pl1 in nodVar is 1,
-// it will be inserted as 1 + (the number of built-in bindings) etc
-   Compiler* test = lexicallyAnalyze(sourceCode, a);
-
-   CompStats controlStats = getStats(control);
-   if (controlStats.wasLexerError == true) {
-      return (CodegenTest) {
-         .name = name, .test = test, .control = control };
-   }
-   initializeParser(test, a);
-   updateStats(test);
-   importTestFns(types, countTypes, imports, countImports, a, OUT test);
-   return (ParserTest){ .name = name, .test = test, .control = control };
-}
-
-//:createTest
-#define createTest(name, input, nodes, types, entities) \
-   createTest0((name), (input), (nodes), sizeof(nodes)/sizeof(Node), (types), sizeof(types)/4, \
-   (entities), sizeof(entities)/sizeof(TestEntityImport), a)
-
+Codegen* generateCode(CM);
 
 //}}}

@@ -4734,7 +4734,7 @@ finalizeLexer(LX) {
    VALIDATEL(top.spanLevel != slScope && lx->lexBtrack->len == 0, errPunctuationExtraOpening)
 }
 
-private Compiler* //:lexicallyAnalyze
+private Compiler* //:lexicallyAnalyzeInner
 lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
 // Main lexer function. Precondition: the input Byte array has been prepended
 // with StandardText
