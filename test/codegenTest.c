@@ -139,13 +139,13 @@ CodegenTestSet* exprTests(Arena* a) {
             "   a = x + y;\n"
             "};"
          ),
-         (Ulong[]){
+         ((Ulong[]){
             1,
             2,
             3
-         }
+         })
       )
-   });
+   }));
 }
 
 //}}}

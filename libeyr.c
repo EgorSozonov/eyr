@@ -27,8 +27,6 @@ typedef uint16_t Ushort;
 typedef char Byte;
 typedef bool Bool;
 typedef tech_sozonov_eyr_String String;
-#define StackInt Stackint32_t
-#define StackUnt Stackuint32_t
 #define InListUlong InListuint64_t
 #define InListUnt InListuint32_t
 #define Arr(T) T*
@@ -6988,23 +6986,28 @@ generateCode(CM) {
 #define UNT_MAX 4294967295
 constexpr Int STACK_SZ = 64000; // in units of 4 bytes, so 256 KB
 
-typedef int16_t StackAddr; //:StackAddr Offset from "currFrame" in units of 4 bytes.
-typedef uint32_t EyrPtr;   //:EyrPtr Pointers are aligned to 4 bytes
+typedef int16_t FrameOffset; //:FrameOffset Offset from "currFrame" in units of 4 bytes.
+typedef uint32_t StackAddr;  //:StackAddr Offset from the start of @stack
                            // Negative values mean previous stack frame -- useless? Or maybe
                            // interpret it as negative iff it's an iReturn? But then better
                            // to interpret is as positive but within the prev stack frame.
 
-struct VirtMachine {   //:VirtMachine
-   EyrPtr ip; // current instruction pointer
-   Arr(Ulong) bytecode;
+typedef uint32_t CodeInd;  //:CodeInd Offset from the start of @bytecode
 
-   Arr(EyrPtr) fns;   // indices into @code. Immutable
+struct VirtMachine {   //:VirtMachine
+   StackAddr ip; // current instruction pointer
+   
+   Arr(Ulong) bytecode;
+   Int lenCode;
+
+   Arr(CodeInd) fns;   // indices into @bytecode. Immutable
    Int entryPoint; // index into @fns to find the main function. Immutable
 
    Arr(Unt) stack;
-   EyrPtr currFrame;   // this will be thread-local
-   StackAddr stackTop; // this too
-
+   StackAddr currFrame;
+   FrameOffset stackTop;
+   String text;  // string constant pool
+   
    String errMsg; // in case of error this won't be empty
 };
 
@@ -7014,8 +7017,8 @@ struct VirtMachine {   //:VirtMachine
 // New call stacks are allocated right to left, but memory within one grows left to right
 
 typedef struct { //:CallHeader
-   EyrPtr prevFrame;
-   EyrPtr ip;
+   StackAddr prevFrame;
+   StackAddr ip;
 } CallHeader;
 
 // Offset into a call frame header
@@ -7110,54 +7113,62 @@ private void addVm##fieldName(T newItem, VirtMachine* restrict vm) {\
    vm->fieldName.len += 1;\
 }
 
-
 DEFINE_VM_LIST_HEADER(Ulong)
 DEFINE_VM_LIST_CONSTRUCTOR(Ulong)
 
 
 private void*
-vmGetRef0(EyrPtr address, VM) {
+vmGetRefFromStack0(StackAddr address, VM) {
 // Gets pointer's value for a pointer stored in the call stack
    return (void*)(vm->stack + address);
 }
 
-#define vmGetRef(ptr) vmGetRef0(ptr, vm)
+#define vmGetRefFromStack(ptr) vmGetRefFromStack0(ptr, vm)
 
 
-private EyrPtr //:vmPtrFromStack
-vmPtrFromStack(StackAddr stackAddr, VM) {
-   return vm->currFrame + (Unt)stackAddr;
+private Unt
+vmGetIntFromStack0(StackAddr address, VM) {
+// Gets an unsigned int from the call stack
+   return vm->stack[address];
+}
+
+#define vmGetIntFromStack(ptr) vmGetIntFromStack0(ptr, vm)
+
+
+private StackAddr //:vmPtrFromStack
+vmPtrFromStack(FrameOffset frameOffset, VM) {
+   return vm->currFrame + (Unt)frameOffset;
 }
 
 private Unt
-vmStackDeref0(StackAddr address, VM) {
+vmStackDeref0(FrameOffset address, VM) {
 // Gets value at stack address within current frame as an integer
    return *(vm->stack + vmPtrFromStack(address, vm));
 }
 
-#define vmStackDeref(ptr) vmStackDeref0(ptr, VM) //:vmStackDeref
+#define vmStackDeref(ptr) vmStackDeref0(ptr, vm) //:vmStackDeref
 
-private void //:rtSetOnStack
-vmSetOnStack(StackAddr dest, Unt value, VM) {
-   *(vm->stack + vmPtrFromStack(dest, VM)) = value;
+private void //:vmSetOnStack
+vmSetOnStack(FrameOffset dest, Unt value, VM) {
+   *(vm->stack + vmPtrFromStack(dest, vm)) = value;
 }
 
 private CallHeader
-getCallFrame(EyrPtr frame, VM) {
+getCallFrame(StackAddr frame, VM) {
    return (CallHeader){
-      .prevFrame = (EyrPtr)vm->stack[frame + CALLHDR_PREV_FRAME],
+      .prevFrame = (StackAddr)vm->stack[frame + CALLHDR_PREV_FRAME],
       .ip = vm->stack[frame + CALLHDR_IP]
    };
 }
 
 private void
-setCallFrame(EyrPtr frame, CallHeader hdr, VM) {
+setCallFrame(StackAddr frame, CallHeader hdr, VM) {
    vm->stack[frame] = (Unt)hdr.prevFrame;
    vm->stack[frame + 1] = (Unt)hdr.ip;
 }
 
 private void
-printEyrString(EyrPtr strPtr, Unt len, VM) {
+printEyrString(StackAddr strPtr, Unt len, VM) {
 
 #ifdef DEBUG
    print("printing Eyr string with address %d and len %d", strPtr, len);
@@ -7177,13 +7188,7 @@ private void //:tmpCode
 tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    char txt[] = "asdfBBCC";
    Int const txtLen = sizeof(txt);
-   vm->code[0] = txtLen - 1;
-   char* dest = (char*)(vm->stack + 1); // 1 to hold the length of the string
-   memcpy(dest, txt, txtLen - 1);
-   *(dest + txtLen) = '\0';
-
-   vm->codeStart = 1 + ceiling4(txtLen)/4; // 1 for the length of string
-
+   vm->text = (String){.c = allocateOnArena(txtLen, a), .len = txtLen};
 
    /////////////////
    // 11 + (27 * 10)
@@ -7209,7 +7214,7 @@ tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
       OP_CODE(iReturn) + (((Ulong) 2) << 16) + ((Ulong) 1) // return address 2 of size 1
    };
 
-   vm->fns = allocateArray(3, EyrPtr, a);
+   vm->fns = allocateArray(3, StackAddr, a);
    vm->fns[0] = 0;
    vm->fns[1] = 8;
    vm->fns[2] = 11;
@@ -7217,8 +7222,9 @@ tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
    vm->entryPoint = 0; // index of "main" function
 
    Int const codeLen = sizeof(code);
-   vm->bytecode = allocateArray(sizeof(code), a);
-   memcpy(vm->bytecode, code, sizeof(code));
+   print("codelen %d", codeLen);
+   vm->bytecode = allocateArray(codeLen, Ulong, a);
+   memcpy(vm->bytecode, code, codeLen);
 
    vm->currFrame = 0;
    vm->stackTop = CALLHDR_SIZE;
@@ -7233,68 +7239,70 @@ tabulateBuiltins() { //:tabulateBuiltins
 }
 
 private void //:initVirtMachine
-initVirtMachine(LUlong bytecode, Arena* a, OUT VirtMachine* VM) {
+initVirtMachine(Arr(Ulong) bytecode, Int lenCode, Arena* a, OUT VirtMachine* vm) {
    (*vm) = (VirtMachine)  {
       .ip = 0,
       .bytecode = bytecode,
-      .fns = allocateArray(1, EyrPtr, a),
+      .lenCode = lenCode,
+      .fns = allocateArray(1, StackAddr, a),
       .entryPoint = 0,
       .stack = malloc(STACK_SZ*4),
       .currFrame = 0,
       .stackTop = 0,
+      .text = empty,
       .errMsg = empty
    };
-   if (!vm->code) {
-      vm->errMsg = s("Could not allocate memory");
+   if (!vm->bytecode) {
+      vm->errMsg = s("Could not allocate memory for code");
       return;
    }
    /////// tmp for development
-   tmpCode(rt, a);
+   tmpCode(vm, a);
    ///////////////////////////
-   setCallFrame(vm->currFrame, (CallHeader){.prevFrame = UNT_MAX, .ip = 0 }, VM);
+   setCallFrame(vm->currFrame, (CallHeader){.prevFrame = UNT_MAX, .ip = 0 }, vm);
 }
 
 //}}}
 //{{{ Code running
 
 private Unt //:runPlus
-runPlus(Ulong instr, Unt ip, VirtMachine* VM) {
-   StackAddr dest = (instr >> 32) & LOWER16BITS;
-   StackAddr op1 = (instr >> 16) & LOWER16BITS;
-   StackAddr op2 = instr & LOWER16BITS;
+runPlus(Ulong instr, Unt ip, VM) {
+   FrameOffset dest = (instr >> 32) & LOWER16BITS;
+   FrameOffset op1 = (instr >> 16) & LOWER16BITS;
+   FrameOffset op2 = instr & LOWER16BITS;
    Unt result = (Unt)((Int)vmStackDeref(op1) + (Int)vmStackDeref(op2));
    print("plus deref %d and %d at %u and %u", (Int)vmStackDeref(op1), (Int)vmStackDeref(op2),
          vm->currFrame + op1, vm->currFrame + op2)
    print("+ setting %u to result %d", dest, result)
-   vmSetOnStack(dest, result, VM);
+   vmSetOnStack(dest, result, vm);
    return ip + 2;
 }
 
 private Unt //:runMinus
-runMinus(Ulong instr, Unt ip, VirtMachine* VM) { return ip + 2; }
+runMinus(Ulong instr, Unt ip, VM) { return ip + 2; }
 
 private Unt //:runTimes
-runTimes(Ulong instr, Unt ip, VirtMachine* VM) {
-   StackAddr dest = (instr >> 32) & LOWER16BITS;
-   StackAddr op1 = (instr >> 16) & LOWER16BITS;
-   StackAddr op2 = instr & LOWER16BITS;
+runTimes(Ulong instr, Unt ip, VM) {
+   FrameOffset dest = (instr >> 32) & LOWER16BITS;
+   FrameOffset op1 = (instr >> 16) & LOWER16BITS;
+   FrameOffset op2 = instr & LOWER16BITS;
    print("times deref %d and %d at %u and %u", (Int)vmStackDeref(op1), (Int)vmStackDeref(op2),
          vm->currFrame + op1, vm->currFrame + op2)
    Unt result = (Unt)((Int)vmStackDeref(op1) * (Int)vmStackDeref(op2));
    print("* setting %u to result %u", dest, result)
-   vmSetOnStack(dest, result, VM);
+   vmSetOnStack(dest, result, vm);
    return ip + 2;
 }
 
 private Unt //:runDivBy
-runDivBy(Ulong instr, Unt ip, VirtMachine* VM) { return ip + 2; }
+runDivBy(Ulong instr, Unt ip, VM) { return ip + 2; }
 
 private Unt //:runLoadConstString
-runLoadConstString(Ulong instr, Unt ip, VirtMachine* VM) {
+runLoadConstString(Ulong instr, Unt ip, VM) {
 // Stores pointer to a string from the constant pool on the stack
-   StackAddr dest = (StackAddr)((instr >> 32) & LOWER16BITS);
-   EyrPtr constAddr = instr & LOWER32BITS;
-   Int len = vmDeref(constAddr);
+   FrameOffset dest = (FrameOffset)((instr >> 32) & LOWER16BITS);
+   StackAddr constAddr = instr & LOWER32BITS;
+   Int len = vmGetIntFromStack(constAddr);
    vmSetOnStack(dest, constAddr + 1, vm); // + 1 b/c the actual string lies after its length
    vmSetOnStack(dest + 1, len, vm);
 
@@ -7302,22 +7310,22 @@ runLoadConstString(Ulong instr, Unt ip, VirtMachine* VM) {
 }
 
 private Unt //:runConcatStrings
-runConcatStrings(Ulong instr, Unt ip, VirtMachine* VM) {
+runConcatStrings(Ulong instr, Unt ip, VM) {
    return ip + 2;
 }
 
 private Unt //:runReverseString
-runReverseString(Ulong instr, Unt ip, VirtMachine* VM) {
+runReverseString(Ulong instr, Unt ip, VM) {
    return ip + 2;
 }
 
 private Unt //:runSetLocal
-runSetLocal(Ulong instr, Unt ip, VirtMachine* restrict VM) {
+runSetLocal(Ulong instr, Unt ip, VM) {
 // iSetLocal Sets the value of a local variable in the stack
-   StackAddr dest = (instr >> 32) & LOWER16BITS;
+   FrameOffset dest = (instr >> 32) & LOWER16BITS;
 
-   EyrPtr address = vmPtrFromStack(dest, VM);
-   *(vm->memory + address) = (Unt)(instr & LOWER32BITS);
+   StackAddr address = vmPtrFromStack(dest, vm);
+   *(vm->stack + address) = (Unt)(instr & LOWER32BITS);
    return ip + 2;
 }
 
@@ -7330,18 +7338,18 @@ runBuiltinCall(Ulong instr, Unt ip, VM) {
 private Unt //:runCall
 runCall(Ulong instr, Unt ip, VM) {
 // iCall Creates and activates a new call frame.
-   EyrPtr newIp = (Unt)(instr & LOWER32BITS);
-   StackAddr newFrameAddr = (StackAddr)((instr >> 32) & LOWER16BITS);
+   StackAddr newIp = (Unt)(instr & LOWER32BITS);
+   FrameOffset newFrameAddr = (FrameOffset)((instr >> 32) & LOWER16BITS);
 
    // save the current IP to the old frame
-   *(vm->memory + vm->currFrame + CALLHDR_IP) = ip + 2; // +2 to progress after we return from func
+   *(vm->stack + vm->currFrame + CALLHDR_IP) = ip + 2; // +2 to progress after we return from func
 
 #ifdef DEBUG
    print("frame before call currFrame %u:", vm->currFrame)
    dbgCallFrames(vm);
 #endif
 
-   EyrPtr const oldFrame = vm->currFrame;
+   StackAddr const oldFrame = vm->currFrame;
    vm->currFrame += newFrameAddr;
    vm->stackTop = CALLHDR_SIZE;
 
@@ -7368,13 +7376,13 @@ runReturn(Ulong instr, Unt ip, VM) {
    if (callFrame.prevFrame == UNT_MAX)
       { return UNT_MAX; } // End of interpretation because we've returned from "main"
 
-   StackAddr src = (instr >> 16) & LOWER16BITS;
+   FrameOffset src = (instr >> 16) & LOWER16BITS;
    print("RETURN got curr frame from %u and prev frame is %u ip %u src %u",
          vm->currFrame, callFrame.prevFrame, callFrame.ip, src
    )
-   *(vm->memory + vm->currFrame) = vmStackDeref(src);
+   *(vm->stack + vm->currFrame) = vmStackDeref(src);
    vm->currFrame = callFrame.prevFrame; // take a call off the stack
-   EyrPtr callerIp = vmDeref(vm->currFrame + CALLHDR_IP); // ip of previous frame
+   StackAddr callerIp = vmGetIntFromStack(vm->currFrame + CALLHDR_IP); // ip of previous frame
 
 #ifdef DEBUG
    print("caller's Ip restored as %u", callerIp);
@@ -7385,8 +7393,8 @@ runReturn(Ulong instr, Unt ip, VM) {
 
 private Unt //:runPrint iPrint
 runPrint(Ulong instr, Unt ip, VM) {
-   StackAddr local = (instr & LOWER16BITS);
-   EyrPtr addr = vmStackDeref(local);
+   FrameOffset local = (instr & LOWER16BITS);
+   StackAddr addr = vmStackDeref(local);
    Unt len = vmStackDeref(local + 1);
    printEyrString(addr, len, vm);
    return ip + 2;
@@ -7394,7 +7402,7 @@ runPrint(Ulong instr, Unt ip, VM) {
 
 private Unt //:runPrintInt
 runPrintInt(Ulong instr, Unt ip, VM) {
-   StackAddr local = (instr & LOWER16BITS);
+   FrameOffset local = (instr & LOWER16BITS);
    Int value = (Int)vmStackDeref(local);
    print("%d", value);
    return ip + 2;
@@ -7906,8 +7914,8 @@ char const* instructionNames[] = {
 void //:dbgBytecode
 dbgBytecode(VM) {
 // Print the bytecode
-   for (EyrPtr j = vm->codeStart; j < vm->heapStart; j += 2) {
-      Ulong instr = *((Ulong*)(vm->stack + j));
+   for (CodeInd j = 0; j < vm->lenCode; j++) {
+      Ulong instr = vm->bytecode[j];
       Byte opCode = instr >> 58;
       printf("%d: ", j);
       switch (opCode) {
@@ -8044,13 +8052,13 @@ dbgBytecode(VM) {
 void //:dbgCallFrames
 dbgCallFrames(VM) {
 // Print the current call frame header, and the previous frame too (if applicable)
-   CallHeader currFrame = getCallFrame(vm->currFrame, VM);
+   CallHeader currFrame = getCallFrame(vm->currFrame, vm);
 
    printf("Current call frame located at %u: prevFrame = %u, fn code at %u\n",
          vm->currFrame,
          currFrame.prevFrame, currFrame.ip);
    if (currFrame.prevFrame != UNT_MAX) {
-      CallHeader prevFrame = getCallFrame(currFrame.prevFrame, VM);
+      CallHeader prevFrame = getCallFrame(currFrame.prevFrame, vm);
       print("Prev call frame: ancestorFrame = %u, execution stopped at ip %u",
             prevFrame.prevFrame, prevFrame.ip);
    }
@@ -8289,8 +8297,10 @@ compile(String sourceCode) {
       vm.errMsg = str("parse error");
       return vm;
    }
-   LUlong* bytecode = generateCode(cm);
-   initVirtMachine(bytecode, cm->a, OUT &vm);
+   
+   Codegen* cg = generateCode(cm);
+   LUlong* bytecode = cg->bytecode;
+   initVirtMachine(bytecode->c, bytecode->len, cm->a, OUT &vm);
    return vm;
 }
 
@@ -8308,14 +8318,15 @@ compileFile(String fn) {
 
 private void //:interpretCode
 interpretCode(VM) {
-   EyrPtr ip = vm->fns[vm->entryPoint]; // skipping the function size
-   EyrPtr entryPointSentinel = ip + 2*vmDeref(ip) + 2; // *2 because fn length is in instructions (8 bytes)
+   CodeInd ip = vm->fns[vm->entryPoint]; // skipping the function size
+   // *2 because fn length is in instructions (8 bytes)
+   StackAddr entryPointSentinel = ip + 2*vmGetIntFromStack(ip) + 2;
    ip += 2; // CONSUME the iFn
    print("starting at ip = %d entry point sentinel %d", ip, entryPointSentinel);
    while (ip < 34) {
-      Ulong instr = *((Ulong*)(vm->code + ip));
+      Ulong instr = vm->bytecode[ip];
       //print("at ip %d opcode %d", ip, instr >> 58)
-      ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, VM);
+      ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, vm);
    }
    print("finished with ip = %u", ip)
 }
