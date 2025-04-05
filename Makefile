@@ -8,7 +8,7 @@ endif
 
 .PHONY: all clean help lexerTest parserTest codegenTest tests
 
-CC=gcc --std=c2x
+CC=gcc --std=gnu2x
 CONFIG=-g3
 WARN=-Wpedantic -Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
@@ -16,20 +16,19 @@ WARN=-Wpedantic -Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
 SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
 OPT=-march=native
-TEST_LIBS=-lm
-LIBS=-lm
-APP=libeyr
-
-RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
-COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS)
+LIBS_TEST=-lm
+LIBS_EXE=-lm -lgccjit
+APP=eyrc
 
 TEST_INCLUDES = -iquote test
 TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DTEST -DSAFETY 
-COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(TEST_LIBS)
+COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(LIBS_TEST)
 
 DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DSAFETY 
-COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS)
+COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
 
+RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
+COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 
 DEBUG_TGT = _target/debug
 EXE=$(DEBUG_TGT)/$(APP)
@@ -65,7 +64,7 @@ testParser: $(DEBUG_TGT) ## Test the parser & typechecker
 
 
 testCodegen: $(DEBUG_TGT) ## Test the code generator
-/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/codegenTest test/codegenTest.c $(APP).c
+/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/codegenTest test/codegenTest.c libeyr.c
 / $(DEBUG_TGT)/codegenTest
 
 

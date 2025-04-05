@@ -48,7 +48,6 @@ typedef struct Compiler Compiler;
 private void printStringNoLn(String s);
 private void printString(String s);
 
-constexpr String empty = {.c = null, .len = 0};
 private String str(const char* cent);
 private Bool endsWith(String a, String b);
 
@@ -186,120 +185,11 @@ private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a)
 
 //}}}
 //{{{ Parser
-//{{{ AST nodes
-
-// AST nodes
-#define nodVar          7  // pl1 = index into @vars.
-                           // pl2 = iff pl3 = assiFnVarUse, assiFnVarDef then fnId
-                           // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
-                           // of the "assi" constants
-#define nodCall         8  // pl1 =
-                           //   index into @functions (after type resolution) when pl3 = callNormal,
-                           //   into @monos if pl3 = callMonomorph,
-                           //   into @vars if pl3 = callVar
-                           //     pl2 = arg count, pl3 = one of "call" constants.
-                           // iff pl3 = callField, then pl1 = nameId, pl2 = 0
-
-// Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
-#define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
-                           // inner scope. See parser tests for examples
-#define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the inner
-                           // right side, which is always an atom, nodExpr or a nodDataAlloc
-#define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
-
-#define nodAssert      13  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
-                           // It's a cinue iff it's >= BIG
-#define nodCatch       15  // `catch e {`
-#define nodImport      16  // This is for test files only, no need to import anything in main
-#define nodFnDef       17  // pl1 = index into @functions
-#define nodDef         18  // pl1 = entityId, pl3 = nameId. For non-function compile-time consts
-#define nodTrait       19
-#define nodReturn      20
-#define nodTry         21
-#define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
-                           // have a label in codegen; pl3 = number of nodes to skip to get to body
-
-#define nodIf          23
-#define nodIfClause    24  // pl3 = "ifcl" constants
-#define nodImpl        25
-#define nodMatch       26  // pattern matching on sum type tag
-#define countAstForms  27  // sentinel
-
-#define countSpanForms (countAstForms - nodScope)
-
-#define metaDoc         1  // Doc comments
-#define metaDefault     2  // Default values for type arguments
-
-
-// :OperatorType
-// Values must exactly agree in order with the operatorSymbols array in the tl.c file.
-// The order is defined by ASCII. Operator is bitwise <=> it ends with dot
-#define opBitwiseNeg      0 // !. bitwise negation
-#define opNotEqual        1 // !=
-#define opBoolNeg         2 // !
-#define opSize            3 // #
-#define opToString        4 // $
-#define opRemainder       5 // %
-#define opBitwiseAnd      6 // &&. bitwise "and"
-#define opBoolAnd         7 // &&  logical "and"
-#define opRef             8 // '  References
-#define opTimesExt        9 // *:
-#define opTimes          10 // * Multiplication and nullable pointers
-#define opIncrement      11 // ++
-#define opPlusExt        12 // +:
-#define opPlus           13 // +
-#define opDecrement      14 // --
-#define opMinusExt       15 // -:
-#define opMinus          16 // -
-#define opNegate         17 // -
-#define opDivByExt       18 // /:
-#define opIntersect      19 // /\   type-level trait intersection ?
-#define opDivBy          20 // /
-#define opBitShiftL      21 // <<.
-#define opComparator     22 // <=>
-#define opLTZero         23 // <0   less than zero
-#define opLTEQ           24 // <=
-#define opLessTh         25 // <
-#define opRefEquality    26 // ===
-#define opEquality       27 // ==
-#define opBitShiftR      28 // >>.  unsigned right bit shift
-#define opGTZero         29 // >0   greater than zero
-#define opGTEQ           30 // >=
-#define opGreaterTh      31 // >
-#define opNullCoalesce   32 // ?:   null coalescing operator
-#define opQuestionMark   33 // ?   Initially nullable pointers
-#define opAwait          34 // @
-#define opBitwiseXor     35 // ^.   bitwise XOR
-#define opBitwiseOr      36 // ||.  bitwise or
-#define opBoolOr         37 // ||   logical or
-#define opGetElem        38 // Get list element
-#define opGetElemPtr     39 // Get pointer to list element
-#define countOperators   40 // sentinel
-
-constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
-
-typedef struct Compiler Compiler;
-
-typedef struct { // :Node
-   Unt tp : 6;
-   Unt pl3: 26;
-   Int pl1;
-   Int pl2;
-} Node;
-
-//}}}
 
 typedef struct { // :TestEntityImport
     Int nameInd; // 0, 1 or 2. Corresponds to the "foobarinner" in standardText
     Int typeInd; // index in the intermediary array of types that is imported alongside
 } TestEntityImport;
-
-typedef struct {
-   Int startBt;
-   Int lenBts;
-} SourceLoc;
 
 #define CM Compiler* restrict cm
 void printParser(Compiler* cm);

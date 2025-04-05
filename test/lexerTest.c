@@ -146,6 +146,7 @@ typedef struct {
 #define S   70000000 // A constant larger than the largest allowed file size. Separates parsed
                      // names from others
 
+
 private Compiler* buildExpectedLexer(Arena *a, int totalTokens, Arr(Token) tokens) {
     Compiler* result = createLexer(empty, true, a);
     if (result == NULL) return result;

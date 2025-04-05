@@ -66,7 +66,6 @@ typedef struct Compiler Compiler;
 private void printStringNoLn(String s);
 private void printString(String s);
 
-constexpr String empty = {.c = null, .len = 0};
 private String str(const char* cent);
 private Bool endsWith(String a, String b);
 
@@ -312,52 +311,7 @@ standardKeywords[] = {
 };
 
 //}}}
-//{{{ Operators
-
-// :OperatorType
-// Values must exactly agree in order with the operatorSymbols array in the tl.c file.
-// The order is defined by ASCII. Operator is bitwise <=> it ends with dot
-#define opBitwiseNeg      0 // !. bitwise negation
-#define opNotEqual        1 // !=
-#define opBoolNeg         2 // !
-#define opSize            3 // #
-#define opToString        4 // $
-#define opRemainder       5 // %
-#define opBitwiseAnd      6 // &&. bitwise "and"
-#define opBoolAnd         7 // &&  logical "and"
-#define opRef             8 // '  References
-#define opTimesExt        9 // *:
-#define opTimes          10 // * Multiplication and nullable pointers
-#define opIncrement      11 // ++
-#define opPlusExt        12 // +:
-#define opPlus           13 // +
-#define opDecrement      14 // --
-#define opMinusExt       15 // -:
-#define opMinus          16 // -
-#define opNegate         17 // -
-#define opDivByExt       18 // /:
-#define opIntersect      19 // /\   type-level trait intersection ?
-#define opDivBy          20 // /
-#define opBitShiftL      21 // <<.
-#define opComparator     22 // <=>
-#define opLTZero         23 // <0   less than zero
-#define opLTEQ           24 // <=
-#define opLessTh         25 // <
-#define opRefEquality    26 // ===
-#define opEquality       27 // ==
-#define opBitShiftR      28 // >>.  unsigned right bit shift
-#define opGTZero         29 // >0   greater than zero
-#define opGTEQ           30 // >=
-#define opGreaterTh      31 // >
-#define opNullCoalesce   32 // ?:   null coalescing operator
-#define opQuestionMark   33 // ?   Initially nullable pointers
-#define opAwait          34 // @
-#define opBitwiseXor     35 // ^.   bitwise XOR
-#define opBitwiseOr      36 // ||.  bitwise or
-#define opBoolOr         37 // ||   logical or
-#define opGetElem        38 // Get list element
-#define opGetElemPtr     39 // Get pointer to list element
-#define countOperators   40 // sentinel
+//{{{ Operators definitions
 
 //constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
 
@@ -459,68 +413,15 @@ operatorStartSymbols[] = {
 
 //}}}
 //{{{ Syntactical structure
-//{{{ AST nodes & operators
 
-// AST nodes
-#define nodVar          7  // pl1 = index into @vars.
-                           // pl2 = iff pl3 = assiFnVarUse, assiFnVarDef then fnId
-                           // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
-                           // of the "assi" constants
-#define nodCall         8  // pl1 =
-                           //   index into @functions (after type resolution) when pl3 = callNormal,
-                           //   into @monos if pl3 = callMonomorph,
-                           //   into @vars if pl3 = callVar
-                           //     pl2 = arg count, pl3 = one of "call" constants.
-                           // iff pl3 = callField, then pl1 = nameId, pl2 = 0
+defstruct(Compiler);
+defstruct(BtToken);
+defstruct(ParseFrame);
+defstruct(TypeFrame);
+defstruct(ExprFrame);
+defstruct(Monomorphization);
+defstruct(TypeLoc);
 
-// Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
-#define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
-                           // inner scope. See parser tests for examples
-#define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the inner
-                           // right side, which is always an atom, nodExpr or a nodDataAlloc
-#define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
-
-#define nodAssert      13  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
-                           // It's a cinue iff it's >= BIG
-#define nodCatch       15  // `catch e {`
-#define nodImport      16  // This is for test files only, no need to import anything in main
-#define nodFnDef       17  // pl1 = index into @functions
-#define nodDef         18  // pl1 = entityId, pl3 = nameId. For non-function compile-time consts
-#define nodTrait       19
-#define nodReturn      20
-#define nodTry         21
-#define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
-                           // have a label in codegen; pl3 = number of nodes to skip to get to body
-
-#define nodIf          23
-#define nodIfClause    24  // pl3 = "ifcl" constants
-#define nodImpl        25
-#define nodMatch       26  // pattern matching on sum type tag
-#define countAstForms  27  // sentinel
-
-#define countSpanForms (countAstForms - nodScope)
-
-#define metaDoc         1  // Doc comments
-#define metaDefault     2  // Default values for type arguments
-
-
-typedef struct Compiler Compiler;
-
-typedef struct { // :Node
-   Unt tp : 6;
-   Unt pl3: 26;
-   Int pl1;
-   Int pl2;
-} Node;
-
-struct SourceLoc { // :SourceLoc
-   Int startBt;
-   Int lenBts;
-};
-
-//}}}
 //{{{ Parse table
 
 #define TOKS Arr(Token) restrict toks  // tokens that are used as input to the parser
@@ -626,6 +527,112 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 #endif
 
 //}}}
+//}}}
+//{{{ Forward decls & generics
+
+#define SRC Arr(char const) restrict source // Source text
+#define LX Compiler* restrict lx // Compiler for lexer functions
+#define CM Compiler* restrict cm // Compiler for parser functions
+private void closeStatement(LX);
+private NameId nameOfStandard(Int a);
+
+defstruct(TypeHeader);
+defstruct(Expr);
+defstruct(TExpr);
+
+defstruct(Scopes);
+defstruct(EmitFrame);
+void printLexer(LX);
+
+private void exprCopyFromScratch(Int startNodeInd, CM);
+private Int tIsFunction(TypeId typeId, CM);
+private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
+private TypeId exprUpToWithFrame(ParseFrame fr, SourceLoc loc, TOKS, CM);
+private void typeAddHeader(TypeHeader hdr, CM);
+private TypeHeader typeReadHeader(TypeId typeId, CM);
+private void typeAddTypeParam(Int paramInd, Int arity, CM);
+private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
+private TypeId getFirstParamType(TypeId funcTypeId, CM);
+private TypeId tFunctionReturnType(TypeId funcTypeId, CM);
+private bool isFunctionWithParams(TypeId typeId, CM);
+private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
+private Int typeGetTyrity(TypeId typeId, CM);
+private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
+private TypeId typecheckList(Int startInd, CM);
+private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
+private TypeId tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM);
+private Int tGetFnArity(TypeId fnType, CM);
+private NameLoc nameOfHost(Int strId);
+
+private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
+private void tFreshState(TExpr* st);
+private TypeId teClause(TExpr* st, Int sentinel, TOKS, CM);
+private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
+
+private TypeId typeGetGenericParam(TypeId t, Int ind, CM);
+TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
+TypeId typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM);
+
+DEFINE_LIST_HEADER(Token)
+DEFINE_LIST_HEADER(BtToken)
+DEFINE_LIST_HEADER(ParseFrame)
+DEFINE_LIST_HEADER(ExprFrame)
+DEFINE_LIST_HEADER(TypeFrame)
+DEFINE_LIST_HEADER(Monomorphization)
+DEFINE_LIST_HEADER(TypeLoc)
+DEFINE_LIST_HEADER(EmitFrame)
+
+#define add(A, X) _Generic((X),\
+   LInt*: addInt,\
+   LUnt*: addUnt,\
+   LUlong*: addUlong,\
+   LBtToken*: addBtToken,\
+   LToken*: addToken,\
+   LParseFrame*: addParseFrame,\
+   LExprFrame*: addExprFrame,\
+   LTypeFrame*: addTypeFrame,\
+   LMonomorphization*: addMonomorphization,\
+   LTypeLoc*: addTypeLoc,\
+   LNode*: addNode,\
+   LSourceLoc*: addSourceLoc,\
+   LEmitFrame*: addEmitFrame\
+)(A, X)
+
+#define removeLast(X) _Generic((X),\
+   LInt*: removeLastInt,\
+   LUnt*: removeLastUnt,\
+   LUlong*: removeLastUlong,\
+   LToken*: removeLastToken,\
+   LBtToken*: removeLastBtToken,\
+   LParseFrame*: removeLastParseFrame,\
+   LExprFrame*: removeLastExprFrame,\
+   LTypeFrame*: removeLastTypeFrame,\
+   LMonomorphization*: removeLastMonomorphization,\
+   LTypeLoc*: removeLastTypeLoc,\
+   LNode*: removeLastNode,\
+   LSourceLoc*: removeLastSourceLoc,\
+   LEmitFrame*: removeLastEmitFrame\
+)(X)
+
+
+#if defined(DEBUG) || defined(TEST)
+
+void printName(NameId nameId, CM);
+void printIntArray(Int count, Arr(Int) arr);
+void printParser(Compiler* cm);
+void dbgType0(TypeId type, CM);
+#define dbgType(t) dbgType0(t, cm)
+private void dbgExprFrames(Expr* st);
+private void printLInt(LInt* st);
+void dbgTypeFrames(TExpr* st);
+void dbgOverloads(Int nameId, CM);
+void dbgScopes(CM);
+void dbgScopes0(Scopes* scopes);
+defstruct(VirtMachine);
+void dbgCallFrames(VM);
+
+#endif
+
 //}}}
 //{{{ Utils
 //{{{ Arena
@@ -739,117 +746,6 @@ clearArena(Arena* a) { //:clearArena
    a->currChunk = a->firstChunk;
    a->currInd = 0;
 }
-
-//}}}
-//{{{ List
-
-#define DEFINE_LIST_HEADER(T) \
-   typedef struct {\
-      T* c;\
-      Int len;\
-      Int cap;\
-      Arena* arena;\
-   } L##T;\
-   private L ## T * createL ## T (Int initCapacity, Arena* a);\
-   private T removeLast ## T (L##T * st);\
-   private void add ## T (T newItem, L##T * st);
-
-#define DEFINE_LIST(T)\
-   private L##T * createL##T (int initCapacity, Arena* a) {\
-      int capacity = initCapacity < 4 ? 4 : initCapacity;\
-      L##T * result = allocate(L##T, a);\
-      result->cap = capacity;\
-      result->len = 0;\
-      result->arena = a;\
-      T* arr = allocateArray(capacity, T, a);\
-      result->c = arr;\
-      return result;\
-   }\
-   private T removeLast##T (L##T * st) {\
-      st->len--;\
-      return st->c[st->len];\
-   }\
-   private void add##T (T newItem, L##T * st) {\
-      if (st->len < st->cap) {\
-         memcpy((T*)(st->c) + (st->len), &newItem, sizeof(T));\
-      } else {\
-         T* newcent = allocateArray(2*(st->cap), T, st->arena);\
-         memcpy(newcent, st->c, st->len*sizeof(T));\
-         memcpy((T*)(newcent) + (st->len), &newItem, sizeof(T));\
-         st->cap *= 2;\
-         st->c = newcent;\
-      }\
-      st->len++;\
-   }\
-
-#define last(lst) lst->c[lst->len - 1]
-
-#define l(ind, lst) lst->c[e_(ind, lst->len)]
-
-Int
-e_(Int ind, Int len) {
-   if ((Unt)ind < (Unt) len) {
-      return ind;
-   }
-   longjmp(excBuf, 1);
-}
-
-defstruct(BtToken);
-defstruct(ParseFrame);
-defstruct(TypeFrame);
-defstruct(ExprFrame);
-defstruct(Monomorphization);
-defstruct(SourceLoc);
-defstruct(TypeLoc);
-defstruct(Var);
-defstruct(Function);
-defstruct(BtInstr);
-defstruct(EmitFrame);
-
-DEFINE_LIST_HEADER(Int)
-DEFINE_LIST_HEADER(Unt)
-DEFINE_LIST_HEADER(Ulong)
-DEFINE_LIST_HEADER(BtToken)
-DEFINE_LIST_HEADER(Token)
-DEFINE_LIST_HEADER(ParseFrame)
-DEFINE_LIST_HEADER(TypeFrame)
-DEFINE_LIST_HEADER(ExprFrame)
-DEFINE_LIST_HEADER(SourceLoc)
-DEFINE_LIST_HEADER(Node)
-DEFINE_LIST_HEADER(Monomorphization)
-DEFINE_LIST_HEADER(TypeLoc)
-DEFINE_LIST_HEADER(Var)
-DEFINE_LIST_HEADER(Function)
-DEFINE_LIST_HEADER(BtInstr)
-DEFINE_LIST_HEADER(EmitFrame)
-
-#define add(A, X) _Generic((X),\
-   LBtToken*: addBtToken,\
-   LParseFrame*: addParseFrame,\
-   LExprFrame*: addExprFrame,\
-   LTypeFrame*: addTypeFrame,\
-   LMonomorphization*: addMonomorphization,\
-   LTypeLoc*: addTypeLoc,\
-   LInt*: addInt,\
-   LUnt*: addUnt,\
-   LUlong*: addUlong,\
-   LNode*: addNode,\
-   LSourceLoc*: addSourceLoc,\
-   LBtInstr*: addBtInstr\
-)(A, X)
-
-#define removeLast(X) _Generic((X),\
-   LBtToken*: removeLastBtToken,\
-   LParseFrame*: removeLastParseFrame,\
-   LExprFrame*: removeLastExprFrame,\
-   LTypeFrame*: removeLastTypeFrame,\
-   LInt*: removeLastInt,\
-   LUnt*: removeLastUnt,\
-   LUlong: removeLastUlong,\
-   LNode*: removeLastNode,\
-   LSourceLoc*: removeLastSourceLoc,\
-   LBtInstr*: removeLastBtInstr\
-)(X)
 
 //}}}
 //{{{ Internal lists
@@ -1707,11 +1603,6 @@ struct BtToken { // :BtToken
 DEFINE_LIST(BtToken) //:createLBtToken
 DEFINE_LIST(Token) //:createLToken
 
-//{{{ Types
-
-typedef struct { //:TypeId
-    Int v;
-} TypeId;
 
 constexpr TypeId boolTy = { .v = tokBool };
 constexpr TypeId intTy = { .v = tokInt };
@@ -1721,8 +1612,6 @@ constexpr TypeId VOID_TYPE = { .v = voidType };
 Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
 }
-
-//}}}
 
 #define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
 #define pfrLoop  2 // this frame is a scope and a loop (allows break and continue)
@@ -1802,14 +1691,14 @@ struct ScopeChunk { //:ScopeChunk
 // A scope contains: an int index (searchable in the Scopes data structure) followed by a list of
 // names of bindings introduced in this scope. All of that is packed in a linked list of integer
 // arrays in the [aTmp] arena
-typedef struct { // :Scopes
+struct Scopes { // :Scopes
    ScopeChunk* currChunk; // next points to here, start - not necessarily
    Int currLen; // length of current scope
    Int* start;  // address for the start of current scope.
                 // Value @ that address is size of prev scope. Example:
                 // (...)[1 2 3] (3)[4 5 6 7] (4)[1] (1)[...] (sizes are in (), scope contents in [])
    Int* curr;   // address for addition of next binding, points into @currChunk
-} Scopes;
+};
 
 
 #define exfrParen      1 // Parens
@@ -1825,38 +1714,20 @@ typedef struct { // :Scopes
 #define classMutable   2
 #define classPubMut    3
 
-struct Var { //:Var Local variable inside function
-   TypeId typeId;
-   NameId name;  // if negative, then it's a nameless local & refers to @cg.local via (-x - 1)
-   Byte class;   // mutable or immutable, public or private
-   Int fnId;     // only for aliases to functions, otherwise -1
-};
-
 DEFINE_LIST(Var)
-
-struct Function { //:Function Parsed function
-   TypeId typeId;
-   NameId name;
-   Int tokenInd;   // Index into @tokens
-   Int nodeInd;    // Index into @ast
-   Int genericInd; // index into @monos (get full mono type & code from arg types)
-   Byte emit;
-   Int hostName;   // for host-emitted function names
-};
 
 DEFINE_LIST(Function)
 
-typedef struct { //:Expr State for parsing expressions
+struct Expr { //:Expr State for parsing expressions
    LInt* exp;           // For assignments with complex left sides
    LExprFrame* frames;
    LNode* scr;          // "Scratch". Draft nodes written to during expression parsing
    LSourceLoc* locsScr; // SourceLocs for @scr
    Bool metAnAllocation;    // if we've met an allocation, we need to emit sub-expression nodes
    LToken* reorderBuf;  // Buffer for reordering tokens for mutation assignments
-} Expr;
+};
 
-
-typedef struct { // :TExpr State for parsing type expressions. Lives in [aTmp]
+struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
    LInt* exp;         //  TypeId
    LTypeFrame* frames;
    LInt* names;       // Function param names, record field names
@@ -1867,7 +1738,7 @@ typedef struct { // :TExpr State for parsing type expressions. Lives in [aTmp]
    Bool isGeneric;        // Does this type expression contain at least a single type parameter
    LTypeLoc* genericSt;
    LTypeLoc* concreteSt;
-} TExpr;
+};
 
 typedef struct { //:Assignment
 // Info about an assignment or a definition (functions, variables, types)
@@ -2005,13 +1876,13 @@ DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
 #define tfrRecord         14
 #define tfrTypeCall       15
 
-typedef struct { //:TypeHeader
+struct TypeHeader { //:TypeHeader
    Byte sort;    // "sor" constants above
    Byte tyrity;  // "tyrity" = type arity, the number of type parameters
    Byte arity;   // for function types, equals arity. For structs, number of fields
    Bool isGeneric;
    NameId name;
-} TypeHeader;
+};
 
 #define TYPE_PREFIX_LEN 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 
@@ -2197,65 +2068,6 @@ char const errTypeGenericCallDoesntUnify[] = "Generic function's type cannot be 
 char const errTypeFieldNotFound[]          = "Field access error in a type";
 
 //}}}
-//}}}
-//{{{ Forward decls
-
-#define SRC Arr(char const) restrict source // Source text
-#define LX Compiler* restrict lx // Compiler for lexer functions
-#define CM Compiler* restrict cm // Compiler for parser functions
-private void closeStatement(LX);
-private NameId nameOfStandard(Int a);
-
-void printLexer(LX);
-
-private void exprCopyFromScratch(Int startNodeInd, CM);
-private Int tIsFunction(TypeId typeId, CM);
-private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
-private TypeId exprUpToWithFrame(ParseFrame fr, SourceLoc loc, TOKS, CM);
-private void typeAddHeader(TypeHeader hdr, CM);
-private TypeHeader typeReadHeader(TypeId typeId, CM);
-private void typeAddTypeParam(Int paramInd, Int arity, CM);
-private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
-private TypeId getFirstParamType(TypeId funcTypeId, CM);
-private TypeId tFunctionReturnType(TypeId funcTypeId, CM);
-private bool isFunctionWithParams(TypeId typeId, CM);
-private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
-private Int typeGetTyrity(TypeId typeId, CM);
-private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
-private TypeId typecheckList(Int startInd, CM);
-private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
-private TypeId tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM);
-private Int tGetFnArity(TypeId fnType, CM);
-private NameLoc nameOfHost(Int strId);
-
-private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
-private void tFreshState(TExpr* st);
-private TypeId teClause(TExpr* st, Int sentinel, TOKS, CM);
-private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
-
-private TypeId typeGetGenericParam(TypeId t, Int ind, CM);
-TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
-TypeId typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM);
-
-
-#if defined(DEBUG) || defined(TEST)
-
-void printName(NameId nameId, CM);
-void printIntArray(Int count, Arr(Int) arr);
-void printParser(Compiler* cm);
-void dbgType0(TypeId type, CM);
-#define dbgType(t) dbgType0(t, cm)
-private void dbgExprFrames(Expr* st);
-private void printLInt(LInt* st);
-void dbgTypeFrames(TExpr* st);
-void dbgOverloads(Int nameId, CM);
-void dbgScopes(CM);
-void dbgScopes0(Scopes* scopes);
-defstruct(VirtMachine);
-void dbgCallFrames(VM);
-
-#endif
-
 //}}}
 //{{{ Lexer
 //{{{ LexerUtils
@@ -6003,7 +5815,7 @@ teMergeParam(NameId name, TExpr* restrict te, CM) {
    LInt* params = te->tParams;
    Int deBruijnIndex = -1;
    for (Int j = 0; j < params->len; j += 2) {
-      if (l(j, params) == name) {
+      if (params->c[j] == name) {
          deBruijnIndex = j;
          break;
       }
@@ -6782,634 +6594,6 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 
 //}}}
 //}}}
-//{{{ Code generator
-//{{{ Definitions
-
-defstruct(Codegen);
-private Codegen* createCodegen(CM, Arena* a);
-
-typedef struct { //:CgCall
-    Int startInd; // or externalNameId
-    Int len;      // only for native names
-    uint8_t arity;
-    uint8_t countArgs;
-    Bool needClosingParen;
-} CgCall;
-
-DEFINE_LIST_HEADER(CgCall)
-DEFINE_LIST(CgCall)
-
-struct BtInstr { //:BtInstr
-   Unt tp : 6;
-   Int sentinel; // index of sentinel node
-   Int startInstr; // index of instruction where this frame started
-};
-
-struct EmitFrame { //:EmitFrame Frame of a stack used for emitting expressions & ifs
-   Byte tp;      // node* constants
-   Int startIns; // Index of starting instruction
-};
-
-
-DEFINE_LIST(BtInstr) //:addBtInstr
-
-DEFINE_LIST(EmitFrame) //:addUlong
-
-struct Codegen { //:Codegen
-   LBtInstr* bt; // pl3 = index of start instruction
-   LEmitFrame* emits;
-   LUlong* bytecode;
-   Compiler* cm;
-   Int local;
-   Int i;
-   Arena* a;
-};
-
-#define CG Codegen* restrict cg
-
-//}}}
-//{{{ Codegen utils
-
-
-
-//}}}
-//{{{ Codegen init
-
-private Codegen* //:createCodegen
-createCodegen(CM, Arena* a) {
-   Codegen* cg = allocate(Codegen, a);
-   *cg = (Codegen) {
-      .bt = createLBtInstr(10, a),
-      .bytecode = createLUlong(16, a),
-      .emits = createLEmitFrame(8, a),
-      .cm = cm,
-      .i = 0,
-      .a = a
-   };
-   return cg;
-}
-
-//}}}
-//{{{ Codegen table
-
-typedef void (*CodegenFn)(Node nd, Arr(Node const) const, Codegen* restrict);
-#define CODEGEN_FN(name) private void name(Node nd, Arr(Node const) const, CG);
-CODEGEN_FN(cgFoo) 
-private CodegenFn const CODEGEN_TABLE[1] = {
-   [tokInt]        = &cgFoo,
-};
-
-//}}}
-//{{{ Codegen proper
-
-private void //:maybeCloseCgFrames
-maybeCloseCgFrames(CG) {
-   for (Int j = cg->bt->len - 1; j > -1 && cg->bt->c[j].sentinel != cg->i; j--) {
-      removeLast(cg->bt);
-   }
-}
-
-private void
-cgFoo(Node nd, Arr(Node const) const ast, CG) {
-   
-}
-
-private void //:cgToplevelFn
-cgToplevelFn(Function fn, CM, CG) {
-   Arr(Node const) ast = cm->ast.c;
-
-   add(((BtInstr){ .tp = nodFnDef, .sentinel = 0, .startInstr = cg->bytecode->len }), cg->bt);
-   add(0, cg->bytecode);
-   Node nodeFn = ast[fn.nodeInd];
-
-   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
-   //add(((Node){ .tp = nodFnDef, .pl3 = sentinel}), cg->bt);
-   cg->local = 0;
-
-   cg->i = fn.nodeInd + 1;
-   for (; ast[cg->i].tp == nodVar && ast[cg->i].pl3 == assiFnParam; cg->i++) {}
-   for (; cg->i < sentinel;) {
-      Node nd = cm->ast.c[cg->i];
-      cg->i++; // CONSUME the span node
-      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cm->ast.c, cg);
-      maybeCloseCgFrames(cg);
-   }
-}
-
-private void
-generateBuiltinsForExe(CG) {
-   
-}
-
-private void //:generateMainCode
-generateMainCode(CG) {
-   Compiler* cm = cg->cm;
-   printParser(cm);
-   for (int j = 0; j < cm->toplevels.len; j++) {
-      cgToplevelFn(cm->functions.c[cm->toplevels.c[j]], cm, cg);
-   }
-}
-
-Codegen* //:generateCode
-generateCode(CM) {
-// Returns null in case of error
-#ifdef TRACE
-   printParser(cm);
-#endif
-
-   if (cm->stats.wasError)
-      { return null; }
-   Codegen* cg = createCodegen(cm, cm->a);
-
-#ifndef TEST
-   generateBuiltinsForExe(cg);
-#endif
-
-   generateMainCode(cg);
-   return cg;
-}
-
-//}}}
-//}}}
-//{{{ Virtual machine
-//{{{ Instructions (opcodes) 
-
-// An instruction is 8 byte long and consists of 6-bit opcode and some data
-// Notation: [A] is a 2-byte stack address, it's signed and is measured relative to currFrame
-//         [~A] is a 3-byte constant or offset
-//         {A} is a 4-byte constant or address
-//         {{A}} is an 8-byte constant (i.e. it takes up a whole second instruction slot)
-#define iPlus              0 // [Dest] [Operand1] [Operand2]
-#define iMinus             1
-#define iTimes             2
-#define iDivBy             3
-#define iPlusFl            4
-#define iMinusFl           5
-#define iTimesFl           6
-#define iDivByFl           7
-#define iPlusConst         8 // [Src=Dest] {Increment}
-#define iMinusConst        9
-#define iTimesConst       10
-#define iDivByConst       11
-#define iPlusFlConst      12 // [Src=Dest] {{Double constant}}
-#define iMinusFlConst     13
-#define iTimesFlConst     14
-#define iDivByFlConst     15
-#define iConcatStrs       16 // [Dest] [Operand1] [Operand2]
-#define iLoadConstString  17 // [Dest] {addr}
-#define iSubstring        18 // [Dest] [Src] {{ {Start} {Len}  }}
-#define iReverseString    19 // [Dest] [Src]
-#define iIndexOfSubstring 20 // [Dest] [String] [Substring]
-#define iGetFld           21 // [Dest] [Obj] [~Offset]
-#define iNewList          22 // [Dest] {Capacity}
-#define iGetElemPtr       23 // [Dest] [ArrAddress] {{ {0} {Elem index} }}
-#define iAddToList        24 // [List] {Value or reference}
-#define iRemoveFromList   25 // [List] {Elem Index}
-#define iSwap             26 // [List] {{ {Index1} {Index2} }}
-#define iConcatLists      27 // [Dest] [Operand1] [Operand2]
-#define iJump             28 // { Code pointer }
-#define iBranchLt         29 // [Operand] { Code pointer }
-#define iBranchEq         30
-#define iBranchGt         31
-#define iShortCircuit     32 // if [B] == [C] then [A] = [B] else ip++
-#define iCall             33 // [New frame start pointer] { New instruction pointer }
-#define iBuiltinCall      34 // [Builtin index]
-#define iReturn           35 // [ address to return ] [Size of return value = 0, 1 or 2]
-#define iSetLocal         36 // [Dest] {Value}
-#define iSetBigLocal      37 // [Dest] {{Value}}
-#define iPrint            38 // [String]
-#define iPrintInt         39 // [Local]
-#define iPrintErr         40 // [String]
-#define iFn               41 // {len of body, not including this instruction} Start of a function
-#define countInstructions 42 // sentinel value
-
-#define UNT_MAX 4294967295
-constexpr Int STACK_SZ = 64000; // in units of 4 bytes, so 256 KB
-
-typedef int16_t FrameOffset; //:FrameOffset Offset from "currFrame" in units of 4 bytes.
-typedef uint32_t StackAddr;  //:StackAddr Offset from the start of @stack
-                           // Negative values mean previous stack frame -- useless? Or maybe
-                           // interpret it as negative iff it's an iReturn? But then better
-                           // to interpret is as positive but within the prev stack frame.
-
-typedef uint32_t CodeInd;  //:CodeInd Offset from the start of @bytecode
-
-struct VirtMachine {   //:VirtMachine
-   StackAddr ip; // current instruction pointer
-   
-   Arr(Ulong) bytecode;
-   Int lenCode;
-
-   Arr(CodeInd) fns;   // indices into @bytecode. Immutable
-   Int entryPoint; // index into @fns to find the main function. Immutable
-
-   Arr(Unt) stack;
-   StackAddr currFrame;
-   FrameOffset stackTop;
-   String text;  // string constant pool
-   
-   String errMsg; // in case of error this won't be empty
-};
-
-
-// Interpeter memory segmentation:
-// [constants | code | heap -> (free space) <- stacks]
-// New call stacks are allocated right to left, but memory within one grows left to right
-
-typedef struct { //:CallHeader
-   StackAddr prevFrame;
-   StackAddr ip;
-} CallHeader;
-
-// Offset into a call frame header
-#define CALLHDR_PREV_FRAME 0
-#define CALLHDR_IP         1
-constexpr Int CALLHDR_SIZE = sizeof(CallHeader)/4;
-
-//}}}
-//{{{ Builtins
-
-#define countBuiltins 1
-
-typedef void (*BuiltinFn)(VirtMachine*);
-BuiltinFn BUILTINS_TABLE[countBuiltins]; // filled in by "tabulateBuiltins"
-#define EYR_NULL 0
-
-//}}}
-//{{{ Runtime (virtual machine)
-
-typedef Unt (*VirtMachineFn)(Ulong, Unt, VirtMachine* restrict);
-#define VM VirtMachine* restrict vm
-#define RUN_FN(name) private Unt name(Ulong instr, Unt ip, VM);
-#define UNT_MAX 4294967295 // 2^32 - 1
-
-RUN_FN(runPlus) RUN_FN(runMinus) RUN_FN(runTimes) RUN_FN(runDivBy)
-RUN_FN(runLoadConstString) RUN_FN(runNewString) RUN_FN(runConcatStrings) RUN_FN(runReverseString)
-RUN_FN(runSetLocal) RUN_FN(runBuiltinCall) RUN_FN(runCall) RUN_FN(runReturn)
-RUN_FN(runPrint) RUN_FN(runPrintInt)
-
-private VirtMachineFn const INTERPRET_TABLE[countInstructions] = {
-   [iPlus]       = &runPlus,
-   [iTimes]      = &runTimes,
-   [iMinus]      = &runMinus,
-   [iDivBy]      = &runDivBy,
-   /*
-   [iPlusFl]     = &runPlus;
-   [iMinusFl]      = &runMinusFl;
-   [iTimesFl]      = &runTimesFl;
-   [iDivByFl]      = &runDivByFl;
-   [iPlusConst]      = &runPlusConst;
-   [iMinusConst]      = &runMinusConst;
-   [iTimesConst]      = &runTimesConst;
-   [iDivByConst]      = &runDivByConst;
-   [iPlusFlConst]      = &runPlusFlConst;
-   [iMinusFlConst]      = &runMinusFlConst;
-   [iTimesFlConst]      = &runTimesFlConst;
-   [iDivByFlConst]      = &runDivByFlConst;
-   [iIndexOfSubstring]      = &runIndexOfSubstring;
-   [iGetFld]      = &runGetFld;
-   [iNewList]      = &runNewList;
-   [iSubstring]      = &runSubstring;
-   */
-   [iLoadConstString] = &runLoadConstString,
-   [iConcatStrs]      = &runConcatStrings,
-   [iReverseString]   = &runReverseString,
-   [iSetLocal]        = &runSetLocal,
-   [iBuiltinCall]     = &runBuiltinCall,
-   [iCall]            = &runCall,
-   [iReturn]          = &runReturn,
-   [iPrint]           = &runPrint,
-   [iPrintInt]        = &runPrintInt
-};
-
-//}}}
-//{{{ Utils
-
-#define DEFINE_VM_LIST_HEADER(T)\
-typedef struct {\
-   Arr(T) c;\
-   Int len;\
-   Int cap;\
-} VmList##T;
-
-#define DEFINE_VM_LIST_CONSTRUCTOR(T)             \
-private VmList##T createVmList##T(Int initCap, Arena* a) { \
-   return (VmList##T){                            \
-      .c = allocateArray(initCap, T, a),   \
-      .len = 0, .cap = initCap };             \
-}\
-
-#define DEFINE_VM_LIST(T, fieldName)             \
-private void addVm##fieldName(T newItem, VirtMachine* restrict vm) {\
-   if (vm->fieldName.len < vm->fieldName.cap) {\
-      memcpy((T*)(vm->fieldName.cont) + (vm->fieldName.len), &newItem, sizeof(T));\
-   } else {\
-      T* newContent = allocateArray(2*(vm->fieldName.cap), T, vm->aName);\
-      memcpy(newContent, vm->fieldName.cont, vm->fieldName.len*sizeof(T));\
-      memcpy((T*)(newContent) + (vm->fieldName.len), &newItem, sizeof(T));\
-      vm->fieldName.cap *= 2;\
-      vm->fieldName.cont = newContent;\
-   }\
-   vm->fieldName.len += 1;\
-}
-
-DEFINE_VM_LIST_HEADER(Ulong)
-DEFINE_VM_LIST_CONSTRUCTOR(Ulong)
-
-
-private void*
-vmGetRefFromStack0(StackAddr address, VM) {
-// Gets pointer's value for a pointer stored in the call stack
-   return (void*)(vm->stack + address);
-}
-
-#define vmGetRefFromStack(ptr) vmGetRefFromStack0(ptr, vm)
-
-
-private Unt
-vmGetIntFromStack0(StackAddr address, VM) {
-// Gets an unsigned int from the call stack
-   return vm->stack[address];
-}
-
-#define vmGetIntFromStack(ptr) vmGetIntFromStack0(ptr, vm)
-
-
-private StackAddr //:vmPtrFromStack
-vmPtrFromStack(FrameOffset frameOffset, VM) {
-   return vm->currFrame + (Unt)frameOffset;
-}
-
-private Unt
-vmStackDeref0(FrameOffset address, VM) {
-// Gets value at stack address within current frame as an integer
-   return *(vm->stack + vmPtrFromStack(address, vm));
-}
-
-#define vmStackDeref(ptr) vmStackDeref0(ptr, vm) //:vmStackDeref
-
-private void //:vmSetOnStack
-vmSetOnStack(FrameOffset dest, Unt value, VM) {
-   *(vm->stack + vmPtrFromStack(dest, vm)) = value;
-}
-
-private CallHeader
-getCallFrame(StackAddr frame, VM) {
-   return (CallHeader){
-      .prevFrame = (StackAddr)vm->stack[frame + CALLHDR_PREV_FRAME],
-      .ip = vm->stack[frame + CALLHDR_IP]
-   };
-}
-
-private void
-setCallFrame(StackAddr frame, CallHeader hdr, VM) {
-   vm->stack[frame] = (Unt)hdr.prevFrame;
-   vm->stack[frame + 1] = (Unt)hdr.ip;
-}
-
-private void
-printEyrString(StackAddr strPtr, Unt len, VM) {
-
-#ifdef DEBUG
-   print("printing Eyr string with address %d and len %d", strPtr, len);
-#endif
-
-   char* chars = (char*)(vm->stack + strPtr);
-   fwrite(chars, 1, len, stdout);
-   printf("\n");
-}
-
-//}}}
-//{{{ VirtMachine init
-
-#define OP_CODE(opc) (((Ulong)opc) << 58)
-
-private void //:tmpCode
-tmpCode(VirtMachine* vm, Arena* a) { // Temporary, for testing purposes.
-   char txt[] = "asdfBBCC";
-   Int const txtLen = sizeof(txt);
-   vm->text = (String){.c = allocateOnArena(txtLen, a), .len = txtLen};
-
-   /////////////////
-   // 11 + (27 * 10)
-   /////////////////
-   Ulong code[] =  {
-      OP_CODE(iFn) + ((Ulong)7),
-      OP_CODE(iSetLocal) + (((Ulong) 4) << 32) + ((Ulong) 11), // load int 11 at 0 into local var at 4
-      OP_CODE(iSetLocal) + (((Ulong) 7) << 32) + ((Ulong) 27), // load int at 27 into local var at 7
-      OP_CODE(iSetLocal) + (((Ulong) 8) << 32) + ((Ulong) 10), // load int at 10 into local var at 8
-      OP_CODE(iCall) + (((Ulong) 5) << 32) + ((Ulong) 26),      // Call the multiplication at 5 (with args at 6, 7)
-      OP_CODE(iCall) + (((Ulong) 2) << 32) + ((Ulong) 20),      // Call the addition at 2, args at 4, 5
-      OP_CODE(iPrintInt) + ((Ulong) 2),                         // print the result which will be at 2
-      OP_CODE(iReturn) + ((Ulong) 1),
-
-      // plus at ip = 16
-      OP_CODE(iFn) + ((Ulong)2),
-      OP_CODE(iPlus) + (((Ulong) 2) << 32) + (((Ulong) 2) << 16) + ((Ulong) 3),
-      OP_CODE(iReturn) + (((Ulong) 2) << 16) + ((Ulong) 1), // return address 2 of size 1
-
-      // multiply at ip = 22
-      OP_CODE(iFn) + ((Ulong)2),
-      OP_CODE(iTimes) + (((Ulong) 2) << 32) + (((Ulong) 2) << 16) + ((Ulong) 3),
-      OP_CODE(iReturn) + (((Ulong) 2) << 16) + ((Ulong) 1) // return address 2 of size 1
-   };
-
-   vm->fns = allocateArray(3, StackAddr, a);
-   vm->fns[0] = 0;
-   vm->fns[1] = 8;
-   vm->fns[2] = 11;
-
-   vm->entryPoint = 0; // index of "main" function
-
-   Int const codeLen = sizeof(code);
-   print("codelen %d", codeLen);
-   vm->bytecode = allocateArray(codeLen, Ulong, a);
-   memcpy(vm->bytecode, code, codeLen);
-
-   vm->currFrame = 0;
-   vm->stackTop = CALLHDR_SIZE;
-
-   print("-------")
-}
-
-private void
-tabulateBuiltins() { //:tabulateBuiltins
-   //BuiltinFn* p = BUILTINS_TABLE;
-   //p[0]       = &buiToStringInt;
-}
-
-private void //:initVirtMachine
-initVirtMachine(Arr(Ulong) bytecode, Int lenCode, Arena* a, OUT VirtMachine* vm) {
-   (*vm) = (VirtMachine)  {
-      .ip = 0,
-      .bytecode = bytecode,
-      .lenCode = lenCode,
-      .fns = allocateArray(1, StackAddr, a),
-      .entryPoint = 0,
-      .stack = malloc(STACK_SZ*4),
-      .currFrame = 0,
-      .stackTop = 0,
-      .text = empty,
-      .errMsg = empty
-   };
-   if (!vm->bytecode) {
-      vm->errMsg = s("Could not allocate memory for code");
-      return;
-   }
-   /////// tmp for development
-   tmpCode(vm, a);
-   ///////////////////////////
-   setCallFrame(vm->currFrame, (CallHeader){.prevFrame = UNT_MAX, .ip = 0 }, vm);
-}
-
-//}}}
-//{{{ Code running
-
-private Unt //:runPlus
-runPlus(Ulong instr, Unt ip, VM) {
-   FrameOffset dest = (instr >> 32) & LOWER16BITS;
-   FrameOffset op1 = (instr >> 16) & LOWER16BITS;
-   FrameOffset op2 = instr & LOWER16BITS;
-   Unt result = (Unt)((Int)vmStackDeref(op1) + (Int)vmStackDeref(op2));
-   print("plus deref %d and %d at %u and %u", (Int)vmStackDeref(op1), (Int)vmStackDeref(op2),
-         vm->currFrame + op1, vm->currFrame + op2)
-   print("+ setting %u to result %d", dest, result)
-   vmSetOnStack(dest, result, vm);
-   return ip + 2;
-}
-
-private Unt //:runMinus
-runMinus(Ulong instr, Unt ip, VM) { return ip + 2; }
-
-private Unt //:runTimes
-runTimes(Ulong instr, Unt ip, VM) {
-   FrameOffset dest = (instr >> 32) & LOWER16BITS;
-   FrameOffset op1 = (instr >> 16) & LOWER16BITS;
-   FrameOffset op2 = instr & LOWER16BITS;
-   print("times deref %d and %d at %u and %u", (Int)vmStackDeref(op1), (Int)vmStackDeref(op2),
-         vm->currFrame + op1, vm->currFrame + op2)
-   Unt result = (Unt)((Int)vmStackDeref(op1) * (Int)vmStackDeref(op2));
-   print("* setting %u to result %u", dest, result)
-   vmSetOnStack(dest, result, vm);
-   return ip + 2;
-}
-
-private Unt //:runDivBy
-runDivBy(Ulong instr, Unt ip, VM) { return ip + 2; }
-
-private Unt //:runLoadConstString
-runLoadConstString(Ulong instr, Unt ip, VM) {
-// Stores pointer to a string from the constant pool on the stack
-   FrameOffset dest = (FrameOffset)((instr >> 32) & LOWER16BITS);
-   StackAddr constAddr = instr & LOWER32BITS;
-   Int len = vmGetIntFromStack(constAddr);
-   vmSetOnStack(dest, constAddr + 1, vm); // + 1 b/c the actual string lies after its length
-   vmSetOnStack(dest + 1, len, vm);
-
-   return ip + 2;
-}
-
-private Unt //:runConcatStrings
-runConcatStrings(Ulong instr, Unt ip, VM) {
-   return ip + 2;
-}
-
-private Unt //:runReverseString
-runReverseString(Ulong instr, Unt ip, VM) {
-   return ip + 2;
-}
-
-private Unt //:runSetLocal
-runSetLocal(Ulong instr, Unt ip, VM) {
-// iSetLocal Sets the value of a local variable in the stack
-   FrameOffset dest = (instr >> 32) & LOWER16BITS;
-
-   StackAddr address = vmPtrFromStack(dest, vm);
-   *(vm->stack + address) = (Unt)(instr & LOWER32BITS);
-   return ip + 2;
-}
-
-private Unt //:runBuiltinCall
-runBuiltinCall(Ulong instr, Unt ip, VM) {
-   BUILTINS_TABLE[instr & (0xFF)](vm);
-   return ip + 2;
-}
-
-private Unt //:runCall
-runCall(Ulong instr, Unt ip, VM) {
-// iCall Creates and activates a new call frame.
-   StackAddr newIp = (Unt)(instr & LOWER32BITS);
-   FrameOffset newFrameAddr = (FrameOffset)((instr >> 32) & LOWER16BITS);
-
-   // save the current IP to the old frame
-   *(vm->stack + vm->currFrame + CALLHDR_IP) = ip + 2; // +2 to progress after we return from func
-
-#ifdef DEBUG
-   print("frame before call currFrame %u:", vm->currFrame)
-   dbgCallFrames(vm);
-#endif
-
-   StackAddr const oldFrame = vm->currFrame;
-   vm->currFrame += newFrameAddr;
-   vm->stackTop = CALLHDR_SIZE;
-
-   // create new call frame
-   setCallFrame(
-      vm->currFrame,
-      (CallHeader){.prevFrame = oldFrame },
-      vm
-   );
-
-#ifdef DEBUG
-   print("frame after call:")
-   dbgCallFrames(vm);
-#endif
-
-   return newIp + 2;
-}
-
-private Unt //:runReturn
-runReturn(Ulong instr, Unt ip, VM) {
-// Return from function. The return value, if any, will be stored right over the header
-   //Int returnSize = instr & (0xFF);
-   CallHeader callFrame = getCallFrame(vm->currFrame, vm);
-   if (callFrame.prevFrame == UNT_MAX)
-      { return UNT_MAX; } // End of interpretation because we've returned from "main"
-
-   FrameOffset src = (instr >> 16) & LOWER16BITS;
-   print("RETURN got curr frame from %u and prev frame is %u ip %u src %u",
-         vm->currFrame, callFrame.prevFrame, callFrame.ip, src
-   )
-   *(vm->stack + vm->currFrame) = vmStackDeref(src);
-   vm->currFrame = callFrame.prevFrame; // take a call off the stack
-   StackAddr callerIp = vmGetIntFromStack(vm->currFrame + CALLHDR_IP); // ip of previous frame
-
-#ifdef DEBUG
-   print("caller's Ip restored as %u", callerIp);
-#endif
-
-   return callerIp;
-}
-
-private Unt //:runPrint iPrint
-runPrint(Ulong instr, Unt ip, VM) {
-   FrameOffset local = (instr & LOWER16BITS);
-   StackAddr addr = vmStackDeref(local);
-   Unt len = vmStackDeref(local + 1);
-   printEyrString(addr, len, vm);
-   return ip + 2;
-}
-
-private Unt //:runPrintInt
-runPrintInt(Ulong instr, Unt ip, VM) {
-   FrameOffset local = (instr & LOWER16BITS);
-   Int value = (Int)vmStackDeref(local);
-   print("%d", value);
-   return ip + 2;
-}
-
-//}}}
-//}}}
 //{{{ Utils for tests & debugging
 
 #if defined(DEBUG) || defined(TEST)
@@ -7899,172 +7083,6 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 }
 
 //}}}
-//{{{ Virtual machine utils
-
-// Must agree in order with instruction types in eyr.internal.h
-char const* instructionNames[] = {
-   "Int", "Long", "Double", "Bool", "String", "_", "misc",
-   "id", "call", "binding", ".fld", "GEP", "GElem",
-   "(do", "Expr", "=", "[]",
-   "alias", "assert", "breakCont", "catch", "defer",
-   "import", "(\\ fn)", "trait", "return", "try",
-   "for", "if", "eif", "impl", "match"
-};
-
-void //:dbgBytecode
-dbgBytecode(VM) {
-// Print the bytecode
-   for (CodeInd j = 0; j < vm->lenCode; j++) {
-      Ulong instr = vm->bytecode[j];
-      Byte opCode = instr >> 58;
-      printf("%d: ", j);
-      switch (opCode) {
-      case iPlus:    {
-         print("+"); break;
-      }
-      case iMinus: {
-         print("-"); break;
-      }
-      case iTimes: {
-         print("*"); break;
-      }
-      case iDivBy: {
-         print("/"); break;
-      }
-      case iPlusFl: {
-         print("floating +"); break;
-      }
-      case iMinusFl: {
-         print("floating -"); break;
-      }
-      case iTimesFl: {
-         print("floating *"); break;
-      }
-      case iDivByFl: {
-         print("floating /"); break;
-      }
-      case iPlusConst: {
-         print("+ const"); break;
-      }
-      case iMinusConst: {
-         print("- const"); break;
-      }
-      case iTimesConst: {
-         print("* const"); break;
-      }
-      case iDivByConst: {
-         print("/ const"); break;
-      }
-      case iPlusFlConst:  {
-         print("+ floating const"); break;
-      }
-      case iMinusFlConst: {
-         print("- floating const"); break;
-      }
-      case iTimesFlConst: {
-         print("* floating const"); break;
-      }
-      case iDivByFlConst: {
-         print("/ floating const"); break;
-      }
-      case iConcatStrs: {
-         print("string +"); break;
-      }
-      case iLoadConstString: {
-         print("load const string"); break;
-      }
-      case iSubstring: {
-         print("substring"); break;
-      }
-      case iReverseString: {
-         print("reverse string"); break;
-      }
-      case iIndexOfSubstring: {
-         print("index of substring"); break;
-      }
-      case iGetFld: {
-         print(".get field"); break;
-      }
-      case iNewList: {
-         print("new list"); break;
-      }
-      case iGetElemPtr: {
-         print(".get pointer to element"); break;
-      }
-      case iAddToList: {
-         print("list add"); break;
-      }
-      case iRemoveFromList: {
-         print("list remove"); break;
-      }
-      case iSwap: {
-         print("swap"); break;
-      }
-      case iConcatLists: {
-         print("list +"); break;
-      }
-      case iJump: {
-         print("jump"); break;
-      }
-      case iBranchLt: {
-         print("branch if <"); break;
-      }
-      case iBranchEq: {
-         print("branch if =="); break;
-      }
-      case iBranchGt: {
-         print("branch if >"); break;
-      }
-      case iShortCircuit: {
-         print("short-circuit"); break;
-      }
-      case iCall: {
-         print("call function"); break;
-      }
-      case iBuiltinCall: {
-         print("call builtin"); break;
-      }
-      case iReturn: {
-         print("return"); break;
-      }
-      case iSetLocal: {
-         print("set local variable"); break;
-      }
-      case iSetBigLocal: {
-         print("set 8-byte local variable"); break;
-      }
-      case iPrint: {
-         print("print"); break;
-      }
-      case iPrintInt: {
-         print("print integer"); break;
-      }
-      case iPrintErr: {
-         print("print err"); break;
-      }
-      case iFn: {
-         print("fn of len %d", instr & 0xFFFFFFFF); break;
-      }
-      }
-   }
-}
-
-void //:dbgCallFrames
-dbgCallFrames(VM) {
-// Print the current call frame header, and the previous frame too (if applicable)
-   CallHeader currFrame = getCallFrame(vm->currFrame, vm);
-
-   printf("Current call frame located at %u: prevFrame = %u, fn code at %u\n",
-         vm->currFrame,
-         currFrame.prevFrame, currFrame.ip);
-   if (currFrame.prevFrame != UNT_MAX) {
-      CallHeader prevFrame = getCallFrame(currFrame.prevFrame, vm);
-      print("Prev call frame: ancestorFrame = %u, execution stopped at ip %u",
-            prevFrame.prevFrame, prevFrame.ip);
-   }
-}
-
-//}}}
 
 #endif
 //{{{ Tests only
@@ -8209,7 +7227,6 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
 //}}}
 
 //}}}
-//{{{ Main
 //{{{ Init
 
 private void //:createProtoCompiler
@@ -8266,111 +7283,3 @@ initCompiler() {
 
 //}}}
 
-LUlong* //:generateBytecode
-generateBytecode(String sourceCode, Arena* a) {
-   initCompiler();
-   Compiler* cm = lexicallyAnalyze(sourceCode, a);
-   if (cm->stats.wasLexerError)
-      { return null; }
-   cm = parse(cm, a);
-   if (cm->stats.wasError)
-      { return null; }
-   Codegen* cg = generateCode(cm);
-   return cg->bytecode;
-}
-
-private VirtMachine //:compile
-compile(String sourceCode) {
-   VirtMachine vm = (VirtMachine){ .errMsg = empty };
-   if (sourceCode.len == 0)
-      { return vm; }
-   initCompiler();
-   Arena* a = createArena();
-   Compiler* cm = lexicallyAnalyze(sourceCode, a);
-   if (cm->stats.wasLexerError) {
-      vm.errMsg = str("lexer error");
-      return vm;
-   }
-
-   cm = parse(cm, a);
-   if (cm->stats.wasError) {
-      vm.errMsg = str("parse error");
-      return vm;
-   }
-   
-   Codegen* cg = generateCode(cm);
-   LUlong* bytecode = cg->bytecode;
-   initVirtMachine(bytecode->c, bytecode->len, cm->a, OUT &vm);
-   return vm;
-}
-
-private VirtMachine //:compileFile
-compileFile(String fn) {
-   VirtMachine vm = (VirtMachine){ .errMsg = empty };
-   if (fn.len == 0)
-      { return vm; }
-   initCompiler();
-   Arena* a = createArena();
-   String sourceCode = readSourceFile(fn, a);
-   deleteArena(a);
-   return compile(sourceCode);
-}
-
-private void //:interpretCode
-interpretCode(VM) {
-   CodeInd ip = vm->fns[vm->entryPoint]; // skipping the function size
-   // *2 because fn length is in instructions (8 bytes)
-   StackAddr entryPointSentinel = ip + 2*vmGetIntFromStack(ip) + 2;
-   ip += 2; // CONSUME the iFn
-   print("starting at ip = %d entry point sentinel %d", ip, entryPointSentinel);
-   while (ip < 34) {
-      Ulong instr = vm->bytecode[ip];
-      //print("at ip %d opcode %d", ip, instr >> 58)
-      ip = (INTERPRET_TABLE[instr >> 58])(instr, ip, vm);
-   }
-   print("finished with ip = %u", ip)
-}
-
-void //:tech_sozonov_eyr_runFile
-tech_sozonov_eyr_runFile(String filename) {
-   VirtMachine vm = compileFile(filename);
-   interpretCode(&vm);
-}
-
-void //:tech_sozonov_eyr_run
-tech_sozonov_eyr_run(String sourceCode) {
-   VirtMachine vm = compile(sourceCode);
-   interpretCode(&vm);
-}
-
-
-#ifndef TEST
-
-Int //:main
-main(int argc, char** argv) {
-   Arena* a = createArena();
-
-//~   String sourceCode = s("def main = {{} a = 78; a .print;}");
-//~   VirtMachine vm = compile(sourceCode);
-   VirtMachine vm;
-   initVirtMachine(null, a, OUT &vm);
-   
-   dbgBytecode(&vm);
-   print("------- Unt max %u", UNT_MAX)
-
-   interpretCode(&vm);
-   //eyrRun(&vm);
-
-   printf("SHOULD BE 281\n");
-
-   cleanup:
-   deleteArena(a);
-
-
-   return 0;
-}
-
-#endif
-
-
-//}}}
