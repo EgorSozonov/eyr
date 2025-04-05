@@ -135,8 +135,39 @@ DEFINE_LIST_HEADER(Var)
 DEFINE_LIST_HEADER(Function)
 
 //}}}
+//{{{ Slice
+
+#define DEFINE_SLICE_HEADER(T) \
+   typedef struct {\
+      T* c;\
+      Int len;\
+   } Sli##T;\
+
+#define sliceOf(list) {.c = list->c, .len = list->len}
+
+#define sliceOfInternal(list) {.c = list.c, .len = list.len}
+
+DEFINE_SLICE_HEADER(Int)
+DEFINE_SLICE_HEADER(Unt)
+DEFINE_SLICE_HEADER(Ulong)
+DEFINE_SLICE_HEADER(Node)
+DEFINE_SLICE_HEADER(SourceLoc)
+DEFINE_SLICE_HEADER(Var)
+DEFINE_SLICE_HEADER(Function)
+
+//}}}
 //}}}
 //{{{ AST nodes & operators
+
+#define tokInt          0
+#define tokLong         1
+#define tokDouble       2
+#define tokBool         3  // pl2 = value (1 or 0)
+#define tokString       4
+
+#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
+                           // Also stands for "Void" among the primitive types
+
 
 // AST nodes
 #define nodVar          7  // pl1 = index into @vars.
@@ -218,6 +249,26 @@ struct Function { //:Function Parsed function
    Int hostName;   // for host-emitted function names
 };
 
+#define assiVarAssignment  1 // definition of a var
+#define assiTypeDefinition 2 // definition of a type
+#define assiFnParam        3 // introduction of a function parameter
+#define assiReassignment   4 // reassignment to a previously defined var
+#define assiFnVarDef       5 // definition of a local var that is a function
+#define assiFnVarUse       6 // usage (NOT an assignment) of a variable that is a function
+
+// if clauses
+#define ifclIf        0
+#define ifclElseIf    1
+#define ifclElse      2
+
+// types of a nodCall
+#define callNormal     0
+#define callField      1 // field accessor
+#define callVar        2 // a local variable referencing a function
+#define callMonomorph  3 // monomorphized version of a generic function
+#define callGetElem    4
+
+
 //{{{ Operators header
 
 // :OperatorType
@@ -267,8 +318,24 @@ struct Function { //:Function Parsed function
 
 
 //}}}
+
+
+typedef struct { //:TypeHeader
+   Byte sort;    // "sor" constants above
+   Byte tyrity;  // "tyrity" = type arity, the number of type parameters
+   Byte arity;   // for function types, equals arity. For structs, number of fields
+   Bool isGeneric;
+   NameId name;
+} TypeHeader;
+
+#define TYPE_PREFIX_LEN 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
+
+#define typeOf(x) (TypeId){.v = x}
+
+
 //}}}
 //{{{ Standard strings :standardStr
+
 
 #define strAlias     0
 #define strAssert    1
@@ -324,4 +391,49 @@ struct Function { //:Function Parsed function
 #define strSentinel 50
 #endif
 
+void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
+
 //}}}
+
+Int calcNodeSentinel(Node nd, Int nodeInd);
+
+typedef struct { //:CompStats
+   Int inpLength;
+   Bool wasLexerError;
+
+   Int countNonparsedVars;
+   Int countNonparsedFns;
+   Int countOverloads;
+   Int countOverloadedNames;
+   Int countOperatorFns;
+   Int toksLen;
+   Int astLen;
+   Int typesLen;
+   Int loopCounter;
+   Bool wasError;
+   String errMsg;
+   Int listType;
+
+   Int standardTextLen; // length of standardText
+   Int firstParsedName; // the name index for the first parsed word
+   Int firstBuiltin;    // the name for the first built-in word in standardStrings
+} CompStats;
+
+typedef struct { //:CompResult
+   String sourceCode;
+   SliInt toplevels;
+   Int entrypoint;
+   SliNode ast;
+   SliSourceLoc sourceLocs;
+   SliVar vars;
+   SliFunction functions;
+   SliInt publicFns;
+   SliInt publicConsts;
+   SliInt types;
+   CompStats stats;
+   Arena* a;
+} CompResult;
+
+
+CompResult getCompilationResults(CM);
+

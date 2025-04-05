@@ -77,7 +77,6 @@ private void* allocateOnArena(size_t, Arena*);
 #define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
-#define VM VirtMachine* restrict vm
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
@@ -233,13 +232,6 @@ constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define miscPub        0    // pub. It must be 0 because it's the only one denoted by a keyword
 #define miscUnderscore 1    // _
 #define miscArrow      2    // ->
-
-#define assiVarAssignment  1 // definition of a var
-#define assiTypeDefinition 2 // definition of a type
-#define assiFnParam        3 // introduction of a function parameter
-#define assiReassignment   4 // reassignment to a previously defined var
-#define assiFnVarDef       5 // definition of a local var that is a function
-#define assiFnVarUse       6 // usage (NOT an assignment) of a variable that is a function
 
 #define maxWordLength 255
 
@@ -536,7 +528,6 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 private void closeStatement(LX);
 private NameId nameOfStandard(Int a);
 
-defstruct(TypeHeader);
 defstruct(Expr);
 defstruct(TExpr);
 
@@ -628,8 +619,6 @@ void dbgTypeFrames(TExpr* st);
 void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
 void dbgScopes0(Scopes* scopes);
-defstruct(VirtMachine);
-void dbgCallFrames(VM);
 
 #endif
 
@@ -1781,28 +1770,6 @@ struct Monomorphization { //:Monomorphization
 
 DEFINE_LIST(Monomorphization)
 
-typedef struct { // :CompStats
-   Int inpLength;
-   Bool wasLexerError;
-
-   Int countNonparsedVars;
-   Int countNonparsedFns;
-   Int countOverloads;
-   Int countOverloadedNames;
-   Int countOperatorFns;
-   Int toksLen;
-   Int astLen;
-   Int typesLen;
-   Int loopCounter;
-   Bool wasError;
-   String errMsg;
-   Int listType;
-
-   Int standardTextLen; // length of standardText
-   Int firstParsedName; // the name index for the first parsed word
-   Int firstBuiltin;    // the name for the first built-in word in standardStrings
-} CompStats;
-
 struct Compiler { // :Compiler
    // LEXING
    String sourceCode;
@@ -1875,18 +1842,6 @@ DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
 #define tfrFnTypeCall     13
 #define tfrRecord         14
 #define tfrTypeCall       15
-
-struct TypeHeader { //:TypeHeader
-   Byte sort;    // "sor" constants above
-   Byte tyrity;  // "tyrity" = type arity, the number of type parameters
-   Byte arity;   // for function types, equals arity. For structs, number of fields
-   Bool isGeneric;
-   NameId name;
-};
-
-#define TYPE_PREFIX_LEN 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
-
-#define typeOf(x) (TypeId){.v = x}
 
 private Compiler PROTO = {
       .sourceCode = null,
@@ -3193,19 +3148,6 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 #define hostLength    9
 #define hostAbs      10
 
-// if clauses
-#define ifclIf        0
-#define ifclElseIf    1
-#define ifclElse      2
-
-// types of a nodCall
-#define callNormal     0
-#define callField      1 // field accessor
-#define callVar        2 // a local variable referencing a function
-#define callMonomorph  3 // monomorphized version of a generic function
-#define callGetElem    4
-
-
 //}}}
 //{{{ Parser utils
 
@@ -3291,7 +3233,7 @@ calcSentinel(Token tok, Int tokInd) {
    return (tok.tp >= firstSpanTokenType ? (tokInd + tok.pl2 + 1) : (tokInd + 1));
 }
 
-private Int //:calcNodeSentinel
+Int //:calcNodeSentinel
 calcNodeSentinel(Node nd, Int nodeInd) {
 // Calculates the sentinel token for a token at a specific index
    return (nd.tp >= nodScope ? (nodeInd + nd.pl2 + 1) : (nodeInd + 1));
@@ -7279,6 +7221,24 @@ initCompiler() {
    Arena* aGlobal = createArena(); // it's ok to leak it. Will be cleaned up on process exit
    createProtoCompiler(&PROTO, aGlobal);
    _wasInit = true;
+}
+
+
+CompResult
+getCompilationResults(CM) {
+   return (CompResult) {
+      .toplevels = sliceOfInternal(cm->toplevels),
+      .entrypoint = cm->entrypoint,
+      .ast = sliceOfInternal(cm->ast),
+      .sourceLocs = sliceOf(cm->sourceLocs),
+      .vars = sliceOfInternal(cm->vars),
+      .functions = sliceOfInternal(cm->functions),
+      .publicFns = sliceOfInternal(cm->publicFns),
+      .publicConsts = sliceOfInternal(cm->publicConsts),
+      .types = sliceOfInternal(cm->types),
+      .a = cm->a,
+      .stats = cm->stats,
+   } 
 }
 
 //}}}

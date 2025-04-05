@@ -21,8 +21,9 @@ typedef struct Codegen Codegen;
 
 typedef struct { //:ParserTest
    String name;
-   Codegen* test;
-   Arr(Unt) control;
+   Compiler* test;
+   Compiler* control;
+   Bool compareLocsToo;
 } ParserTest;
 
 

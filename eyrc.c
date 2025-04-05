@@ -9,71 +9,7 @@
 #include <libgccjit.h>
 
 //}}}
-//{{{ Forward decls & generics
-
-#define SRC Arr(char const) restrict source // Source text
-#define CM Compiler* restrict cm // Compiler for parser functions
-private void closeStatement(LX);
-private NameId nameOfStandard(Int a);
-
-defstruct(FnParamPtr);
-defstruct(FieldPtr);
-
-DEFINE_LIST_HEADER(FnParamPtr)
-DEFINE_LIST_HEADER(FieldPtr)
-
-#define add(A, X) _Generic((X),\
-   LTypeLoc*: addTypeLoc,\
-   LInt*: addInt,\
-   LUnt*: addUnt,\
-   LUlong*: addUlong,\
-   LNode*: addNode,\
-   LSourceLoc*: addSourceLoc,\
-   LBtInstr*: addBtInstr\
-)(A, X)
-
-#define removeLast(X) _Generic((X),\
-   LBtToken*: removeLastBtToken,\
-   LParseFrame*: removeLastParseFrame,\
-   LExprFrame*: removeLastExprFrame,\
-   LTypeFrame*: removeLastTypeFrame,\
-   LInt*: removeLastInt,\
-   LUnt*: removeLastUnt,\
-   LUlong: removeLastUlong,\
-   LNode*: removeLastNode,\
-   LSourceLoc*: removeLastSourceLoc,\
-   LBtInstr*: removeLastBtInstr\
-)(X)
-
-
-DEFINE_LIST(FnParamPtr)
-DEFINE_LIST(FieldPtr)
-DEFINE_LIST_HEADER(SourceLoc)
-DEFINE_LIST_HEADER(Node)
-DEFINE_LIST_HEADER(Var)
-DEFINE_LIST_HEADER(Function)
-
-
-#if defined(DEBUG) || defined(TEST)
-
-void printName(NameId nameId, CM);
-void printIntArray(Int count, Arr(Int) arr);
-void printParser(Compiler* cm);
-void dbgType0(TypeId type, CM);
-#define dbgType(t) dbgType0(t, cm)
-private void dbgExprFrames(Expr* st);
-private void printLInt(LInt* st);
-void dbgTypeFrames(TExpr* st);
-void dbgOverloads(Int nameId, CM);
-void dbgScopes(CM);
-void dbgScopes0(Scopes* scopes);
-defstruct(VirtMachine);
-void dbgCallFrames(VM);
-
-#endif
-
-//}}}
-//{{{ Types
+//{{{ Library types
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -89,22 +25,76 @@ typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define toPointer(x) gcc_jit_type_get_pointer(x)
 
+//}}}
+//{{{ Forward decls & generics
+
+#define SRC Arr(char const) restrict source // Source text
+#define CM Compiler* restrict cm // Compiler for parser functions
+#define CR CompResult* restrict cr // Compiler for parser functions
+private void closeStatement(LX);
+private NameId nameOfStandard(Int a);
+
+typedef FnParam* FnParamPtr;
+typedef Field* FieldPtr;
+
+DEFINE_LIST_HEADER(FnParamPtr)
+DEFINE_LIST_HEADER(FieldPtr)
+
+#define add(A, X) _Generic((X),\
+   LTypeLoc*: addTypeLoc,\
+   LInt*: addInt,\
+   LUnt*: addUnt,\
+   LUlong*: addUlong,\
+   LNode*: addNode,\
+   LSourceLoc*: addSourceLoc,\
+   LCgFrame*: addCgFrame\
+)(A, X)
+
+#define removeLast(X) _Generic((X),\
+   LBtToken*: removeLastBtToken,\
+   LParseFrame*: removeLastParseFrame,\
+   LExprFrame*: removeLastExprFrame,\
+   LTypeFrame*: removeLastTypeFrame,\
+   LInt*: removeLastInt,\
+   LUnt*: removeLastUnt,\
+   LUlong: removeLastUlong,\
+   LNode*: removeLastNode,\
+   LSourceLoc*: removeLastSourceLoc,\
+   LCgFrame*: removeLastCgFrame\
+)(X)
+
+
+DEFINE_LIST(FnParamPtr)
+DEFINE_LIST(FieldPtr)
+
+#if defined(DEBUG) || defined(TEST)
+
+void printName(NameId nameId, CM);
+void printIntArray(Int count, Arr(Int) arr);
+void printParser(Compiler* cm);
+void dbgType0(TypeId type, CM);
+#define dbgType(t) dbgType0(t, cm)
+private void printLInt(LInt* st);
+
+#endif
+
+//}}}
+//{{{ Types & constants
+
 #define fraIf     1
 #define fraElse   2
 #define fraFor    3
 
-typedef struct { //:Frame Frame for the stack of nested codegen blocks
+typedef struct { //:CgFrame Frame for the stack of nested codegen blocks
    Byte tp; // frame type, the "fra" constants
    Int pl1; // node pl1
    Int pl3; // node pl3
    CodeBlock* block;
    CodeBlock* nextBlock; // if null, there is no next block
    Int sentinel; // node sentinel
-} Frame;
+} CgFrame;
 
-typedef FnParam* FnParamPtr;
-typedef Field* FieldPtr;
-
+DEFINE_LIST_HEADER(CgFrame)
 
 typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
    Int ind;
@@ -112,22 +102,20 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
 } TypeRef;
 
 typedef struct { //:Codegen
-   String sourceCode;
-   Compiler* cm;
 
    Int i; // current node index
-   Int len;
-   Int cap;
    Arr(Byte) buffer;
 
    Module* md;
 
-   LFnParamPtr params; // temporary buffer for function params
-   LFieldPtr fields; // temporary buffer for struct fields
-   LFrame backtrack;
+   LFnParamPtr* params; // temporary buffer for function params
+   LFieldPtr* fields; // temporary buffer for struct fields
+   LCgFrame* bt;
 
    Int countTypeRefs;
    Arr(TypeRef) typeRefs;
+   
+   CompResult compResult; // results of the compilation from libeyr
 
    Arena* a;
    Bool wasError;
@@ -148,9 +136,6 @@ hostStringLens[] = {
 
 private Int
 hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
-
-extern void
-populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
 
 //}}}
 //{{{ Generation table
@@ -187,14 +172,30 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
 //}}}
 //{{{ Type registry
 
+private CgType* //:getType
+getType(BuiltinType tp, Module* md) {
+   return gcc_jit_context_get_type(md, tp);
+}
+
 private void //:registerTypes
 registerTypes(CM, CG) {
    // for every type in @cm.types, create an entry in @cg.typeRefs
-
+   cg->countTypeRefs = tokMisc;
+   cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt, .cgType = getType(GCC_JIT_TYPE_INT32_T, cg->md) };
+   cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool, .cgType = getType(GCC_JIT_TYPE_BOOL, cg->md) };
+   cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc, .cgType = getType(GCC_JIT_TYPE_VOID, cg->md) };
 }
+
+private CgType*
+intType(CG) {
+   return cg->typeRefs[0].cgType;
+}
+
 
 //}}}
 //{{{ Code generator
+
+
 
 private void
 assignment(LValue* left, RValue* right, CodeBlock* block) {
@@ -293,9 +294,24 @@ LValue* localVar(const char* name, CgType* tp, Fn* fn) {
    return gcc_jit_function_new_local(fn, NULL, tp, name);
 }
 
-CgType* getType(BuiltinType tp, Module* md) {
-   return gcc_jit_context_get_type(md, tp);
-}
+
+//~private void //:ensureBufferLength
+//~ensureBufferLength(Int additionalLength, CG) {
+//~// Ensures that the buffer has space for at least that many bytes plus 10 by increasing its
+//~// capacity if necessary
+//~    if (cg->len + additionalLength + 10 < cg->cap) {
+//~        return;
+//~    }
+//~    Int neededLength = cg->len + additionalLength + 10;
+//~    Int newCap = 2*cg->cap;
+//~    while (newCap <= neededLength) {
+//~        newCap *= 2;
+//~    }
+//~    Arr(Byte) new = allocateOnArena(newCap, cg->a);
+//~    memcpy(new, cg->buffer, cg->len);
+//~    cg->buffer = new;
+//~    cg->cap = newCap;
+//~}
 
 private void
 addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
@@ -333,7 +349,7 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
    jump(block, loopInit);
 
    // init
-   LValue* iVar = localVar("i", cg->intTp, fn);
+   LValue* iVar = localVar("i", intType(cg), fn);
    assignment(iVar, intConst(0, cg), loopInit);
    jump(loopInit, loopCond);
 
@@ -352,7 +368,7 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
    evalExpr(call(printfFn, countArgs, args, md), loopBody);
 
    RValue* nextI = gcc_jit_context_new_binary_op(
-      md, NULL, GCC_JIT_BINARY_OP_PLUS, cg->intTp,
+      md, NULL, GCC_JIT_BINARY_OP_PLUS, intType(cg),
       toRValue(iVar), intConst(1, cg));
    assignment(iVar, nextI, loopBody); //i++
    jump(loopBody, loopCond);
@@ -361,59 +377,8 @@ addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
    gcc_jit_block_end_with_void_return(loopAfter, NULL);
 }
 
-private void
-createCodeGreet(Codegen* cg) {
-   Module* md = cg->cont;
-   CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
-   FnParam* paramName = gcc_jit_context_new_param(md, NULL, constCharPtrTp, "name");
-
-   Fn* innerFn = createCodeInner(md);
-
-   Fn* greet = newFn(
-      "greet",
-      GCC_JIT_FUNCTION_EXPORTED,
-      1,
-      &paramName,
-      cg->voidTp,
-      md
-   );
-
-   FnParam* paramFormat = gcc_jit_context_new_param(md, NULL, constCharPtrTp, "format");
-   Fn* printfFn = importFn(
-      "printf",
-      1,
-      &paramFormat,
-      cg->intTp,
-      true,
-      md
-   );
-   RValue* fifteen = intConst(15, cg);
-   RValue* resultOfEvalInner = call(innerFn, 1, &fifteen, md);
-
-   const int countArgs = 3;
-   RValue* args[countArgs];
-   args[0] = gcc_jit_context_new_string_literal(md, "hello %s value is %d\n");
-   args[1] = gcc_jit_param_as_rvalue(paramName);
-   args[2] = resultOfEvalInner;
-
-   CodeBlock* block = gcc_jit_function_new_block(greet, NULL);
-
-   evalExpr(call(printfFn, countArgs, args, md), block);
-
-   RValue* five = intConst(5, cg);
-   RValue* resultOfEvalInner2 = call(innerFn, 1, &five, md);
-
-   RValue* args2[countArgs];
-   args2[0] = gcc_jit_context_new_string_literal(md, "hello %s value is %d\n");
-   args2[1] = gcc_jit_param_as_rvalue(paramName);
-   args2[2] = resultOfEvalInner2;
-   evalExpr(call(printfFn, countArgs, args2, md), block);
-
-   addArrayPrint(block, greet, printfFn, cg);
-}
-
-
-int main(int argc, char** argv) {
+int
+main(int argc, char** argv) {
    printf("HW\n");
 
   /* Let's try to inject the equivalent of:
@@ -444,11 +409,10 @@ int main(int argc, char** argv) {
 //    a = x;
 //    return a;
 // }
+
    Module* md = gcc_jit_context_acquire();
    Codegen* cg = malloc(sizeof(Codegen));
-   cg->cont = md;
-   cg->voidTp = getType(GCC_JIT_TYPE_VOID, md);
-   cg->intTp = getType(GCC_JIT_TYPE_INT32_T, md);
+   cg->md = md;
    if (!md) {
       fprintf(stderr, "NULL mdt");
       exit (1);
@@ -458,7 +422,7 @@ int main(int argc, char** argv) {
      Let's see the code being generated, in assembler form.  */
    gcc_jit_context_set_bool_option(md, GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE, 0);
 
-   createCodeGreet(cg);
+   //createCodeGreet(cg);
 
    // Compile the code
    gcc_jit_result* result = gcc_jit_context_compile(md);
@@ -471,13 +435,13 @@ int main(int argc, char** argv) {
 
    // Extract the generated code from "result"
    typedef void (*FnType) (const char *);
-   FnType greet = (FnType)gcc_jit_result_get_code(result, "greet");
-   if (!greet) {
-      fprintf(stderr, "NULL greet");
-      exit(1);
-   }
+//~   FnType greet = (FnType)gcc_jit_result_get_code(result, "greet");
+//~   if (!greet) {
+//~      fprintf(stderr, "NULL greet");
+//~      exit(1);
+//~   }
 
-   greet("world");
+//~   greet("world");
    fflush(stdout);
 
    gcc_jit_context_release(md);
@@ -485,30 +449,15 @@ int main(int argc, char** argv) {
    return 0;
 }
 
-//}}}
-//{{{ Codegen proper
-
 private Codegen* //:createCodegen
 createCodegen(CM, Arena* a) {
    Codegen* cg = allocate(Codegen, a);
-   Expr expr = (Expr){
-      .callSpans = createStackCgeCallSpan(4, a),
-      .sortedCallSpans = createStackCgeCallSpan(4, a),
-      .closers = createStackCgeCloser(4, a)
-   };
    Module* md = gcc_jit_context_acquire();
-   Primitives primitives = {
-      .intTp = getType(GCC_JIT_TYPE_VOID, md),
-      .voidTp = getType(GCC_JIT_TYPE_INT32_T, md),
-   };
    (*cg) = (Codegen) {
-      .sourceCode = cm->sourceCode, .cm = cm,
-      .i = 0, .len = 0, .cap = 64, .buffer = allocateOnArena(64, a),
-      .md = md, .primitives = primitives,
-
-      .calls = *createStackCall(16, a),
-      .backtrack = *createStackCgFrame(16, a),
-      .expr = expr,
+      .i = 0, .buffer = allocateOnArena(64, a),
+      .md = md, 
+      .bt = createLCgFrame(16, a),
+      .compResult = getCompilationResults(cm),
       .a = a,
       .wasError = false
    };
@@ -533,78 +482,58 @@ init() {
 //~   }
 //~}
 
-private void //:writeStr
-writeStr(String str, CG) {
-   cgEnsureBufferLength(str.len + 2, cg); // +2 for the quotation marks
-   cg->buffer[cg->len] = aQuote;
-   memcpy(cg->buffer + cg->len + 1, str.cont, str.len);
-   cg->len += (str.len + 2);
-   cg->buffer[cg->len - 1] = aQuote;
-}
+//~private void //:writeStr
+//~writeStr(String str, CG) {
+//~   cgEnsureBufferLength(str.len + 2, cg); // +2 for the quotation marks
+//~   cg->buffer[cg->len] = aQuote;
+//~   memcpy(cg->buffer + cg->len + 1, str.cont, str.len);
+//~   cg->len += (str.len + 2);
+//~   cg->buffer[cg->len - 1] = aQuote;
+//~}
 
-private void //:writeBytesFromSource
-writeBytesFromSource(SourceLoc loc, CG) {
-   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
-}
+//~private void //:writeBytesFromSource
+//~writeBytesFromSource(SourceLoc loc, CG) {
+//~   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
+//~}
 
-private void //:writeExprProcessFirstArg
-writeExprProcessFirstArg(Call* top, CG) {
-   if (top->countArgs != 1)
-      { return; }
-   switch (top->emit) {
-   case emitField:
-      writeChar(aDot, cg);
-      writeConstant(top->startInd, cg); return;
-   case emitInfix:
-      writeChar(aSpace, cg);
-      writeBytes(cg->sourceCode.cont + top->startInd, top->len, cg);
-      writeChar(aSpace, cg); return;
-   case emitHostInfix:
-      writeChar(aSpace, cg);
-      writeConstant(top->startInd, cg);
-      writeChar(aSpace, cg); return;
-   }
-}
+//~private void //:writeExprProcessFirstArg
+//~writeExprProcessFirstArg(Call* top, CG) {
+//~   if (top->countArgs != 1)
+//~      { return; }
+//~   switch (top->emit) {
+//~   case emitField:
+//~      writeChar(aDot, cg);
+//~      writeConstant(top->startInd, cg); return;
+//~   case emitInfix:
+//~      writeChar(aSpace, cg);
+//~      writeBytes(cg->sourceCode.cont + top->startInd, top->len, cg);
+//~      writeChar(aSpace, cg); return;
+//~   case emitHostInfix:
+//~      writeChar(aSpace, cg);
+//~      writeConstant(top->startInd, cg);
+//~      writeChar(aSpace, cg); return;
+//~   }
+//~}
 
 private void //:writeExprInternal
 writeExprInternal(Node nd, Int sentinel, Arr(Node const) ast, CG) {
 // Consumes no nodes
 // Precondition: we are looking 1 past the nodExpr/singular node. Consumes all nodes of the expr
-   if (nd.tp <= topVerbatimType) {
-      SourceLoc loc = cg->cm->sourceLocs->cont[cg->i - 1];
-      writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
-   } else if (nd.tp == nodVar) {
-      writeVar(nd, cg);
-   } else {
-      cgExpr(cg->i, sentinel - 1, nd.pl1 > 0, ast, cg);
-   }
 }
 
 private void //:writeExpr
 writeExpr(Node nd, Arr(Node const) ast, CG) {
-   writeNewline(cg);
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    writeExprInternal(nd, sentinel, ast, cg);
-   writeChars(((Byte[]){ aSemicolon }), cg);
    cg->i = sentinel;
 }
 
 private void //:openFrame
 openFrame(Node nd, CG) {
-   pushFrame(
-      ((Frame){
-         .tp = nd.tp, .pl1 = nd.pl1, .pl3 = nd.pl3, .sentinel = calcNodeSentinel(nd, cg->i - 1)}
-      ),
-      &cg->backtrack
-   );
 }
 
 private void //:openFrameWithSentinel
 openFrameWithSentinel(Node nd, Int sentinel, CG) {
-   pushFrame(
-      ((Frame){ .tp = nd.tp, .pl1 = nd.pl1, .pl3 = nd.pl3, .sentinel = sentinel}),
-      &cg->backtrack
-   );
 }
 
 
@@ -614,21 +543,15 @@ writeDummy(Node fr, Bool isEntry, Arr(Node const) ast, CG) {
 }
 
 private void //:writeVarNode
-writeVarNode(CM, CG) {
+writeVarNode(CR, CG) {
 // Write a node being pointed to. The node must be a nodVar
-   Node varNd = cm->ast.cont[cg->i];
-   Var theVar = cm->vars.cont[varNd.pl1];
+   Node varNd = cr->ast.c[cg->i];
+   Var theVar = cr->vars.c[varNd.pl1];
    if (varNd.pl3 == assiVarAssignment) {
       Int class = theVar.class;
-      if (class == classImm) {
-         writeHostConstant(hostConst, true, cg);
-      } else {
-         writeHostConstant(hostLet, true, cg);
-      }
    }
 
-   SourceLoc loc = cm->sourceLocs->cont[cg->i];
-   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
+   SourceLoc loc = cr->sourceLocs.c[cg->i];
 }
 
 private void //:assignmentLeft
@@ -636,19 +559,16 @@ assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
 // Writes the left side & equals sign
    Node leftNd = ast[cg->i];
    if (leftNd.tp == nodVar) {
-      writeVarNode(cg->cm, cg);
    } else if (leftNd.tp == nodExpr) {
-      cg->i += 1; // CONSUME the nodExpr
+      cg->i++; // CONSUME the nodExpr
       writeExprInternal(leftNd, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
    }
-   writeChars(((Byte[]){aSpace, aEqual, aSpace}), cg);
 }
 
 private void //:assignmentRight
-assignmentRight(Node rightNode, Int sentinel, Bool needSemicolon, Bool isComplex,
+assignmentRight(Node rightNode, Int sentinel, Bool isComplex,
                   Arr(Node const) ast, CG) {
    if (cg->i == sentinel) {
-      writeExprOperand(rightNode, cg->cm->sourceLocs->cont[cg->i - 1], cg);
    } else {
       // the "start" here is the actual expression start (so for complex expressions, the inner
       // assignments have been skipped). Correspondingly, we pass "isComplex = false" here:
@@ -662,14 +582,11 @@ assignmentRight(Node rightNode, Int sentinel, Bool needSemicolon, Bool isComplex
       if (start == 29 && sentinel - 1 == 121) {
          print("HOROO");
       }
-      cgExpr(start, sentinel - 1, false, ast, cg);
    }
-   if (needSemicolon)
-      { writeChar(aSemicolon, cg); }
 }
 
 private void //:assignmentWorker
-assignmentWorker(Bool onNewLine, Bool needSemicolon, Node nd, Arr(Node const) ast, CG) {
+assignmentWorker(Node nd, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
 // Consumes the whole assignment
    if (nd.pl2 == 0)
@@ -681,18 +598,10 @@ assignmentWorker(Bool onNewLine, Bool needSemicolon, Node nd, Arr(Node const) as
       { goto end; }
    Int innerExprInd = rightNodeInd + 1; // for complex expressions, will skip the inner assigns
 
-   // if the right side is a complex expression, we need to write out its assignment sub-parts now
-   if (rightNode.tp == nodExpr && rightNode.pl1 > 0)
-      { innerExprInd = cgeComplexSubexpressions(rightNode, rightNodeInd, ast, cg); }
-   if (onNewLine)
-      { writeNewline(cg); }
-
-   cgAssignmentLeft(rightNodeInd, ast, cg);
+   assignmentLeft(rightNodeInd, ast, cg);
    cg->i = innerExprInd;
-   if (sentinel == 122) {
-      print("i %d pl2 %d sent %d", cg->i, nd.pl2, sentinel);
-   }
-   cgAssignmentRight(ast[rightNodeInd], sentinel, needSemicolon, false, ast, cg);
+   
+   assignmentRight(ast[rightNodeInd], sentinel, false, ast, cg);
    end:
    cg->i = sentinel;
 }
@@ -700,7 +609,7 @@ assignmentWorker(Bool onNewLine, Bool needSemicolon, Node nd, Arr(Node const) as
 private void //:writeAssignment
 writeAssignment(Node nd, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
-   cgAssignmentWorker(true, true, nd, ast, cg);
+   assignmentWorker(nd, ast, cg);
 }
 
 private void //:writeDataAlloc
@@ -721,20 +630,14 @@ private void //:cgReturn
 writeReturn(Node fr, Arr(Node const) ast, CG) {
    Int sentinel = cg->i + fr.pl2;
 
-   writeNewline(cg);
-   if (cg->i == sentinel)  {
-      writeConstant(strReturn, cg);
-      writeChar(aSemicolon, cg);
-      return;
-   }
+   if (cg->i == sentinel)
+      { return; }
 
-   writeConstantWithSpace(strReturn, cg);
    Node rightSide = ast[cg->i];
-   cg->i += 1; // CONSUME the expr node
+   cg->i++; // CONSUME the expr node
 
    writeExprInternal(rightSide, sentinel, ast, cg);
 
-   writeChar(aSemicolon, cg);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
 
@@ -746,37 +649,23 @@ private void //:writeIfClause
 writeIfClause(Node nd, Arr(Node const) ast, CG) {
    openFrame(nd, cg);
 
-   writeChar(aSpace, cg);
 
    if (nd.pl3 == ifclElse) {
-      writeHostConstant(hostElse, true, cg);
    } else {
       if (nd.pl3 == ifclElseIf) {
-         writeHostConstant(hostElse, true, cg);
-         writeConstantWithSpace(strIf, cg);
       }
-      writeChar(aParenLeft, cg);
 
       Node expression = ast[cg->i];
       Int exprSentinel = calcNodeSentinel(expression, cg->i);
-      cg->i += 1; // CONSUME the nodExpr
+      cg->i++; // CONSUME the nodExpr
       writeExprInternal(expression, calcNodeSentinel(expression, cg->i - 1), ast, cg);
       cg->i = exprSentinel; // CONSUME the if of "else if" condition
    }
-
-   if (nd.pl3 == ifclElse) {
-      writeChar(aCurlyLeft, cg);
-   } else {
-      writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
-   }
-
 }
 
 private void //:writeIf
 writeIf(Node nd, Arr(Node const) ast, CG) {
    openFrame(nd, cg);
-   writeNewline(cg);
-   writeConstant(strIf, cg);
 }
 
 private void //:writeMatch
@@ -785,10 +674,8 @@ writeMatch(Node nd, Arr(Node const) ast, CG) {
 
 private void //:writeLoopLabel
 writeLoopLabel(Int labelId, CG) {
-   writeConstant(hostLo, cg);
-   cgEnsureBufferLength(14, cg);
-   Int lenWritten = sprintf(cg->buffer + cg->len, "%d", labelId);
-   cg->len += lenWritten;
+   //ensureBufferLength(14, cg);
+   //Int lenWritten = sprintf(cg->buffer + cg->len, "%d", labelId);
 }
 
 void //:preambleFor
@@ -821,48 +708,36 @@ writeFor(Node nd, Arr(Node const) ast, CG) {
    Int stepCount = 0;
    Int stepInd = 0;
    Int bodyInd = 0;
-   cgPreambleFor(sentinel, nd.pl3, ast, cg,
+   preambleFor(sentinel, nd.pl3, ast, cg,
                  OUT &initCount, OUT &condInd, OUT &stepCount, OUT &stepInd, OUT &bodyInd);
    if (initCount > 1) { // create a special scope that the loop will be nested in
-      writeNewline(cg);
-      writeChar(aCurlyLeft, cg);
       openFrameWithSentinel(((Node){.tp = nodScope, .pl2 = nd.pl2 - 1}), sentinel, cg);
 
       for (; cg->i < condInd;) {
          Node initNd = ast[cg->i];
          cg->i++; // CONSUME the nodAssignment
-         cgAssignmentWorker(true, true, initNd, ast, cg);
+         assignmentWorker(initNd, ast, cg);
       }
-   }
-   writeNewline(cg);
-   writeConstant(strFor, cg);
-
-   writeChars(((Byte[]){ aSpace, aParenLeft }), cg);
-   if (initCount > 1) {
-      writeChars(((Byte[]){ aSemicolon, aSpace }), cg);
    }
 
    openFrameWithSentinel(nd, sentinel, cg);
    if (initCount == 1) {
       Node initNd = ast[cg->i];
       cg->i++; // CONSUME the nodAssignment
-      cgAssignmentWorker(false, true, initNd, ast, cg);
-      writeChar(aSpace, cg);
+      assignmentWorker(initNd, ast, cg);
    }
    cg->i = condInd + 1;
 
    // loop condition
    Node exprNd = ast[condInd];
    writeExprInternal(exprNd, calcNodeSentinel(exprNd, condInd), ast, cg);
-   writeChar(aSemicolon, cg);
-   writeChar(aSpace, cg);
 
    // loop steps
    if (stepCount > 0) {
       for ( cg->i = stepInd + 1; cg->i < bodyInd; ) {
          Node currNd = ast[cg->i - 1];
          if (currNd.tp == nodAssignment) {
-            cgAssignmentWorker(false, false, currNd, ast, cg);
+            assignmentWorker(currNd, ast, cg);
          } ei (currNd.tp == nodExpr)  {
             Int exprSentinel = calcNodeSentinel(currNd, cg->i - 1);
             writeExprInternal(currNd, exprSentinel, ast, cg);
@@ -870,59 +745,41 @@ writeFor(Node nd, Arr(Node const) ast, CG) {
          } else { // TODO assert
             cg->i = calcNodeSentinel(currNd, cg->i - 1) + 1;
          }
-         if (stepCount > 1)
-            { writeChars(((Byte[]){ aComma, aSpace }), cg); }
          stepCount--;
       }
    }
-   writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
    cg->i = MIN(bodyInd + 1, sentinel); // CONSUME everything till the body, and the opening scope
 }
 
 private void //:writeBreakCont
 writeBreakCont(Node fr, Arr(Node const) ast, CG) {
-   writeNewline(cg);
    if (fr.pl1 == -1) {
-      writeConstant(strBreak, cg);
    } else if (fr.pl1 == BIG - 1)     {
-      writeConstant(strContinue, cg);
    } else {
       Int loopInd = fr.pl1;
       if (loopInd >= BIG) {
-         writeConstantWithSpace(strContinue, cg);
          loopInd -= BIG;
       } else {
-         writeConstantWithSpace(strBreak, cg);
       }
       writeLoopLabel(loopInd, cg);
    }
-   writeChar(aSemicolon, cg);
-   writeChar(aNewline, cg);
 }
 
 private void //:writeTry
 writeTry(Node fr, Arr(Node const) ast, CG) {
-   writeNewline(cg);
-   writeConstantWithSpace(strTry, cg);
-   writeChar(aCurlyLeft, cg);
-   writeChar(aNewline, cg);
 }
 
 private void //:writeCatch
 writeCatch(Node fr, Arr(Node const) ast, CG) {
-   writeNewline(cg);
-   writeConstantWithSpace(strCatch, cg);
-   writeChar(aCurlyLeft, cg);
-   writeChar(aNewline, cg);
 }
 
 private void //:writeFnDef
 writeFnDef(Node nd, Arr(Node const) ast, CG) {
 //~   Compiler const* restrict cm = cg->cm;
-//~   SourceLoc loc = cm->sourceLocs->cont[cg->i - 1];
+//~   SourceLoc loc = cr->sourceLocs->c[cg->i - 1];
 //~   openFrame(nd, cg);
 //~   writeNewline(cg);
-//~   Function fnEnt = cg->cm->functions.cont[nd.pl1];
+//~   Function fnEnt = cg->cr->functions.cont[nd.pl1];
 //~
 //~   writeBytesFromSource(loc, cg);
 //~   if (fnEnt.emit == emitPrefix)
@@ -933,7 +790,7 @@ writeFnDef(Node nd, Arr(Node const) ast, CG) {
 //~   Int j = cg->i + 2; // +2 to skip the function binding node and nodScope
 //~   // first param
 //~   if (nodes[j].tp == nodVar) {
-//~      SourceLoc bindingLoc = cm->sourceLocs->cont[j];
+//~      SourceLoc bindingLoc = cr->sourceLocs->c[j];
 //~      writeBytes(cg->sourceCode.cont + bindingLoc.startBt, bindingLoc.lenBts, cg);
 //~      ++j;
 //~   }
@@ -943,9 +800,9 @@ writeFnDef(Node nd, Arr(Node const) ast, CG) {
 //~   while (j < sentinel && nodes[j].tp == nodVar && nodes[j].pl3 == assiFnParam) {
 //~      writeChar(aComma, cg);
 //~      writeChar(aSpace, cg);
-//~      SourceLoc bindingLoc = cm->sourceLocs->cont[j];
+//~      SourceLoc bindingLoc = cr->sourceLocs->c[j];
 //~      writeBytes(cg->sourceCode.cont + bindingLoc.startBt, bindingLoc.lenBts, cg);
-//~      j += 1;
+//~      j++;
 //~   }
 //~   cg->i = j;
 //~   writeChars(((Byte[]){aParenRight, aSpace, aCurlyLeft, aNewline}), cg);
@@ -970,27 +827,25 @@ writeImpl(Node nd, Arr(Node const) ast, CG) {
 
 private void //:maybeCloseFrames
 maybeCloseFrames(CG) {
-   for (Int j = cg->backtrack.len - 1; j > -1 && cg->backtrack.cont[j].sentinel == cg->i; j -= 1) {
-      Frame fr = popFrame(&cg->backtrack);
+   for (Int j = cg->bt->len - 1; j > -1 && cg->bt->c[j].sentinel == cg->i; j--) {
+      CgFrame fr = removeLast(cg->bt);
       if (fr.tp == nodIf) {
          continue;
       }
-      writeNewline(cg);
-      writeChar(aCurlyRight, cg);
    }
 }
 
 private void //:writeToplevelFn
-writeToplevelFn(FunctionId toplevelId, CM, CG) {
-   Function fn = cm->functions.cont[toplevelId];
+writeToplevelFn(FunctionId toplevelId, CR, CG) {
+   Function fn = cr->functions.c[toplevelId];
    if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
       { return; }
 
    TypeHeader typeHdr = typeReadHeader(fn.typeId, cm);
-   Arr(Node const) ast = cm->ast.cont;
+   Arr(Node const) ast = cr->ast.c;
    Int countParams = typeHdr.arity - 1;
    for (Int t = fn.typeId.v + TYPE_PREFIX_LEN; t < fn.typeId.v + TYPE_PREFIX_LEN + arity; t++) {
-      add(cm->types.cont[t], cg->params);
+      add(cr->types.c[t], cg->params);
    }
 
 
@@ -999,16 +854,13 @@ writeToplevelFn(FunctionId toplevelId, CM, CG) {
       fn.name,
       GCC_JIT_FUNCTION_EXPORTED,
       countParams,
-      &cg->params->cont,
+      &cg->params->c,
       cg->primitives.voidTp,
       cg->ctx
    );
 
-
-
-
    TypeHeader hdr = typeReadHeader(fn.typeId, cm);
-   if (hdr.arity != 2 || cm->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
+   if (hdr.arity != 2 || cr->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
       writeChar(aUnderscore, cg);
       writeInt(toplevelId, cg);
    }
@@ -1027,14 +879,14 @@ writeToplevelFn(FunctionId toplevelId, CM, CG) {
    Node paramNd = ast[cg->i];
    if (paramNd.tp == nodVar && paramNd.pl3 == assiFnParam) {
       writeVarNode(cm, cg);
-      cg->i += 1;
+      cg->i++;
       paramNd = ast[cg->i];
    }
 
    // function params
    for ( ;
          cg->i < sentinel && paramNd.tp == nodVar && paramNd.pl3 == assiFnParam;
-         cg->i += 1, paramNd = ast[cg->i]
+         cg->i++, paramNd = ast[cg->i]
    ) {
       writeChars(((Byte[]){ aComma, aSpace }), cg);
       writeVarNode(cm, cg);
@@ -1042,9 +894,9 @@ writeToplevelFn(FunctionId toplevelId, CM, CG) {
    writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
 
    for (; cg->i < sentinel;) {
-      Node nd = cm->ast.cont[cg->i];
-      cg->i += 1; // CONSUME the span node
-      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cm->ast.cont, cg);
+      Node nd = cr->ast.cont[cg->i];
+      cg->i++; // CONSUME the span node
+      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.cont, cg);
       cgMaybeCloseFrames(cg);
    }
    cgMaybeCloseFrames(cg);
@@ -1055,8 +907,8 @@ writeToplevelFn(FunctionId toplevelId, CM, CG) {
 private void //:generateMainCode
 generateMainCode(CG) {
    Compiler* cm = cg->cm;
-   for (int j = 0; j < cm->toplevels.len; j++) {
-      toplevelFn(cm->toplevels.cont[j], cm, cg);
+   for (int j = 0; j < cr->toplevels.len; j++) {
+      toplevelFn(cr->toplevels.cont[j], cm, cg);
    }
 }
 
@@ -1066,7 +918,7 @@ generateCode(Compiler* cm, Arena* a) {
    printParser(cm);
 #endif
 
-   if (cm->stats.wasError)
+   if (cr->stats.wasError)
       { return NULL; }
 
    Codegen* cg = createCodegen(cm, a);
@@ -1132,15 +984,15 @@ tech_sozonov_eyr_compileFile(String filename) {
    Arena* a = createArena();
    String sourceCode = readSourceFile(filename, a);
    Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
-   if (cm->stats.wasLexerError) {
+   if (cr->stats.wasLexerError) {
       print("lexer error");
-      printString(cm->stats.errMsg);
+      printString(cr->stats.errMsg);
       return 1;
    }
    cm = parse(cm, a);
-   if (cm->stats.wasError) {
+   if (cr->stats.wasError) {
       print("parse error");
-      printString(cm->stats.errMsg);
+      printString(cr->stats.errMsg);
       return 1;
    }
    Codegen* cg = generateCode(cm, a);
@@ -1162,18 +1014,18 @@ tech_sozonov_eyr_compile(String sourceCode) {
    initCompiler();
    Arena* a = createArena();
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
-   if (cm->stats.wasLexerError) {
+   if (cr->stats.wasLexerError) {
 #if defined(DEBUG)
-      printString(cm->stats.errMsg);
+      printString(cr->stats.errMsg);
 #endif
       return str("lexer error");
    }
 
    cm = parse(cm, a);
-   if (cm->stats.wasError) {
+   if (cr->stats.wasError) {
 
 #if defined(DEBUG)
-   printString(cm->stats.errMsg);
+   printString(cr->stats.errMsg);
 #endif
       return str("parse error");
    }
@@ -1207,7 +1059,7 @@ main(int argc, char** argv) {
 //~   rewindLexicalScope(cm);
 //~   rewindLexicalScope(cm);
 //~
-//~   printIntArray(6, cm->scopes.currChunk->cont);
+//~   printIntArray(6, cr->scopes.currChunk->c);
 //~   dbgScopes(cm);
 //~   return 0;
 
