@@ -12,7 +12,7 @@
 extern jmp_buf excBuf;
 
 //}}}
-//{{{ GCC types
+//{{{ GCC types and functions
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -27,6 +27,109 @@ typedef enum gcc_jit_function_kind FnKind;
 typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define toPointer(x) gcc_jit_type_get_pointer(x)
+
+
+private void //:assignment
+assignment(LValue* left, RValue* right, CodeBlock* block) {
+   gcc_jit_block_add_assignment(block, NULL, left, right);
+}
+
+private Fn* //:importFn
+importFn(const char* name, int countParams, Arr(FnParam*) params,
+      CgType* returnType, Bool isVariadic, Module* md
+) {
+   return gcc_jit_context_new_function(
+      md,
+      NULL, // source location
+      GCC_JIT_FUNCTION_IMPORTED,
+      returnType,
+      name,
+      countParams,
+      params,
+      isVariadic ? 1 : 0
+   );
+}
+
+private Fn* //:newFn
+newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params,
+      CgType* returnType, Module* md
+) {
+   return gcc_jit_context_new_function(
+      md,
+      NULL, // source location
+      accessLevel,
+      returnType,
+      name,
+      countParams,
+      params,
+      0
+   );
+}
+
+private RValue* //:call
+call(Fn* fn, int countArgs, Arr(RValue*) args, Module* md) {
+   return gcc_jit_context_new_call(md, NULL, fn, countArgs, args);
+}
+
+private void //:evalExpr
+evalExpr(RValue* rValue, CodeBlock* block) {
+   gcc_jit_block_add_eval(block, NULL, rValue);
+}
+
+private CodeBlock* //:newBlock
+newBlock(Fn* fn) {
+   return gcc_jit_function_new_block(fn, NULL);
+}
+
+private void //:jump
+jump(CodeBlock* from, CodeBlock* to) {
+   gcc_jit_block_end_with_jump (from, NULL, to);
+}
+
+private void //:conditional
+conditional(CodeBlock* from, CodeBlock* toIfTrue, CodeBlock* toIfFalse, RValue* condition) {
+   gcc_jit_block_end_with_conditional(from, NULL, condition, toIfTrue, toIfFalse);
+}
+
+private RValue* //:comparison
+comparison(RValue* a, BuiltinComparison operator, RValue* b, Module* md) {
+   return gcc_jit_context_new_comparison(md, NULL, operator, a, b);
+}
+
+private CodeBlock* //:newNamedBlock
+newNamedBlock(Fn* fn, char const* name) {
+   return gcc_jit_function_new_block(fn, name);
+}
+
+private RValue* //:intConst
+intConst(int val, Codegen* cg) {
+   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
+}
+
+private LValue* //:arrElem
+arrElem(RValue* arr, RValue* index, Module* md)  {
+   return gcc_jit_context_new_array_access(md, NULL, arr, index);
+}
+
+private RValue* //:toRValue
+toRValue(LValue* lvalue) {
+   return gcc_jit_lvalue_as_rvalue(lvalue);
+}
+
+private RValue* //:ptrCast
+ptrCast(RValue* v, CgType* tp, Module* md) {
+   return gcc_jit_context_new_cast(md, NULL, v, tp);
+}
+
+private LValue* //:localVar
+localVar(const char* name, CgType* tp, Fn* fn) {
+   return gcc_jit_function_new_local(fn, NULL, tp, name);
+}
+
+private FnParam* //:newParam
+newParam(const char* name, CgType* tp, Module* md) {
+   return gcc_jit_context_new_param(md, NULL, tp, name);
+}
 
 //}}}
 //{{{ Utils
@@ -196,113 +299,15 @@ registerTypes(CM, CG) {
    cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc, .cgType = getType(GCC_JIT_TYPE_VOID, cg->md) };
 }
 
-private CgType*
+private CgType* //:intType
 intType(CG) {
    return cg->typeRefs[0].cgType;
 }
-
 
 //}}}
 //{{{ Code generator
 
 
-
-private void
-assignment(LValue* left, RValue* right, CodeBlock* block) {
-   gcc_jit_block_add_assignment(block, NULL, left, right);
-}
-
-private Fn*
-importFn(const char* name, int countParams, Arr(FnParam*) params,
-      CgType* returnType, Bool isVariadic, Module* md
-) {
-   return gcc_jit_context_new_function(
-      md,
-      NULL, // source location
-      GCC_JIT_FUNCTION_IMPORTED,
-      returnType,
-      name,
-      countParams,
-      params,
-      isVariadic ? 1 : 0
-   );
-}
-
-private Fn*
-newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params,
-      CgType* returnType, Module* md
-) {
-   return gcc_jit_context_new_function(
-      md,
-      NULL, // source location
-      accessLevel,
-      returnType,
-      name,
-      countParams,
-      params,
-      0
-   );
-}
-
-private RValue*
-call(Fn* fn, int countArgs, Arr(RValue*) args, Module* md) {
-   return gcc_jit_context_new_call(md, NULL, fn, countArgs, args);
-}
-
-private void
-evalExpr(RValue* rValue, CodeBlock* block) {
-   gcc_jit_block_add_eval(block, NULL, rValue);
-}
-
-private CodeBlock*
-newBlock(Fn* fn) {
-   return gcc_jit_function_new_block(fn, NULL);
-}
-
-private void
-jump(CodeBlock* from, CodeBlock* to) {
-   gcc_jit_block_end_with_jump (from, NULL, to);
-}
-
-private void
-conditional(CodeBlock* from, CodeBlock* toIfTrue, CodeBlock* toIfFalse, RValue* condition) {
-   gcc_jit_block_end_with_conditional(from, NULL, condition, toIfTrue, toIfFalse);
-}
-
-private RValue*
-comparison(RValue* a, BuiltinComparison operator, RValue* b, Module* md) {
-   return gcc_jit_context_new_comparison(md, NULL, operator, a, b);
-}
-
-private CodeBlock*
-newNamedBlock(Fn* fn, char const* name) {
-   return gcc_jit_function_new_block(fn, name);
-}
-
-private RValue*
-intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
-}
-
-private LValue*
-arrElem(RValue* arr, RValue* index, Module* md)  {
-   return gcc_jit_context_new_array_access(md, NULL, arr, index);
-}
-
-private RValue*
-toRValue(LValue* lvalue) {
-   return gcc_jit_lvalue_as_rvalue(lvalue);
-}
-
-private RValue*
-ptrCast(RValue* v, CgType* tp, Module* md) {
-   return gcc_jit_context_new_cast(md, NULL, v, tp);
-}
-
-
-LValue* localVar(const char* name, CgType* tp, Fn* fn) {
-   return gcc_jit_function_new_local(fn, NULL, tp, name);
-}
 
 
 //~private void //:ensureBufferLength
@@ -777,6 +782,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
 private void //:generateMainCode
 generateMainCode(CG) {
    CompResult* cr = cg->compResult;
+   temp(cg);
    for (int j = 0; j < cr->toplevels.len; j++) {
       //toplevelFn(cr.toplevels.c[j], cr, cg);
    }
@@ -811,6 +817,26 @@ dbgCgFrames(Codegen* cg) {
    }
    closing:
    printf("]\n");
+}
+
+//}}}
+//{{{ Temp
+
+void //:temp
+temp(CG) {
+   Module* md = cg->md;
+   CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
+   CgType* const intTp = intType(cg);
+   FnParam* paramFormat = newParam(constCharPtrTp, "format", constCharPtrTp, md);
+   Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
+   
+   FnParam* mainParams[2];
+   mainParams[0] = newParam("argc", intTp, md);
+   mainParams[1] = newParam("argv", toPointer(constCharPtrTp), md);
+   Fn* mainFn = newFn("main", 2, &mainParams, intTp);
+   
+   
+   RValue* fifteen = intConst(15, cg);
 }
 
 //}}}

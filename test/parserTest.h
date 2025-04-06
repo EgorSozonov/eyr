@@ -45,20 +45,8 @@ typedef tech_sozonov_eyr_String String;
 typedef struct Arena Arena;
 typedef struct Compiler Compiler;
 
-private void printStringNoLn(String s);
-private void printString(String s);
-
-private String str(const char* cent);
-private Bool endsWith(String a, String b);
 
 #define s(lit) str(lit)
-
-private void* allocateOnArena(size_t, Arena*);
-#define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
-#define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-#define cainerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
-#define LX Compiler* restrict lx // Compiler for lexer functions
-#define CM Compiler* restrict cm // compiler during parsing
 
 Bool equal(String a, String b);
 
@@ -84,30 +72,6 @@ typedef struct {
     Int countPassed;
     Arena* a;
 } TestContext;
-
-typedef struct {
-   Int inpLength;
-   Bool wasLexerError;
-
-   Int countNonparsedVars;
-   Int countNonparsedFns;
-   Int countOverloads;
-   Int countOverloadedNames;
-   Int countOperatorFns;
-   Int toksLen;
-   Int nodesLen;
-   Int typesLen;
-   Int loopCounter;
-   Bool wasError;
-   String errMsg;
-   Int listType;
-
-   Int standardTextLen; // length of standardText
-   Int firstParsedName; // the name index for the first parsed word
-   Int firstBuiltin;    // the name for the first built-in word in standardStrings
-} CompStats;
-
-CompStats getStats(CM);
 
 //}}}
 //{{{ Standard strings :standardStr

@@ -44,7 +44,6 @@ private ParserTestSet* createTestSet0(String name, Arena *a, int count, Arr(Pars
    for (int i = 0; i < count; i++) {
       result->tests[i] = tests[i];
    }
-   printString(getStats(tests[0].control).errMsg);
    return result;
 }
 
@@ -82,8 +81,8 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
    Compiler* test = lexicallyAnalyze(sourceCode, a);
    Compiler* control = lexicallyAnalyze(sourceCode, a);
 
-   CompStats controlStats = getStats(control);
-   if (controlStats.wasLexerError == true) {
+   CompResult* controlRes = getCompResult(control);
+   if (controlRes->wasLexerError == true) {
       return (ParserTest) {
          .name = name, .test = test, .control = control, .compareLocsToo = false };
    }
@@ -94,20 +93,20 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
    importTestFns(types, countTypes, imports, countImports, a, OUT control);
    importTestFns(types, countTypes, imports, countImports, a, OUT test);
 
-   controlStats = getStats(control); // the updated version after entities were imported
+   controlRes = getCompResult(control); // the updated version after entities were imported
    // The control compiler
    for (Int i = 0; i < countNodes; i++) {
       Node nd = nodes[i];
       Unt nodeType = nd.tp;
       // All the node types which contain entityIds in their pl1
       if ((nodeType == nodCall && nd.pl3 == callNormal) || nodeType == nodFnDef) {
-         nd.pl1 = transformFuncId(nd.pl1, &controlStats);
+         nd.pl1 = transformFuncId(nd.pl1, &controlRes->stats);
       } else if (nodeType == nodVar || (nodeType == nodCall && nd.pl3 == callVar)) {
-         nd.pl1 = transformBindingVarId(nd.pl1, &controlStats);
+         nd.pl1 = transformBindingVarId(nd.pl1, &controlRes->stats);
       }
       // transform pl2/pl3 if it holds FuncId
       if (nodeType == nodVar && (nd.pl3 == assiFnVarUse || nd.pl3 == assiFnVarDef)) {
-         nd.pl2 = transformFuncId(nd.pl2, &controlStats);
+         nd.pl2 = transformFuncId(nd.pl2, &controlRes->stats);
       }
       newNode(nd, (SourceLoc){.startBt = 0, .lenBts = 0}, control);
    }
@@ -142,12 +141,12 @@ private ParserTest createTestWithLocs0(String name, String input, Arr(Node) node
 // Creates a test with two parsers where the source locs are specified (unlike most parser tests)
    ParserTest theTest = createTest0(name, input, nodes, countNodes, types, countTypes, entities,
                             countEntities, a);
-   CompStats stats = getStats(theTest.control);
-   if (stats.wasLexerError)
+   CompResult* controlRes = getCompResult(theTest.control);
+   if (controlRes->wasLexerError)
       { return theTest; }
    for (Int j = 0; j < countLocs; ++j) {
       SourceLoc loc = locs[j];
-      loc.startBt += stats.standardTextLen;
+      loc.startBt += controlRes->stats.standardTextLen;
       setLoc(loc, j, theTest.control);
    }
    return theTest;
@@ -162,12 +161,12 @@ private ParserTest createTestWithLocs0(String name, String input, Arr(Node) node
 void runTest(ParserTest test, TestContext* ct) {
 // Runs a single lexer test and prints err msg to stdout in case of failure. Returns error code
    ct->countTests += 1;
-   CompStats testStats = getStats(test.test);
-   CompStats controlStats = getStats(test.control);
-   if (testStats.toksLen == 0) {
+   CompResult* testRes = getCompResult(test.test);
+   CompResult* controlRes = getCompResult(test.control);
+   if (testRes->stats.toksLen == 0) {
       print("Lexer result empty");
       return;
-   } else if (controlStats.wasLexerError) {
+   } else if (controlRes->wasLexerError) {
       print("Lexer error");
       printLexer(test.control);
       return;
@@ -181,9 +180,9 @@ void runTest(ParserTest test, TestContext* ct) {
       printf("\n\nERROR IN [");
       printStringNoLn(test.name);
       printf("]\nError msg: ");
-      printString(testStats.errMsg);
+      printString(testRes->errMsg);
       printf("\nBut was expected: ");
-      printString(controlStats.errMsg);
+      printString(controlRes->errMsg);
       printf("\n");
       print("   LEXER:")
       printLexer(test.test);
