@@ -5,11 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <setjmp.h>
 #include "include/libeyr.h"
 #include <libgccjit.h>
 
+extern jmp_buf excBuf;
+
 //}}}
-//{{{ Library types
+//{{{ GCC types
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -26,11 +29,18 @@ typedef enum gcc_jit_comparison BuiltinComparison;
 #define toPointer(x) gcc_jit_type_get_pointer(x)
 
 //}}}
+//{{{ Utils
+
+private String
+stringOf(Arr(char) cString) {
+   return (String){.c = cString, .len = strlen(cString) };
+}
+
+//}}}
 //{{{ Forward decls & generics
 
-#define SRC Arr(char const) restrict source // Source text
-#define CM Compiler* restrict cm // Compiler for parser functions
-#define CR CompResult* restrict cr // Compiler for parser functions
+#define SRC Arr(char const) const restrict source // Source text
+#define CR CompResult const* const restrict cr // Compilation results
 private void closeStatement(LX);
 private NameId nameOfStandard(Int a);
 
@@ -41,7 +51,6 @@ DEFINE_LIST_HEADER(FnParamPtr)
 DEFINE_LIST_HEADER(FieldPtr)
 
 #define add(A, X) _Generic((X),\
-   LTypeLoc*: addTypeLoc,\
    LInt*: addInt,\
    LUnt*: addUnt,\
    LUlong*: addUlong,\
@@ -51,25 +60,25 @@ DEFINE_LIST_HEADER(FieldPtr)
 )(A, X)
 
 #define removeLast(X) _Generic((X),\
-   LBtToken*: removeLastBtToken,\
-   LParseFrame*: removeLastParseFrame,\
-   LExprFrame*: removeLastExprFrame,\
-   LTypeFrame*: removeLastTypeFrame,\
    LInt*: removeLastInt,\
    LUnt*: removeLastUnt,\
-   LUlong: removeLastUlong,\
+   LUlong*: removeLastUlong,\
    LNode*: removeLastNode,\
    LSourceLoc*: removeLastSourceLoc,\
    LCgFrame*: removeLastCgFrame\
 )(X)
 
 
+DEFINE_LIST(Int)
+DEFINE_LIST(Unt)
+DEFINE_LIST(Ulong)
+DEFINE_LIST(Node)
 DEFINE_LIST(FnParamPtr)
 DEFINE_LIST(FieldPtr)
+DEFINE_LIST(SourceLoc)
 
 #if defined(DEBUG) || defined(TEST)
 
-void printName(NameId nameId, CM);
 void printIntArray(Int count, Arr(Int) arr);
 void printParser(Compiler* cm);
 void dbgType0(TypeId type, CM);
@@ -95,6 +104,7 @@ typedef struct { //:CgFrame Frame for the stack of nested codegen blocks
 } CgFrame;
 
 DEFINE_LIST_HEADER(CgFrame)
+DEFINE_LIST(CgFrame)
 
 typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
    Int ind;
@@ -115,7 +125,7 @@ typedef struct { //:Codegen
    Int countTypeRefs;
    Arr(TypeRef) typeRefs;
    
-   CompResult compResult; // results of the compilation from libeyr
+   CompResult * restrict compResult; // results of the compilation from libeyr
 
    Arena* a;
    Bool wasError;
@@ -313,151 +323,16 @@ LValue* localVar(const char* name, CgType* tp, Fn* fn) {
 //~    cg->cap = newCap;
 //~}
 
-private void
-addArrayPrint(CodeBlock* block, Fn* fn, Fn* printfFn, Codegen* cg) {
-//~     Arr(Int) arr = malloc(4*sizeof(Int));
-//~     for (int i = 0; i < 4; i++) {
-//~        printf("%d\n", arr[i]);
-//~     }
-   Module* md = cg->md;
-   CgType* intPtrTp = toPointer(cg->typeRefs[0].cgType);
-   CgType* voidPtrTp = getType(GCC_JIT_TYPE_VOID_PTR, md);
-   FnParam* paramSz = gcc_jit_context_new_param(md, NULL, cg->typeRefs[0].cgType, "sz");
-   Fn* mallocFn = importFn(
-      "malloc",
-      1,
-      &paramSz,
-      voidPtrTp,
-      false,
-      md
-   );
-   LValue* arr = localVar("arr", intPtrTp, fn);
-   RValue* arrR = toRValue(arr);
-   RValue* sixteen = intConst(16, cg);
-   assignment(arr, ptrCast(call(mallocFn, 1, &sixteen, md), intPtrTp, md), block);
-   // arr[0] = ..., arr[1] = ...
-   assignment(arrElem(arrR, intConst(0, cg), md), intConst(17, cg), block);
-   assignment(arrElem(arrR, intConst(1, cg), md), intConst(-27, cg), block);
-   assignment(arrElem(arrR, intConst(2, cg), md), intConst(37, cg), block);
-   assignment(arrElem(arrR, intConst(3, cg), md), intConst(107, cg), block);
-
-   CodeBlock* loopInit = newNamedBlock(fn, "loopInit");
-   CodeBlock* loopCond = newNamedBlock(fn, "loopCond");
-   CodeBlock* loopBody = newNamedBlock(fn, "loopBody");
-   CodeBlock* loopAfter = newNamedBlock(fn, "loopAfter");
-
-   jump(block, loopInit);
-
-   // init
-   LValue* iVar = localVar("i", intType(cg), fn);
-   assignment(iVar, intConst(0, cg), loopInit);
-   jump(loopInit, loopCond);
-
-   // conditional
-   conditional(
-      loopCond, loopBody, loopAfter,
-      comparison(toRValue(iVar), GCC_JIT_COMPARISON_LT, intConst(4, cg), md)
-   );
-
-   // body
-   int const countArgs = 2;
-   RValue* args[countArgs];
-   args[0] = gcc_jit_context_new_string_literal(md, "%d\n");
-   LValue* arrVal = arrElem(toRValue(arr), toRValue(iVar), md); // arr[i]
-   args[1] = toRValue(arrVal);
-   evalExpr(call(printfFn, countArgs, args, md), loopBody);
-
-   RValue* nextI = gcc_jit_context_new_binary_op(
-      md, NULL, GCC_JIT_BINARY_OP_PLUS, intType(cg),
-      toRValue(iVar), intConst(1, cg));
-   assignment(iVar, nextI, loopBody); //i++
-   jump(loopBody, loopCond);
-
-   // after loop
-   gcc_jit_block_end_with_void_return(loopAfter, NULL);
-}
-
-int
-main(int argc, char** argv) {
-   printf("HW\n");
-
-  /* Let's try to inject the equivalent of:
-     int
-     inner(int x) {
-        if (x > 10) {
-           return x -10
-        } else {
-           return x * 20;
-        }
-     }
-
-     void
-     greet(const char *name) {
-        printf("hello %s value = %d\n", name, inner(5));
-        printf("hello %s value = %d\n", name, inner(15));
-        Arr(Int) arr = malloc(4*sizeof(Int));
-        for (int i = 0; i < 4; i++) {
-           printf("%d\n", arr[i]);
-        }
-     }
-  */
-//~         def newFn Str = {{x Str, y Double, }
-//~            a = x;
-//~            return a;
-//~         };
-// def newFn F[Str Double -> Str] = {x y ->
-//    a = x;
-//    return a;
-// }
-
-   Module* md = gcc_jit_context_acquire();
-   Codegen* cg = malloc(sizeof(Codegen));
-   cg->md = md;
-   if (!md) {
-      fprintf(stderr, "NULL mdt");
-      exit (1);
-   }
-
-   /* Set some options on the context.
-     Let's see the code being generated, in assembler form.  */
-   gcc_jit_context_set_bool_option(md, GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE, 0);
-
-   //createCodeGreet(cg);
-
-   // Compile the code
-   gcc_jit_result* result = gcc_jit_context_compile(md);
-
-   gcc_jit_context_dump_to_file(md, "outp.c", 0);
-   if (!result) {
-      fprintf (stderr, "NULL result");
-      exit(1);
-   }
-
-   // Extract the generated code from "result"
-   typedef void (*FnType) (const char *);
-//~   FnType greet = (FnType)gcc_jit_result_get_code(result, "greet");
-//~   if (!greet) {
-//~      fprintf(stderr, "NULL greet");
-//~      exit(1);
-//~   }
-
-//~   greet("world");
-   fflush(stdout);
-
-   gcc_jit_context_release(md);
-   gcc_jit_result_release(result);
-   return 0;
-}
 
 private Codegen* //:createCodegen
-createCodegen(CM, Arena* a) {
+createCodegen(CR, Arena* a) {
    Codegen* cg = allocate(Codegen, a);
    Module* md = gcc_jit_context_acquire();
    (*cg) = (Codegen) {
       .i = 0, .buffer = allocateOnArena(64, a),
       .md = md, 
       .bt = createLCgFrame(16, a),
-      .compResult = getCompilationResults(cm),
+      .compResult = cr,
       .a = a,
       .wasError = false
    };
@@ -545,13 +420,13 @@ writeDummy(Node fr, Bool isEntry, Arr(Node const) ast, CG) {
 private void //:writeVarNode
 writeVarNode(CR, CG) {
 // Write a node being pointed to. The node must be a nodVar
-   Node varNd = cr->ast.c[cg->i];
-   Var theVar = cr->vars.c[varNd.pl1];
-   if (varNd.pl3 == assiVarAssignment) {
-      Int class = theVar.class;
-   }
-
-   SourceLoc loc = cr->sourceLocs.c[cg->i];
+//~   Node varNd = cr->ast.c[cg->i];
+//~   Var theVar = cr->vars.c[varNd.pl1];
+//~   if (varNd.pl3 == assiVarAssignment) {
+//~      Int class = theVar.class;
+//~   }
+//~
+//~   SourceLoc loc = cr->sourceLocs.c[cg->i];
 }
 
 private void //:assignmentLeft
@@ -578,9 +453,6 @@ assignmentRight(Node rightNode, Int sentinel, Bool isComplex,
          for(; start < sentinel && ast[start].tp == nodAssignment;
                start = calcNodeSentinel(ast[start], start)
          ) {}
-      }
-      if (start == 29 && sentinel - 1 == 121) {
-         print("HOROO");
       }
    }
 }
@@ -837,91 +709,82 @@ maybeCloseFrames(CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
-   Function fn = cr->functions.c[toplevelId];
-   if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
-      { return; }
-
-   TypeHeader typeHdr = typeReadHeader(fn.typeId, cm);
-   Arr(Node const) ast = cr->ast.c;
-   Int countParams = typeHdr.arity - 1;
-   for (Int t = fn.typeId.v + TYPE_PREFIX_LEN; t < fn.typeId.v + TYPE_PREFIX_LEN + arity; t++) {
-      add(cr->types.c[t], cg->params);
-   }
-
-
-   // create all the params
-   Fn* newToplevel = newFn(
-      fn.name,
-      GCC_JIT_FUNCTION_EXPORTED,
-      countParams,
-      &cg->params->c,
-      cg->primitives.voidTp,
-      cg->ctx
-   );
-
-   TypeHeader hdr = typeReadHeader(fn.typeId, cm);
-   if (hdr.arity != 2 || cr->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
-      writeChar(aUnderscore, cg);
-      writeInt(toplevelId, cg);
-   }
-
-   Node nodeFn = ast[fn.nodeInd];
-   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
-   pushFrame(
-      ((Frame){ .tp = nodFnDef, .pl1 = nodeFn.pl1, .sentinel = sentinel}),
-      &cg->backtrack
-   );
-   cg->local = 0;
-
-   cg->i = fn.nodeInd + 1;
-
-   // first param
-   Node paramNd = ast[cg->i];
-   if (paramNd.tp == nodVar && paramNd.pl3 == assiFnParam) {
-      writeVarNode(cm, cg);
-      cg->i++;
-      paramNd = ast[cg->i];
-   }
-
-   // function params
-   for ( ;
-         cg->i < sentinel && paramNd.tp == nodVar && paramNd.pl3 == assiFnParam;
-         cg->i++, paramNd = ast[cg->i]
-   ) {
-      writeChars(((Byte[]){ aComma, aSpace }), cg);
-      writeVarNode(cm, cg);
-   }
-   writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
-
-   for (; cg->i < sentinel;) {
-      Node nd = cr->ast.cont[cg->i];
-      cg->i++; // CONSUME the span node
-      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.cont, cg);
-      cgMaybeCloseFrames(cg);
-   }
-   cgMaybeCloseFrames(cg);
-
-   writeChar(aNewline, cg);
+//~   Function fn = cr->functions.c[toplevelId];
+//~   if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
+//~      { return; }
+//~
+//~   TypeHeader typeHdr = typeReadHeader(fn.typeId, cm);
+//~   Arr(Node const) ast = cr->ast.c;
+//~   Int countParams = typeHdr.arity - 1;
+//~   for (Int t = fn.typeId.v + TYPE_PREFIX_LEN; t < fn.typeId.v + TYPE_PREFIX_LEN + arity; t++) {
+//~      add(cr->types.c[t], cg->params);
+//~   }
+//~
+//~
+//~   // create all the params
+//~   Fn* newToplevel = newFn(
+//~      fn.name,
+//~      GCC_JIT_FUNCTION_EXPORTED,
+//~      countParams,
+//~      &cg->params->c,
+//~      voidType(cg),
+//~      cg->md
+//~   );
+//~
+//~   TypeHeader hdr = typeReadHeader(fn.typeId, cm);
+//~   if (hdr.arity != 2 || cr->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
+//~      writeChar(aUnderscore, cg);
+//~      writeInt(toplevelId, cg);
+//~   }
+//~
+//~   Node nodeFn = ast[fn.nodeInd];
+//~   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
+//~   pushFrame(
+//~      ((Frame){ .tp = nodFnDef, .pl1 = nodeFn.pl1, .sentinel = sentinel}),
+//~      &cg->bt
+//~   );
+//~   cg->local = 0;
+//~
+//~   cg->i = fn.nodeInd + 1;
+//~
+//~   // first param
+//~   Node paramNd = ast[cg->i];
+//~   if (paramNd.tp == nodVar && paramNd.pl3 == assiFnParam) {
+//~      writeVarNode(cm, cg);
+//~      cg->i++;
+//~      paramNd = ast[cg->i];
+//~   }
+//~
+//~   // function params
+//~   for ( ;
+//~         cg->i < sentinel && paramNd.tp == nodVar && paramNd.pl3 == assiFnParam;
+//~         cg->i++, paramNd = ast[cg->i]
+//~   ) {
+//~      writeChars(((Byte[]){ aComma, aSpace }), cg);
+//~      writeVarNode(cm, cg);
+//~   }
+//~   writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
+//~
+//~   for (; cg->i < sentinel;) {
+//~      Node nd = cr->ast.cont[cg->i];
+//~      cg->i++; // CONSUME the span node
+//~      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.cont, cg);
+//~      cgMaybeCloseFrames(cg);
+//~   }
+//~   cgMaybeCloseFrames(cg);
 }
 
 private void //:generateMainCode
 generateMainCode(CG) {
-   Compiler* cm = cg->cm;
+   CompResult* cr = cg->compResult;
    for (int j = 0; j < cr->toplevels.len; j++) {
-      toplevelFn(cr->toplevels.cont[j], cm, cg);
+      //toplevelFn(cr.toplevels.c[j], cr, cg);
    }
 }
 
 private Codegen* //:generateCode
-generateCode(Compiler* cm, Arena* a) {
-#ifdef TRACE
-   printParser(cm);
-#endif
-
-   if (cr->stats.wasError)
-      { return NULL; }
-
-   Codegen* cg = createCodegen(cm, a);
+generateCode(CR) {
+   Codegen* cg = createCodegen(cr, cr->a);
    if (setjmp(excBuf) == 0) {
       generateMainCode(cg);
    } else {
@@ -939,12 +802,12 @@ generateCode(Compiler* cm, Arena* a) {
 void
 dbgCgFrames(Codegen* cg) {
    printf("CgFrames [");
-   if (cg->backtrack.len == 0) {
+   if (cg->bt->len == 0) {
       goto closing;
    }
-   printf("%d ", cg->backtrack.cont[0].tp);
-   for (Int i = 1; i < cg->backtrack.len; i++) {
-      printf("%d ", cg->backtrack.cont[i].tp);
+   printf("%d ", cg->bt->c[0].tp);
+   for (Int i = 1; i < cg->bt->len; i++) {
+      printf("%d ", cg->bt->c[i].tp);
    }
    closing:
    printf("]\n");
@@ -953,128 +816,69 @@ dbgCgFrames(Codegen* cg) {
 //}}}
 //{{{ Main
 
-void //:saveCompiledCode
-saveCompiledCode(String output, String sourceFName, Arena* a) {
-   Arr(char) outFNameBuf = allocateArray(sourceFName.len + 2, char, a);
-
-   memcpy(outFNameBuf, sourceFName.cont, sourceFName.len - 3);
-   outFNameBuf[sourceFName.len - 3] = 'h';
-   outFNameBuf[sourceFName.len - 2] = 't';
-   outFNameBuf[sourceFName.len - 1] = 'm';
-   outFNameBuf[sourceFName.len    ] = 'l';
-   outFNameBuf[sourceFName.len + 1] = '\0';
-   FILE* outF = fopen(outFNameBuf, "wt");
-   if (!outF) {
-      printf("Error writing to file %s", outFNameBuf);
-      return;
-   }
-   fprintf(outF, TEMPLATE_HTML_OPEN);
-   fprintf(outF, output.cont);
-   fprintf(outF, TEMPLATE_HTML_CLOSE);
-   fclose(outF);
-}
-
-
-Int //:tech_sozonov_eyr_compileFile
-tech_sozonov_eyr_compileFile(String filename) {
-   if (filename.len == 0)
-      { return 1; }
-   initCompiler();
-
-   Arena* a = createArena();
-   String sourceCode = readSourceFile(filename, a);
-   Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
-   if (cr->stats.wasLexerError) {
-      print("lexer error");
-      printString(cr->stats.errMsg);
-      return 1;
-   }
-   cm = parse(cm, a);
-   if (cr->stats.wasError) {
-      print("parse error");
-      printString(cr->stats.errMsg);
-      return 1;
-   }
-   Codegen* cg = generateCode(cm, a);
-   if (cg->wasError) {
-      print("codegen error");
-      return 1;
-   }
-   String output = (String){.len = cg->len, .cont = cg->buffer};
-   saveCompiledCode(output, filename, a);
-   deleteArena(a);
-   return 0;
-}
-
-String //:tech_sozonov_eyr_compile
-tech_sozonov_eyr_compile(String sourceCode) {
-   if (sourceCode.len == 0)
-      { return empty; }
-
-   initCompiler();
-   Arena* a = createArena();
-   Compiler* cm = lexicallyAnalyze(sourceCode, a);
-   if (cr->stats.wasLexerError) {
-#if defined(DEBUG)
-      printString(cr->stats.errMsg);
-#endif
-      return str("lexer error");
-   }
-
-   cm = parse(cm, a);
-   if (cr->stats.wasError) {
-
-#if defined(DEBUG)
-   printString(cr->stats.errMsg);
-#endif
-      return str("parse error");
-   }
-   Codegen* cg = generateCode(cm, a);
-   return (String){.len = cg->len, .cont = cg->buffer};
-}
-
-
 private void
 displayHelp() {
    printf("Eyr compiler. Usage:\n\neyrc file.eyr\n\nor\n\neyrc folder\n");
 }
 
+
+#define whatToDoDisplayHelp  0
+#define whatToDoBuildExe     1
+#define whatToDoPrintAst     2
+
+typedef struct {
+   String inputFilename;
+   String outputFilename;
+   Byte whatToDo;
+   String errMsg;
+} TaskDescription;
+
+private TaskDescription
+getCommandParams(int argc, char** argv) {
+   Byte whatToDo = argc == 1 ? whatToDoDisplayHelp : whatToDoBuildExe;
+   return (TaskDescription){
+      .inputFilename = stringOf("testFile.eyr"), 
+      .outputFilename = "testFile", .errMsg = empty, .whatToDo = whatToDo
+   };
+}
+
 Int //:main
 main(int argc, char** argv) {
-   initCompiler();
-
+   TaskDescription task = getCommandParams(argc, argv);
+   if (task.errMsg.len > 0) {
+      print("Erroneous task description!");
+      printString(task.errMsg);
+      return 0;
+   } else if (task.whatToDo == whatToDoDisplayHelp) {
+      displayHelp();
+      return 0;
+   }
+   CompResult* compResult = tech_sozonov_eyr_compileFile(task.inputFilename);  
+   if (compResult->wasLexerError || compResult->wasParserError) {
+      print("Compilation error");
+      printString(compResult->errMsg);
+      return 1;
+   }
+   Codegen* cg = generateCode(compResult);
+   if (cg->wasError) { 
+      print("Code generation error");
+      return 1;
+   } 
+   
+   Module* md = cg->md;
+   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, task.outputFilename.c);
+   
+   gcc_jit_result* result = gcc_jit_context_compile(md);
+   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
+   
 //~   Arena* a = createArena();
 //~   Compiler* cm = createLexer(empty, false, a);
 //~   initializeParser(cm, a);
 //~
-//~   scopesNewLexicalScope(cm);
-//~   addBinding(1, 1, cm);
-//~   addBinding(2, 2, cm);
-//~   scopesNewLexicalScope(cm);
-//~   addBinding(3, 3, cm);
-//~   addBinding(4, 4, cm);
-//~   addBinding(5, 5, cm);
-//~   addBinding(6, 6, cm);
-//~
-//~   rewindLexicalScope(cm);
-//~   rewindLexicalScope(cm);
 //~
 //~   printIntArray(6, cr->scopes.currChunk->c);
 //~   dbgScopes(cm);
 //~   return 0;
-
-
-   if (argc == 1) {
-      displayHelp();
-      return 0;
-   }
-   for (Int i = 1; i < argc; i++) {
-      String fName = stringOf(argv[i]);
-      if (tech_sozonov_eyr_compileFile(fName) == 0) {
-         print("compiled file: ");
-         printString (fName);
-      }
-   }
 
    cleanup:
 

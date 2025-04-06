@@ -84,29 +84,6 @@ typedef struct {
     Arena* a;
 } TestContext;
 
-typedef struct {
-   Int inpLength;
-   Bool wasLexerError;
-
-   Int countNonparsedVars;
-   Int countNonparsedFns;
-   Int countOverloads;
-   Int countOverloadedNames;
-   Int countOperatorFns;
-   Int toksLen;
-   Int nodesLen;
-   Int typesLen;
-   Int loopCounter;
-   Bool wasError;
-   String errMsg;
-   Int listType;
-
-   Int standardTextLen; // length of standardText
-   Int firstParsedName; // the name index for the first parsed word
-   Int firstBuiltin;    // the name for the first built-in word in standardStrings
-} CompStats;
-
-CompStats getStats(CM);
 
 //}}}
 //{{{ Lexer tests

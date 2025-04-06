@@ -1,13 +1,9 @@
+//{{{ Common code
+
 typedef struct { // :String
     char const* c;
     int32_t len;
 } tech_sozonov_eyr_String;
-
-tech_sozonov_eyr_String
-tech_sozonov_eyr_compileFile(tech_sozonov_eyr_String inpName, tech_sozonov_eyr_String outName);
-
-tech_sozonov_eyr_String
-tech_sozonov_eyr_compile(tech_sozonov_eyr_String inpName, tech_sozonov_eyr_String outName);
 
 //{{{ Basic definitions
 
@@ -56,18 +52,19 @@ typedef tech_sozonov_eyr_String String;
   printf("\n");
 
 typedef struct Arena Arena;
+Arena* createArena();
+
 typedef struct Compiler Compiler;
 
-private void printStringNoLn(String s);
-private void printString(String s);
+void printStringNoLn(String s);
+void printString(String s);
 
 constexpr String empty = {.c = null, .len = 0};
-private String str(const char* cent);
-private Bool endsWith(String a, String b);
+String str(const char* cent);
 
 #define s(lit) str(lit)
 
-private void* allocateOnArena(size_t, Arena*);
+void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
 #define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
@@ -395,11 +392,12 @@ void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT A
 
 //}}}
 
-Int calcNodeSentinel(Node nd, Int nodeInd);
+
+//}}}
+//{{{ libeyr interface
 
 typedef struct { //:CompStats
    Int inpLength;
-   Bool wasLexerError;
 
    Int countNonparsedVars;
    Int countNonparsedFns;
@@ -410,8 +408,6 @@ typedef struct { //:CompStats
    Int astLen;
    Int typesLen;
    Int loopCounter;
-   Bool wasError;
-   String errMsg;
    Int listType;
 
    Int standardTextLen; // length of standardText
@@ -431,9 +427,19 @@ typedef struct { //:CompResult
    SliInt publicConsts;
    SliInt types;
    CompStats stats;
+   Bool wasLexerError;
+   Bool wasParserError;
+   String errMsg;
    Arena* a;
 } CompResult;
 
+Int calcNodeSentinel(Node nd, Int nodeInd);
+Compiler* lexicallyAnalyzeFromFile(String sourceCode, Arena* a);
+String readSourceFile(String fName, Arena* a);
+CompResult* getCompResult(CM);
 
-CompResult getCompilationResults(CM);
 
+CompResult* tech_sozonov_eyr_compileFile(String filename);
+CompResult* tech_sozonov_eyr_compile(String sourceCode);
+
+//}}}

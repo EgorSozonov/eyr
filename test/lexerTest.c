@@ -151,19 +151,19 @@ private Compiler* buildExpectedLexer(Arena *a, int totalTokens, Arr(Token) token
     Compiler* result = createLexer(empty, true, a);
     if (result == NULL) return result;
 
-    CompStats stats = getStats(result);
+    CompResult* testRes = getCompResult(result);
     if (tokens == NULL) {
         return result;
     }
     for (int i = 0; i < totalTokens; i++) {
         Token tok = tokens[i];
         // offset nameIds and startBts for the standardText and standard nameIds correspondingly
-        tok.startBt += stats.standardTextLen;
+        tok.startBt += testRes->stats.standardTextLen;
         if (tok.tp == tokWord || tok.tp == tokKwArg || tok.tp == tokTypeName||
              (tok.tp == tokOperator && tok.pl2 == 10)
              || tok.tp == tokTypeVar || tok.tp == tokFieldAcc) {
             if (tok.pl1 < S) { // parsed words
-                tok.pl1 += stats.firstParsedName;
+                tok.pl1 += testRes->stats.firstParsedName;
             } else { // built-in words
                 tok.pl1 -= S;
                 tok.pl1 += countOperators;
@@ -207,7 +207,7 @@ private LexerTestSet* createTestSet0(String name, Arena *a, int count, Arr(Lexer
 
 void runLexerTest(LexerTest test, TestContext* ct) {
 // Runs a single lexer test and prints err msg to stdout in case of failure. Returns error code
-    ct->countTests += 1;
+    ct->countTests++;
     Compiler* result = lexicallyAnalyze(test.input, ct->a);
 
     int equalityStatus = equalityLexer(result, test.expectedOutput);
@@ -218,12 +218,12 @@ void runLexerTest(LexerTest test, TestContext* ct) {
         printf("\n\nERROR IN [");
         printStringNoLn(test.name);
         printf("]\nError msg: ");
-        CompStats stats = getStats(result);
-        CompStats expectedStats = getStats(test.expectedOutput);
-        printString(stats.errMsg);
-        if (expectedStats.wasError) {
+        CompResult* testRes = getCompResult(result);
+        CompResult* expectedRes = getCompResult(test.expectedOutput);
+        printString(testRes->errMsg);
+        if (expectedRes->wasLexerError) {
             printf("\nBut was expected: ");
-            printString(expectedStats.errMsg);
+            printString(expectedRes->errMsg);
         } else {
             printf("\nBut was expected to be error-free\n");
         }

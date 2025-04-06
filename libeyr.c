@@ -63,15 +63,15 @@ typedef tech_sozonov_eyr_String String;
 typedef struct Arena Arena;
 typedef struct Compiler Compiler;
 
-private void printStringNoLn(String s);
-private void printString(String s);
+void printStringNoLn(String s);
+void printString(String s);
 
-private String str(const char* cent);
+String str(const char* cent);
 private Bool endsWith(String a, String b);
 
 #define s(lit) str(lit)
 
-private void* allocateOnArena(size_t, Arena*);
+void* allocateOnArena(size_t, Arena*);
 #define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
 #define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
 #define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
@@ -563,6 +563,7 @@ private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 private TypeId typeGetGenericParam(TypeId t, Int ind, CM);
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM);
+private void fillInCompilationResult(CM, OUT CompResult* cr);
 
 DEFINE_LIST_HEADER(Token)
 DEFINE_LIST_HEADER(BtToken)
@@ -649,7 +650,7 @@ minChunkSize(void) {
 }
 
 Arena*
-createArena(void) { //:createArena
+createArena() { //:createArena
    Arena* result = malloc(sizeof(Arena));
 
    size_t firstChunkSize = minChunkSize();
@@ -682,7 +683,7 @@ calculateChunkSize(size_t allocSize) { //:calculateChunkSize
    return mallocMemory - 32;
 }
 
-private void*
+void*
 allocateOnArena(size_t allocSize, Arena* a) { //:allocateOnArena
 // Allocate memory in the arena, malloc'ing a new chunk if needed
    if ((size_t)a->currInd + allocSize >= a->currChunk->size) {
@@ -953,7 +954,7 @@ typedef struct { // :StringBuilder
 } StringBuilder;
 
 
-private String //:str
+String //:str
 str(char const* content) {
    if (content == null) return (String){.c = null, .len = 0};
    Int len = 0;
@@ -1011,22 +1012,25 @@ stringOfInt(Int i, Arena* a) {
    return (String){.c = cont, .len = stringLen};
 }
 
-private void //:printString
+void //:printString
 printString(String s) {
-   if (s.len == 0) return;
+   if (s.len == 0) 
+      { return; }
    fwrite(s.c, 1, s.len, stdout);
    printf("\n");
 }
 
-private void //:printStringNoLn
+void //:printStringNoLn
 printStringNoLn(String s) {
-   if (s.len == 0) return;
+   if (s.len == 0) 
+      { return; }
    fwrite(s.c, 1, s.len, stdout);
 }
 
 private void
 printStringBuilder(StringBuilder s) { //:printStringBuilder
-   if (s.len == 0) return;
+   if (s.len == 0) 
+      { return; }
    fwrite(s.c, 1, s.len, stdout);
    printf("\n");
 }
@@ -1812,6 +1816,8 @@ struct Compiler { // :Compiler
    Int j; // index into the table that is being written to (AST during typecheck)
    Arena* a;
    Arena* aTmp;
+   Bool wasError;
+   String errMsg;
    CompStats stats;
 };
 
@@ -2046,7 +2052,7 @@ typedef union {
    double   d;
 } FloatingBits;
 
-private String //:readSourceFile
+String //:readSourceFile
 readSourceFile(String fName, Arena* a) {
    FILE *file = fopen(fName.c, "r");
    if (!file)
@@ -2162,12 +2168,12 @@ ensureCapacityTypes(Int neededSpace, CM) {
 
 _Noreturn private void
 throwExcInternal0(Int errInd, Int lineNumber, CM) {
-   cm->stats.wasError = true;
+   cm->wasError = true;
 #ifdef DEBUG
    printf("Internal error %d at line %d\n", errInd, lineNumber);
 #endif
-   cm->stats.errMsg = stringOfInt(errInd, cm->a);
-   printString(cm->stats.errMsg);
+   cm->errMsg = stringOfInt(errInd, cm->a);
+   printString(cm->errMsg);
    longjmp(excBuf, 1);
 }
 
@@ -2176,11 +2182,11 @@ throwExcInternal0(Int errInd, Int lineNumber, CM) {
 _Noreturn private void
 throwExcLexer0(char const errMsg[], Int lineNumber, LX) {
 // Sets i to beyond input's length to communicate to callers that lexing is over
-   lx->stats.wasLexerError = true;
+   lx->wasError = true;
 #ifdef DEBUG
    printf("Error on code line %d, i = %d: %s\n", lineNumber, IND_BT, errMsg);
 #endif
-   lx->stats.errMsg = str(errMsg);
+   lx->errMsg = str(errMsg);
    longjmp(excBuf, 1);
 }
 
@@ -3173,11 +3179,11 @@ private TypeId pExprWorker(Token tk, TOKS, CM);
 
 _Noreturn private void
 throwExcParser0(char const errMsg[], Int lineNumber, CM) {
-   cm->stats.wasError = true;
+   cm->wasError = true;
 #ifdef DEBUG
    printf("Error on i = %d line %d\n", cm->i, lineNumber);
 #endif
-   cm->stats.errMsg = str(errMsg);
+   cm->errMsg = str(errMsg);
    longjmp(excBuf, 1);
 }
 
@@ -4493,6 +4499,8 @@ lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
    Int const inpLength = lx->stats.inpLength;
    Arr(char const) inp = lx->sourceCode.c;
    VALIDATEL(inpLength > 0, "Empty input")
+   
+   
    // Main loop over the input
    if (setjmp(excBuf) == 0) {
       while (lx->i < inpLength) {
@@ -4503,7 +4511,7 @@ lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
    return lx;
 }
 
-private Compiler* //:lexicallyAnalyzeFromFile
+Compiler* //:lexicallyAnalyzeFromFile
 lexicallyAnalyzeFromFile(String sourceCode, Arena* a) {
 // Main lexer function. Precondition: the input Byte array has been prepended
 // with StandardText
@@ -4979,7 +4987,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
 private void //:initializeParser
 initializeParser(Compiler* lx, Arena* a) {
 // Turns a lexer into a parser. Initializes all the parser & typer stuff after lexing is done
-   if (lx->stats.wasLexerError)
+   if (lx->wasError)
       { return; }
 
    Compiler* cm = lx;
@@ -5448,7 +5456,6 @@ parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
 
-
       pToplevelTypes(cm);
       // This gives the complete overloads & overloadIds tables + list of toplevel functions
       pToplevelSignatures(toks, cm);
@@ -5470,7 +5477,7 @@ parseMain(CM, Arena* a) {
    }
 }
 
-private Compiler* //:parse
+Compiler* //:parse
 parse(CM, Arena* a) {
 // Parses a single file in 4 passes, see docs/parser.txt
    initializeParser(cm, a);
@@ -6628,8 +6635,8 @@ Int
 equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
 // Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
 // differing token otherwise
-   if (a->stats.wasLexerError != b->stats.wasLexerError
-         || !endsWith(a->stats.errMsg, b->stats.errMsg)) {
+   if (a->wasError != b->wasError
+         || !endsWith(a->errMsg, b->errMsg)) {
       return -1;
    }
    int commonLength = a->tokens.len < b->tokens.len ? a->tokens.len : b->tokens.len;
@@ -6664,9 +6671,9 @@ equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
 
 void
 printLexer(LX) { //:printLexer
-   if (lx->stats.wasLexerError) {
+   if (lx->wasError) {
       printf("Error: ");
-      printString(lx->stats.errMsg);
+      printString(lx->errMsg);
    }
    Int indent = 0;
    Arena* a = lx->a;
@@ -6718,21 +6725,21 @@ getStats(CM) { return cm->stats; }
 
 void
 setLexerError(String errMsg, CM) {
-   cm->stats.wasLexerError = true;
-   cm->stats.errMsg = errMsg;
+   cm->wasError = true;
+   cm->errMsg = errMsg;
 }
 
 void
 setParserError(String errMsg, CM) {
-   cm->stats.wasError = true;
-   cm->stats.errMsg = errMsg;
+   cm->wasError = true;
+   cm->errMsg = errMsg;
 }
 
 void //:printParser
 printParser(CM) {
-   if (cm->stats.wasError) {
+   if (cm->wasError) {
       printf("Error: ");
-      printString(cm->stats.errMsg);
+      printString(cm->errMsg);
    }
    Arena* a = cm->a;
    Int indent = 0;
@@ -7117,12 +7124,12 @@ Int
 equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool compareLocsToo) {
 // Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
 // differing token otherwise
-   CompStats statsA = a->stats;
-   CompStats statsB = b->stats;
-   if (statsA.wasError != statsB.wasError || (!endsWith(statsA.errMsg, statsB.errMsg))) {
-      return -1;
-   }
-   Int const commonLength = MIN(statsA.astLen, statsB.astLen);
+   CompResult* statsA = getCompResult(a);
+   CompResult* statsB = getCompResult(b);
+   if (statsA->wasParserError != statsB->wasParserError 
+         || (!endsWith(statsA->errMsg, statsB->errMsg)))
+      { return -1; }
+   Int const commonLength = MIN(statsA->stats.astLen, statsB->stats.astLen);
    int i = 0;
    for (; i < commonLength; i++) {
       Node nodA = a->ast.c[i];
@@ -7193,9 +7200,9 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
          .firstParsedName = (strSentinel + countOperators),
          .firstBuiltin = countOperators,
          .countOverloads = PROTO.stats.countOverloads,
-         .countOverloadedNames = PROTO.stats.countOverloadedNames,
-         .wasLexerError = false, .wasError = false, .errMsg = empty
+         .countOverloadedNames = PROTO.stats.countOverloadedNames
       },
+      .wasError = false, .errMsg = empty,
       .a = a
    };
 
@@ -7215,22 +7222,95 @@ initCompiler() {
    if (_wasInit)
       { return; }
 
-   populateStringOffsets(standardStringLens, standardOperatorsLength, sizeof(standardStringLens),
-                         OUT standardOffsets);
+   populateStringOffsets(
+      standardStringLens, standardOperatorsLength, sizeof(standardStringLens), OUT standardOffsets
+   );
    tabulateLexer();
    Arena* aGlobal = createArena(); // it's ok to leak it. Will be cleaned up on process exit
    createProtoCompiler(&PROTO, aGlobal);
    _wasInit = true;
 }
 
+CompResult* //:tech_sozonov_eyr_compile
+tech_sozonov_eyr_compile(String sourceCode) {
+   Arena* a = createArena();
+   CompResult* cr = allocate(CompResult, a);
+   if (sourceCode.len == 0) { 
+      cr->wasLexerError = true;
+      cr->errMsg = s("Empty input");
+      return cr;
+   }
 
-CompResult
-getCompilationResults(CM) {
-   return (CompResult) {
+   initCompiler();
+   Compiler* cm = lexicallyAnalyze(sourceCode, a);
+   if (cm->wasError) {
+#if defined(DEBUG)
+      printString(cm->errMsg);
+#endif
+
+      cr->wasLexerError = true;
+      cr->errMsg = cm->errMsg;
+      return cr;
+   }
+
+   cm = parse(cm, a);
+   if (cm->wasError) {
+
+#if defined(DEBUG)
+   printString(cm->errMsg);
+#endif
+      cr->wasParserError = true;
+      cr->errMsg = cm->errMsg;
+      return cr;
+   }
+   fillInCompilationResult(cm, OUT cr);
+   return cr;
+}
+
+CompResult* //:tech_sozonov_eyr_compileFile
+tech_sozonov_eyr_compileFile(String filename) {
+   Arena* a = createArena();
+   CompResult* cr = allocate(CompResult, a);
+   if (filename.len == 0) {
+      cr->errMsg = s("Empty file name!");
+      cr->wasLexerError = true;
+      return cr;
+   } 
+   initCompiler();
+
+   String sourceCode = readSourceFile(filename, a);
+   
+   Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
+   if (cm->wasError) {
+      printString(cm->errMsg);
+      cr->errMsg = cm->errMsg;
+      cr->wasLexerError = true;
+      return cr;
+   }
+   cm = parse(cm, a);
+   if (cm->wasError) {
+      printString(cm->errMsg);
+      cr->errMsg = cm->errMsg;
+      cr->wasParserError = true;
+      return cr;
+   }
+   
+#ifdef TRACE
+   printParser(cm);
+#endif
+   fillInCompilationResult(cm, OUT cr);
+   return cr;
+}
+
+private void
+fillInCompilationResult(CM, OUT CompResult* cr) {
+   *cr = (CompResult) {
       .toplevels = sliceOfInternal(cm->toplevels),
       .entrypoint = cm->entrypoint,
       .ast = sliceOfInternal(cm->ast),
-      .sourceLocs = sliceOf(cm->sourceLocs),
+      .sourceLocs = cm->sourceLocs != null 
+            ? ((SliSourceLoc){.len = cm->sourceLocs->len, .c = cm->sourceLocs->c})
+            : ((SliSourceLoc){.len = 0, .c = null}),
       .vars = sliceOfInternal(cm->vars),
       .functions = sliceOfInternal(cm->functions),
       .publicFns = sliceOfInternal(cm->publicFns),
@@ -7238,7 +7318,14 @@ getCompilationResults(CM) {
       .types = sliceOfInternal(cm->types),
       .a = cm->a,
       .stats = cm->stats,
-   } 
+   }; 
+}
+
+CompResult*
+getCompResult(CM) {
+   CompResult* cr = allocate(CompResult, cm->a);
+   fillInCompilationResult(cm, OUT cr);
+   return cr;
 }
 
 //}}}

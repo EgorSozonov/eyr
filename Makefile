@@ -42,7 +42,7 @@ $(DEBUG_TGT):
 
 all: $(DEBUG_TGT) ## Build the whole compiler
 / clear
-/ $(COMPILE_DEBUG) -o $(EXE) $(APP).c
+/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
