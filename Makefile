@@ -47,6 +47,7 @@ all: $(DEBUG_TGT) ## Build the whole compiler
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
 / $(EXE)
+/ _target/program
 
 
 clean: ## Delete cached build results

@@ -26,7 +26,7 @@ typedef gcc_jit_rvalue RValue;
 typedef enum gcc_jit_function_kind FnKind;
 typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
-#define toPointer(x) gcc_jit_type_get_pointer(x)
+#define pointerOf(x) gcc_jit_type_get_pointer(x)
 
 
 private void //:assignment
@@ -81,6 +81,16 @@ newBlock(Fn* fn) {
    return gcc_jit_function_new_block(fn, NULL);
 }
 
+private void
+returnFromBlock(RValue* retValue, CodeBlock* bl) {
+   gcc_jit_block_end_with_return(bl, NULL, retValue);
+}
+
+private void //:returnVoid
+returnVoid(CodeBlock* bl) {
+   gcc_jit_block_end_with_void_return(bl, NULL);
+}
+
 private void //:jump
 jump(CodeBlock* from, CodeBlock* to) {
    gcc_jit_block_end_with_jump (from, NULL, to);
@@ -111,8 +121,8 @@ arrElem(RValue* arr, RValue* index, Module* md)  {
    return gcc_jit_context_new_array_access(md, NULL, arr, index);
 }
 
-private RValue* //:toRValue
-toRValue(LValue* lvalue) {
+private RValue* //:rValueOf
+rValueOf(LValue* lvalue) {
    return gcc_jit_lvalue_as_rvalue(lvalue);
 }
 
@@ -129,6 +139,23 @@ localVar(const char* name, CgType* tp, Fn* fn) {
 private FnParam* //:newParam
 newParam(const char* name, CgType* tp, Module* md) {
    return gcc_jit_context_new_param(md, NULL, tp, name);
+}
+
+private CgType* //:fnPointerType
+fnPointerType(Int countParams, Arr(CgType*) paramTypes, CgType* returnTp, Module* md) {
+   return gcc_jit_context_new_function_ptr_type (
+      md,
+	   null,
+      returnTp,
+      countParams,
+      paramTypes,
+	   0
+   );
+}
+
+private RValue*
+callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
+   return gcc_jit_context_new_call_through_ptr(md, null, fnPtr, countArgs, args);
 }
 
 //}}}
@@ -304,6 +331,11 @@ registerTypes(CG) {
 private CgType* //:intType
 intType(CG) {
    return cg->typeRefs[0].cgType;
+}
+
+private CgType* //:voidType
+voidType(CG) {
+   return cg->typeRefs[tokMisc].cgType;
 }
 
 //}}}
@@ -838,24 +870,66 @@ temp(CG) {
    
    CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
    CgType* const intTp = intType(cg);
+   CgType* const voidTp = voidType(cg);
    FnParam* paramFormat = newParam("format", constCharPtrTp, md);
    Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
    
+   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
+   CodeBlock* bl1 = newBlock(fn1);
+   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
+   CodeBlock* bl2 = newBlock(fn2);
+   
+   RValue* zero = intConst(0, cg);
+   RValue* one = intConst(1, cg);
+   RValue* fifteen = intConst(15, cg);
+   RValue* hundred = intConst(100, cg);
+   RValue* hwArgs[2];
+   hwArgs[0] = strConst("HW from f1 %d\n", md);
+   hwArgs[1] = fifteen;
+   evalExpr(call(printfFn, 2, hwArgs, md), bl1);
+   returnVoid(bl1);
+   
+   hwArgs[0] = strConst("HW from f2 %d\n", md);
+   hwArgs[1] = hundred;
+   evalExpr(call(printfFn, 2, hwArgs, md), bl2);
+   returnVoid(bl2);
+   
+   
+//~   evalExpr(call(fn1, 0, null, md), mainBlock);
+//~   evalExpr(call(fn2, 0, null, md), mainBlock);
+   CgType* fnTp = fnPointerType(0, null, voidTp, md);
+   CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
+   LValue* fTable = gcc_jit_context_new_global(
+      md, null, GCC_JIT_GLOBAL_INTERNAL, fTableTp, "FTABLE"
+   );
+   RValue* fns[2];
+   fns[0] = gcc_jit_function_get_address(fn1, null);
+   fns[1] = gcc_jit_function_get_address(fn2, null);
+   fTable = gcc_jit_global_set_initializer_rvalue(
+      fTable, 
+      gcc_jit_context_new_array_constructor(md, null, fTableTp, 1, fns)
+   );
+   
    FnParam* mainParams[2];
    mainParams[0] = newParam("argc", intTp, md);
-   mainParams[1] = newParam("argv", toPointer(constCharPtrTp), md);
+   mainParams[1] = newParam("argv", pointerOf(constCharPtrTp), md);
    Fn* mainFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intTp, md);
    
    CodeBlock* mainBlock = newBlock(mainFn);
    
-   RValue* fifteen = intConst(15, cg);
-   RValue* hwArgs[2];
-   hwArgs[0] = strConst("HW %d\n", md);
-   hwArgs[1] = fifteen;
-   evalExpr(call(printfFn, 2, hwArgs, md), mainBlock);
+   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), zero, md)), 0, null, md), mainBlock);
+   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), one, md)), 0, null, md), mainBlock);
+   
+   returnFromBlock(intConst(0, cg), mainBlock);
+   
+   //gcc_jit_type *gcc_jit_context_new_function_ptr_type(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *return_type, int num_params, gcc_jit_type **param_types, int is_variadic)
+
+
+   //gcc_jit_lvalue *gcc_jit_context_new_global(gcc_jit_context *ctxt, gcc_jit_location *loc, GCC_JIT_GLOBAL_INTERNAL, gcc_jit_type *type, const char *name)
+   // gcc_jit_lvalue *gcc_jit_global_set_initializer_rvalue(gcc_jit_lvalue *global, gcc_jit_rvalue *init_value)
+   //gcc_jit_rvalue *gcc_jit_context_new_array_constructor(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *type, size_t num_values, gcc_jit_rvalue **values)
    
    
-   gcc_jit_block_end_with_return(mainBlock, NULL, intConst(0, cg));
    
    
    gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "_target/program");
