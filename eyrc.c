@@ -101,9 +101,9 @@ newNamedBlock(Fn* fn, char const* name) {
    return gcc_jit_function_new_block(fn, name);
 }
 
-private RValue* //:intConst
-intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
+private RValue* //:strConst
+strConst(char const* val, Module* md) {
+    return gcc_jit_context_new_string_literal(md, val);
 }
 
 private LValue* //:arrElem
@@ -149,9 +149,11 @@ private NameId nameOfStandard(Int a);
 
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
+defstruct(CgFrame);
 
 DEFINE_LIST_HEADER(FnParamPtr)
 DEFINE_LIST_HEADER(FieldPtr)
+DEFINE_LIST_HEADER(CgFrame)
 
 #define add(A, X) _Generic((X),\
    LInt*: addInt,\
@@ -197,16 +199,15 @@ private void printLInt(LInt* st);
 #define fraElse   2
 #define fraFor    3
 
-typedef struct { //:CgFrame Frame for the stack of nested codegen blocks
+struct CgFrame { //:CgFrame Frame for the stack of nested codegen blocks
    Byte tp; // frame type, the "fra" constants
    Int pl1; // node pl1
    Int pl3; // node pl3
    CodeBlock* block;
    CodeBlock* nextBlock; // if null, there is no next block
    Int sentinel; // node sentinel
-} CgFrame;
+};
 
-DEFINE_LIST_HEADER(CgFrame)
 DEFINE_LIST(CgFrame)
 
 typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
@@ -291,9 +292,10 @@ getType(BuiltinType tp, Module* md) {
 }
 
 private void //:registerTypes
-registerTypes(CM, CG) {
+registerTypes(CG) {
    // for every type in @cm.types, create an entry in @cg.typeRefs
    cg->countTypeRefs = tokMisc;
+   cg->typeRefs = allocateArray(cg->countTypeRefs, TypeRef, cg->a);
    cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt, .cgType = getType(GCC_JIT_TYPE_INT32_T, cg->md) };
    cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool, .cgType = getType(GCC_JIT_TYPE_BOOL, cg->md) };
    cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc, .cgType = getType(GCC_JIT_TYPE_VOID, cg->md) };
@@ -307,6 +309,11 @@ intType(CG) {
 //}}}
 //{{{ Code generator
 
+
+private RValue* //:intConst
+intConst(int val, Codegen* cg) {
+   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
+}
 
 
 
@@ -779,10 +786,12 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
 //~   cgMaybeCloseFrames(cg);
 }
 
+
+void temp(CG);
+
 private void //:generateMainCode
 generateMainCode(CG) {
    CompResult* cr = cg->compResult;
-   temp(cg);
    for (int j = 0; j < cr->toplevels.len; j++) {
       //toplevelFn(cr.toplevels.c[j], cr, cg);
    }
@@ -825,18 +834,34 @@ dbgCgFrames(Codegen* cg) {
 void //:temp
 temp(CG) {
    Module* md = cg->md;
+   registerTypes(cg);
+   
    CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
    CgType* const intTp = intType(cg);
-   FnParam* paramFormat = newParam(constCharPtrTp, "format", constCharPtrTp, md);
+   FnParam* paramFormat = newParam("format", constCharPtrTp, md);
    Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
    
    FnParam* mainParams[2];
    mainParams[0] = newParam("argc", intTp, md);
    mainParams[1] = newParam("argv", toPointer(constCharPtrTp), md);
-   Fn* mainFn = newFn("main", 2, &mainParams, intTp);
+   Fn* mainFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intTp, md);
    
+   CodeBlock* mainBlock = newBlock(mainFn);
    
    RValue* fifteen = intConst(15, cg);
+   RValue* hwArgs[2];
+   hwArgs[0] = strConst("HW %d\n", md);
+   hwArgs[1] = fifteen;
+   evalExpr(call(printfFn, 2, hwArgs, md), mainBlock);
+   
+   
+   gcc_jit_block_end_with_return(mainBlock, NULL, intConst(0, cg));
+   
+   
+   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "_target/program");
+   
+   gcc_jit_result* result = gcc_jit_context_compile(md);
+   gcc_jit_context_dump_to_file(md, "_target/outputDump.c", 0);
 }
 
 //}}}
@@ -870,41 +895,50 @@ getCommandParams(int argc, char** argv) {
 
 Int //:main
 main(int argc, char** argv) {
-   TaskDescription task = getCommandParams(argc, argv);
-   if (task.errMsg.len > 0) {
-      print("Erroneous task description!");
-      printString(task.errMsg);
-      return 0;
-   } else if (task.whatToDo == whatToDoDisplayHelp) {
-      displayHelp();
-      return 0;
-   }
-   CompResult* compResult = tech_sozonov_eyr_compileFile(task.inputFilename);  
-   if (compResult->wasLexerError || compResult->wasParserError) {
-      print("Compilation error");
-      printString(compResult->errMsg);
-      return 1;
-   }
-   Codegen* cg = generateCode(compResult);
-   if (cg->wasError) { 
-      print("Code generation error");
-      return 1;
-   } 
+//{{{ TEMP CODE
+   Arena* a = createArena();
+   Codegen* cg = allocate(Codegen, a);
+   Module* md = gcc_jit_context_acquire();
+   (*cg) = (Codegen) {
+      .i = 0, .buffer = allocateOnArena(64, a),
+      .md = md, 
+      .bt = createLCgFrame(16, a),
+      .compResult = null,
+      .a = a,
+      .wasError = false
+   };
+   temp(cg);
+   return 0;  
+//}}}
+
+
+//~   TaskDescription task = getCommandParams(argc, argv);
+//~   if (task.errMsg.len > 0) {
+//~      print("Erroneous task description!");
+//~      printString(task.errMsg);
+//~      return 0;
+//~   } else if (task.whatToDo == whatToDoDisplayHelp) {
+//~      displayHelp();
+//~      return 0;
+//~   }
+//~   CompResult* compResult = tech_sozonov_eyr_compileFile(task.inputFilename);  
+//~   if (compResult->wasLexerError || compResult->wasParserError) {
+//~      print("Compilation error");
+//~      printString(compResult->errMsg);
+//~      return 1;
+//~   }
+//~   Codegen* cg = generateCode(compResult);
+//~   if (cg->wasError) { 
+//~      print("Code generation error");
+//~      return 1;
+//~   } 
+//~   
+//~   Module* md = cg->md;
+//~   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, task.outputFilename.c);
+//~   
+//~   gcc_jit_result* result = gcc_jit_context_compile(md);
+//~   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
    
-   Module* md = cg->md;
-   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, task.outputFilename.c);
-   
-   gcc_jit_result* result = gcc_jit_context_compile(md);
-   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
-   
-//~   Arena* a = createArena();
-//~   Compiler* cm = createLexer(empty, false, a);
-//~   initializeParser(cm, a);
-//~
-//~
-//~   printIntArray(6, cr->scopes.currChunk->c);
-//~   dbgScopes(cm);
-//~   return 0;
 
    cleanup:
 
