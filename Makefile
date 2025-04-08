@@ -17,7 +17,8 @@ SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
 OPT=-march=native
 LIBS_TEST=-lm
-LIBS_EXE=-lm -lgccjit
+LIBS_EXE=-lm -L _target
+
 APP=eyrc
 
 TEST_INCLUDES = -iquote test

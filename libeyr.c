@@ -532,7 +532,6 @@ defstruct(Expr);
 defstruct(TExpr);
 
 defstruct(Scopes);
-defstruct(EmitFrame);
 void printLexer(LX);
 
 private void exprCopyFromScratch(Int startNodeInd, CM);
@@ -572,7 +571,6 @@ DEFINE_LIST_HEADER(ExprFrame)
 DEFINE_LIST_HEADER(TypeFrame)
 DEFINE_LIST_HEADER(Monomorphization)
 DEFINE_LIST_HEADER(TypeLoc)
-DEFINE_LIST_HEADER(EmitFrame)
 
 #define add(A, X) _Generic((X),\
    LInt*: addInt,\
@@ -586,8 +584,7 @@ DEFINE_LIST_HEADER(EmitFrame)
    LMonomorphization*: addMonomorphization,\
    LTypeLoc*: addTypeLoc,\
    LNode*: addNode,\
-   LSourceLoc*: addSourceLoc,\
-   LEmitFrame*: addEmitFrame\
+   LSourceLoc*: addSourceLoc\
 )(A, X)
 
 #define removeLast(X) _Generic((X),\
@@ -602,8 +599,7 @@ DEFINE_LIST_HEADER(EmitFrame)
    LMonomorphization*: removeLastMonomorphization,\
    LTypeLoc*: removeLastTypeLoc,\
    LNode*: removeLastNode,\
-   LSourceLoc*: removeLastSourceLoc,\
-   LEmitFrame*: removeLastEmitFrame\
+   LSourceLoc*: removeLastSourceLoc\
 )(X)
 
 

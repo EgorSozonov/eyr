@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include "include/libeyr.h"
-#include <libgccjit.h>
+#include "_target/libgccjit.h"
 
 extern jmp_buf excBuf;
 
@@ -874,9 +874,12 @@ temp(CG) {
    FnParam* paramFormat = newParam("format", constCharPtrTp, md);
    Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
    
-   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
+   
+   FnParam* paramInt1 = newParam("i", intTp, md);
+   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 1, &paramInt1, voidTp, md);
    CodeBlock* bl1 = newBlock(fn1);
-   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
+   FnParam* paramInt2 = newParam("i", intTp, md);
+   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 1, &paramInt2, voidTp, md);
    CodeBlock* bl2 = newBlock(fn2);
    
    RValue* zero = intConst(0, cg);
@@ -894,10 +897,7 @@ temp(CG) {
    evalExpr(call(printfFn, 2, hwArgs, md), bl2);
    returnVoid(bl2);
    
-   
-//~   evalExpr(call(fn1, 0, null, md), mainBlock);
-//~   evalExpr(call(fn2, 0, null, md), mainBlock);
-   CgType* fnTp = fnPointerType(0, null, voidTp, md);
+   CgType* fnTp = fnPointerType(1, &intTp, voidTp, md);
    CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
    LValue* fTable = gcc_jit_context_new_global(
       md, null, GCC_JIT_GLOBAL_INTERNAL, fTableTp, "FTABLE"
@@ -907,7 +907,7 @@ temp(CG) {
    fns[1] = gcc_jit_function_get_address(fn2, null);
    fTable = gcc_jit_global_set_initializer_rvalue(
       fTable, 
-      gcc_jit_context_new_array_constructor(md, null, fTableTp, 1, fns)
+      gcc_jit_context_new_array_constructor(md, null, fTableTp, 2, fns)
    );
    
    FnParam* mainParams[2];
