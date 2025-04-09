@@ -17,7 +17,7 @@ SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
 OPT=-march=native
 LIBS_TEST=-lm
-LIBS_EXE=-lm -L _target
+LIBS_EXE=-lm -L/usr/local/lib -lgccjit 
 
 APP=eyrc
 
@@ -26,13 +26,13 @@ TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DTEST -DSAFET
 COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(LIBS_TEST)
 
 DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DSAFETY 
-COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
+COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) -Wl,-rpath,/usr/local/lib $(LIBS_EXE)
 
 RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 
 DEBUG_TGT = _target/debug
-EXE=$(DEBUG_TGT)/$(APP)
+EXE=_target/$(APP)
 
 #}}}
 #{{{ Commands
