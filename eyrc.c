@@ -242,12 +242,43 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
    CgType* cgType;
 } TypeRef;
 
+#define bloCommon   0 // common blocks. nextBlock = afterBlock
+#define bloIf       1 // if conditions. nextBlock = next "else if"/"else"
+#define bloLoopCond 2 // loop conditions. nextBlock = afterBlock
+#define bloLoopBody 3 // loop bodies. nextBlock = bloLoopCond
+
+typedef struct {
+   Byte tp; // the "blo" constants above
+   Int start; // start node ind
+   Int end; // end node ind, exclusive
+   CodeBlock* nextBlock;
+   CodeBlock* afterBlock;
+} CurrBlock;
+
+typedef struct {
+   Byte tp; // the "blo" constants above
+   Int nodeInd;
+   CodeBlock* c;
+} FutureBlock;
+
+DEFINE_LIST_HEADER(FutureBlock);
+DEFINE_LIST(FutureBlock);
+
+typedef CodeBlock* CodeBlockPtr;
+
+DEFINE_LIST_HEADER(CodeBlockPtr);
+DEFINE_LIST(CodeBlockPtr);
+
 typedef struct { //:Codegen
-
    Int i; // current node index
-   Arr(Byte) buffer;
-
+   CurrBlock cbl;
+   LFutureBlock futureBlocks;
+   LCodeBlockPtr loops; // outer loop conditions, used for "continue" block linking
+  
    Module* md;
+
+   Int bufferLen;
+   Arr(Byte) buffer; // temporary buffer for name writing, 256 bytes long
 
    LFnParamPtr* params; // temporary buffer for function params
    LFieldPtr* fields; // temporary buffer for struct fields
@@ -340,12 +371,21 @@ voidType(CG) {
 
 //}}}
 //{{{ Code generator
-
+//{{{ Codegen utils
 
 private RValue* //:intConst
 intConst(int val, Codegen* cg) {
    return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
 }
+
+
+private void //:intConst Writes a name from source code to codegen buffer, zero-terminated
+prepareName(NameId name, Codegen* cg) {
+
+
+}
+
+//}}}
 
 
 
@@ -753,6 +793,23 @@ maybeCloseFrames(CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
+// create common block for the body
+   
+   Function eyrFn = cr->functions.c[toplevelId];
+   if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
+      { return; }
+   Fn* newToplevel = newFn(
+      eyrFn.name,
+      GCC_JIT_FUNCTION_EXPORTED,
+      countParams,
+      &cg->params->c,
+      voidType(cg),
+      cg->md
+   );
+   
+   
+
+
 //~   Function fn = cr->functions.c[toplevelId];
 //~   if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
 //~      { return; }
@@ -863,6 +920,87 @@ dbgCgFrames(Codegen* cg) {
 //}}}
 //{{{ Temp
 
+
+struct B_glb;
+struct A_glb {
+  struct B_glb *b;
+};
+struct B_glb {
+  struct A_glb *a;
+};
+
+
+void
+temp2(CG) {
+   Module* ctxt = cg->md;
+   
+   
+  gcc_jit_type *int_type = gcc_jit_context_get_type (ctxt,
+    GCC_JIT_TYPE_INT);
+    /* fn1 = () -> 10 */ 
+    gcc_jit_function* fn1 = gcc_jit_context_new_function(
+       ctxt,
+       NULL,
+       GCC_JIT_FUNCTION_EXPORTED,
+       int_type,
+       "fn1",
+       0,
+       NULL,
+       0
+    );
+    gcc_jit_block *block1 = gcc_jit_function_new_block (fn1, "fn1");
+    gcc_jit_rvalue* ten = gcc_jit_context_new_rvalue_from_int(ctxt, int_type, 10);
+    gcc_jit_block_end_with_return(block1, NULL, ten);
+   
+    /* fn2 = () -> 2000 */ 
+    gcc_jit_function* fn2 = gcc_jit_context_new_function(
+       ctxt,
+       NULL,
+       GCC_JIT_FUNCTION_EXPORTED,
+       int_type,
+       "fn2",
+       0,
+       NULL,
+       0
+    );
+    gcc_jit_block *block2 = gcc_jit_function_new_block (fn2, "fn2");
+    gcc_jit_rvalue* twoThousand = gcc_jit_context_new_rvalue_from_int(ctxt, int_type, 2000);
+    gcc_jit_block_end_with_return(block2, NULL, twoThousand);
+    
+    gcc_jit_type* fn_type =
+       gcc_jit_context_new_function_ptr_type(ctxt, NULL, int_type, 0, NULL, 0);
+    
+    /* F_TABLE = {&fn1, &fn2}; */
+    gcc_jit_type* f_table_type = gcc_jit_context_new_array_type(ctxt, NULL, fn_type, 2);
+    gcc_jit_lvalue* f_table = gcc_jit_context_new_global(
+      ctxt, NULL, GCC_JIT_GLOBAL_EXPORTED, f_table_type, "F_TABLE"
+    );
+    gcc_jit_rvalue* fns[2];
+    fns[0] = gcc_jit_function_get_address(fn1, NULL);
+    fns[1] = gcc_jit_function_get_address(fn2, NULL);
+   
+    f_table = gcc_jit_global_set_initializer_rvalue(
+        f_table, 
+        gcc_jit_context_new_array_constructor(ctxt, NULL, f_table_type, 2, fns)
+    );
+   
+   
+   
+   
+   gcc_jit_result* result = gcc_jit_context_compile(ctxt);
+    
+    typedef int (*intToVoid)(void);
+    intToVoid *compiledFns = gcc_jit_result_get_global (result, "F_TABLE");
+   print("aaa %p %p", compiledFns[0], compiledFns[1]); 
+    if (compiledFns[0]() != 10) {
+       print("first fun not 10");
+    } else if (compiledFns[1]() != 2000) {
+       print("second fun not 2000");
+    } else {
+       print("OK %d %d", compiledFns[0](), compiledFns[1]());
+    }
+}
+
 void //:temp
 temp(CG) {
    Module* md = cg->md;
@@ -876,10 +1014,10 @@ temp(CG) {
    
    
    FnParam* paramInt1 = newParam("i", intTp, md);
-   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 1, &paramInt1, voidTp, md);
+   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
    CodeBlock* bl1 = newBlock(fn1);
    FnParam* paramInt2 = newParam("i", intTp, md);
-   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 1, &paramInt2, voidTp, md);
+   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
    CodeBlock* bl2 = newBlock(fn2);
    
    RValue* zero = intConst(0, cg);
@@ -897,7 +1035,7 @@ temp(CG) {
    evalExpr(call(printfFn, 2, hwArgs, md), bl2);
    returnVoid(bl2);
    
-   CgType* fnTp = fnPointerType(1, &intTp, voidTp, md);
+   CgType* fnTp = fnPointerType(0, null, voidTp, md);
    CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
    LValue* fTable = gcc_jit_context_new_global(
       md, null, GCC_JIT_GLOBAL_INTERNAL, fTableTp, "FTABLE"
@@ -905,6 +1043,11 @@ temp(CG) {
    RValue* fns[2];
    fns[0] = gcc_jit_function_get_address(fn1, null);
    fns[1] = gcc_jit_function_get_address(fn2, null);
+   
+   gcc_jit_function_type* validatingT1 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[0])); 
+   gcc_jit_function_type* validatingT2 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[1])); 
+   print("function pointer types %p and %p", validatingT1, validatingT2);
+   
    fTable = gcc_jit_global_set_initializer_rvalue(
       fTable, 
       gcc_jit_context_new_array_constructor(md, null, fTableTp, 2, fns)
@@ -981,7 +1124,7 @@ main(int argc, char** argv) {
       .a = a,
       .wasError = false
    };
-   temp(cg);
+   temp2(cg);
    return 0;  
 //}}}
 

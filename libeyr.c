@@ -16,7 +16,7 @@ jmp_buf excBuf;
 //}}}
 //{{{ Basic definitions
 
-typedef int32_t NameId;   // name index (in @stringTable)
+typedef int32_t NameId;   // name index (in @names)
 typedef uint32_t NameLoc; // 8 bit of length, 24 bits of startBt (in @standardText)
 typedef int32_t Int;
 typedef uint32_t Unt;
@@ -1272,7 +1272,7 @@ addValueToBucket(Bucket** ptrToBucket, Int newIndString, Unt hash, Arena* a) {
 
 
 private Int //:addStringDict
-addStringDict(char const* text, Int startBt, Int lenBts, LUnt* stringTable, StringDict* hm) {
+addStringDict(char const* text, Int startBt, Int lenBts, LUnt* names, StringDict* hm) {
 // Unique'ing of symbols within source code
    Unt hash = hashCode(text + startBt, lenBts);
    Int hashOffset = hash % (hm->dictSize);
@@ -1284,9 +1284,9 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* stringTable, Stri
       newBucket->capAndLen = (initBucketSize << 16) + 1; // left u16 = cap, right u16 = len
       StringValue* firstElem = (StringValue*)newBucket->c;
 
-      newIndString = stringTable->len;
+      newIndString = names->len;
       NameLoc newName = ((Unt)(lenBts) << 24) + (Unt)startBt;
-      add(newName, stringTable);
+      add(newName, names);
 
       *firstElem = (StringValue){.hash = hash, .indString = newIndString };
       *(hm->dict + hashOffset) = newBucket;
@@ -1295,7 +1295,7 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* stringTable, Stri
       for (int i = 0; i < lenBucket; i++) {
          StringValue strVal = bu->c[i];
          if (strVal.hash == hash &&
-              memcmp(text + (stringTable->c[strVal.indString] & LOWER24BITS),
+              memcmp(text + (names->c[strVal.indString] & LOWER24BITS),
                    text + startBt,
                    lenBts) == 0) {
             // key already present
@@ -1303,16 +1303,16 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* stringTable, Stri
          }
       }
 
-      newIndString = stringTable->len;
+      newIndString = names->len;
       NameLoc newName = ((Unt)(lenBts) << 24) + (Unt)startBt;
-      add(newName, stringTable);
+      add(newName, names);
       addValueToBucket(hm->dict + hashOffset, newIndString, hash, hm->a);
    }
    return newIndString;
 }
 
 private Int //:getStringDict
-getStringDict(Arr(char) text, String strToSearch, LUnt* stringTable, StringDict* hm) {
+getStringDict(Arr(char) text, String strToSearch, LUnt* names, StringDict* hm) {
 // Returns the index of a string within the string table, or -1 if it's not present
    Int lenBts = strToSearch.len;
    Unt hash = hashCode(strToSearch.c, lenBts);
@@ -1326,7 +1326,7 @@ getStringDict(Arr(char) text, String strToSearch, LUnt* stringTable, StringDict*
       for (int i = 0; i < lenBucket; i++) {
          if (stringValues[i].hash == hash
             && memcmp(strToSearch.c,
-                    text + (stringTable->c[stringValues[i].indString] & LOWER24BITS),
+                    text + (names->c[stringValues[i].indString] & LOWER24BITS),
                     lenBts) == 0) {
             return stringValues[i].indString;
          }
@@ -1779,7 +1779,7 @@ struct Compiler { // :Compiler
    LSourceLoc* sourceLocs;
    InListInt numeric;          // [aTmp]
    LBtToken* lexBtrack;    // [aTmp]
-   LUnt* stringTable; // Operators, then standard strings, then imported ones, then
+   LUnt* names; // Operators, then standard strings, then imported ones, then
                                // parsed. Contains NameLoc pointing into @sourceCode
    StringDict* stringDict;
 
@@ -1847,7 +1847,7 @@ DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
 
 private Compiler PROTO = {
       .sourceCode = null,
-      .stringTable = null, .stringDict = null,
+      .names = null, .stringDict = null,
       .typesDict = null,
       .activeBindings = null,
       .rawOverloads = null,
@@ -2695,7 +2695,7 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
    // accounting for the initial ".", ":" or other symbol
    Int lenString = lx->i - startBt;
    VALIDATEL(lenString <= maxWordLength, errWordLengthExceeded)
-   Int stringId = addStringDict(source, startBt, lenString, lx->stringTable, lx->stringDict);
+   Int stringId = addStringDict(source, startBt, lenString, lx->names, lx->stringDict);
    if (stringId - countOperators < strFirstNonReserved)  {
       wordReserved(wordType, stringId - countOperators, startBt, realStartBt, source, lx);
    } else {
@@ -4441,8 +4441,8 @@ importFns(Arr(Function) impts, Int const countFns, CM) {
    cm->stats.countNonparsedFns = cm->functions.len;
 }
 
-private LUnt* //:copyStringTable
-copyStringTable(LUnt* table, Arena* a) {
+private LUnt* //:copynames
+copynames(LUnt* table, Arena* a) {
    LUnt* result = createLUnt(table->cap, a);
    result->len = table->len;
    result->cap = table->cap;
@@ -4495,7 +4495,6 @@ lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
    Int const inpLength = lx->stats.inpLength;
    Arr(char const) inp = lx->sourceCode.c;
    VALIDATEL(inpLength > 0, "Empty input")
-   
    
    // Main loop over the input
    if (setjmp(excBuf) == 0) {
@@ -4724,20 +4723,20 @@ private void //:buildStandardStrings
 buildStandardStrings(LX) {
 // Inserts all strings from the standardText into the string table and the hash table
 // But first inserts a reservation for every operator symbol (that's "countOperators" nameIds,
-// the lx->stringTable contains zeros in those places)
+// the lx->names contains zeros in those places)
    for (Int j = 0; j < countOperators; j++) {
-      add(0, lx->stringTable);
+      add(0, lx->names);
    }
    for (Int i = 0; i < strSentinel; i++) {
       addStringDict(lx->sourceCode.c, standardOffsets[i], standardStringLens[i],
-                 lx->stringTable, lx->stringDict);
+                 lx->names, lx->stringDict);
    }
 }
 
 private NameId //:stToFullName
 stToFullName(Int sta, CM) {
 // Converts a standard string to its nameId. Doesn't work for reserved words, obviously
-   return cm->stringTable->c[sta + countOperators];
+   return cm->names->c[sta + countOperators];
 }
 
 private void //:buildPreludeTypes
@@ -4943,7 +4942,7 @@ importPrelude(CM) {
       // TODO functions for casting (int, double, unsigned)
    };
 
-   // These primitive types occupy the first places in the stringTable and in the types table.
+   // These primitive types occupy the first places in the names and in the types table.
    // So for them nameId == typeId, unlike type funcs like L(ist) and A(rray)
    for (Int j = strInt; j <= strVoid; j++) {
       cm->activeBindings[j - strInt + countOperators] = j - strInt;
@@ -4971,7 +4970,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
       .newlines = createInListInt(500, a),
       .numeric = createInListInt(50, aTmp),
       .lexBtrack = createLBtToken(16, aTmp),
-      .stringTable = copyStringTable(PROTO.stringTable, a),
+      .names = copynames(PROTO.names, a),
       .stringDict = copyStringDict(PROTO.stringDict, a),
       .stats = PROTO.stats,
       .a = a, .aTmp = aTmp
@@ -5009,10 +5008,10 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->rawOverloads = copyMultiAssocList(PROTO.rawOverloads, cm->aTmp);
    cm->overloads = (InListInt){.len = 0, .c = null};
 
-   cm->activeBindings = allocateArray(lx->stringTable->len, Int, lx->aTmp);
+   cm->activeBindings = allocateArray(lx->names->len, Int, lx->aTmp);
    memcpy(cm->activeBindings, PROTO.activeBindings, 4*countOperators); // operators only
 
-   Int extraActive = lx->stringTable->len - countOperators;
+   Int extraActive = lx->names->len - countOperators;
    if (extraActive > 0)
       { memset(cm->activeBindings + countOperators, 0xFF, extraActive*4); }
 
@@ -6577,14 +6576,14 @@ printNameAndLen(Unt unsign, CM) {
 
 void //:printName
 printName(NameId nameId, CM) {
-   Unt unsign = cm->stringTable->c[nameId];
+   Unt unsign = cm->names->c[nameId];
    printNameAndLen(unsign, cm);
    printf("\n");
 }
 
 void //:printNameNoLn
 printNameNoLn(NameId nameId, CM) {
-   Unt unsign = cm->stringTable->c[nameId];
+   Unt unsign = cm->names->c[nameId];
    printNameAndLen(unsign, cm);
 }
 
@@ -7186,7 +7185,7 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
       .vars = createInListVar(32, a),
       .functions = createInListFunction(8, a),
       .sourceCode = str(standardText),
-      .stringTable = st, .stringDict = createStringDict(128, a),
+      .names = st, .stringDict = createStringDict(128, a),
       .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
       .activeBindings = allocateArray(countOperators, Int, a),
       .rawOverloads = createMultiAssocList(a),
@@ -7202,7 +7201,7 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
       .a = a
    };
 
-   // operators are always active, and take up the initial chunk of stringTable
+   // operators are always active, and take up the initial chunk of names
    memset(proto->activeBindings, 0xFF, 4*countOperators);
    createBuiltins(proto);
 }
@@ -7312,6 +7311,9 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .publicFns = sliceOfInternal(cm->publicFns),
       .publicConsts = sliceOfInternal(cm->publicConsts),
       .types = sliceOfInternal(cm->types),
+      .names = cm->names != null
+            ? ((SliUnt){.len = cm->names->len, .c = cm->names->c})
+            : ((SliUnt){.len = 0, .c = null}),
       .a = cm->a,
       .stats = cm->stats,
    }; 

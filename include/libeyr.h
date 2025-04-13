@@ -140,7 +140,7 @@ DEFINE_LIST_HEADER(Function)
       Int len;\
    } Sli##T;\
 
-#define sliceOf(list) {.c = list->c, .len = list->len}
+#define sliceOf(list) ({.c = list->c, .len = list->len})
 
 #define sliceOfInternal(list) {.c = list.c, .len = list.len}
 
@@ -265,7 +265,6 @@ struct Function { //:Function Parsed function
 #define callMonomorph  3 // monomorphized version of a generic function
 #define callGetElem    4
 
-
 //{{{ Operators header
 
 // :OperatorType
@@ -316,29 +315,26 @@ struct Function { //:Function Parsed function
 
 //}}}
 
-
 typedef struct { //:TypeHeader
    Byte sort;    // "sor" constants above
    Byte tyrity;  // "tyrity" = type arity, the number of type parameters
    Byte arity;   // for function types, equals arity. For structs, number of fields
    Bool isGeneric;
-   NameId name;
+   NameLoc name;
 } TypeHeader;
 
 #define TYPE_PREFIX_LEN 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 
 #define typeOf(x) (TypeId){.v = x}
 
-
 //}}}
 //{{{ Standard strings :standardStr
-
 
 #define strAlias     0
 #define strAssert    1
 #define strBreak     2
 #define strCatch     3
-#define strcinue  4
+#define strContinue  4
 #define strDo        5
 #define strEach      6
 #define strElseIf    7
@@ -391,8 +387,6 @@ typedef struct { //:TypeHeader
 void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
 
 //}}}
-
-
 //}}}
 //{{{ libeyr interface
 
@@ -426,6 +420,7 @@ typedef struct { //:CompResult
    SliInt publicFns;
    SliInt publicConsts;
    SliInt types;
+   SliUnt names;
    CompStats stats;
    Bool wasLexerError;
    Bool wasParserError;
@@ -437,7 +432,6 @@ Int calcNodeSentinel(Node nd, Int nodeInd);
 Compiler* lexicallyAnalyzeFromFile(String sourceCode, Arena* a);
 String readSourceFile(String fName, Arena* a);
 CompResult* getCompResult(CM);
-
 
 CompResult* tech_sozonov_eyr_compileFile(String filename);
 CompResult* tech_sozonov_eyr_compile(String sourceCode);

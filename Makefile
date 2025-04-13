@@ -17,7 +17,7 @@ SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
 OPT=-march=native
 LIBS_TEST=-lm
-LIBS_EXE=-lm -L/usr/local/lib -lgccjit 
+LIBS_EXE=-lm -lgccjit
 
 APP=eyrc
 
@@ -26,13 +26,15 @@ TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DTEST -DSAFET
 COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(LIBS_TEST)
 
 DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DSAFETY 
-COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) -Wl,-rpath,/usr/local/lib $(LIBS_EXE)
+COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
 
 RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 
 DEBUG_TGT = _target/debug
 EXE=_target/$(APP)
+
+GCC_PATH=~/repos/build/gcc
 
 #}}}
 #{{{ Commands
@@ -47,8 +49,11 @@ all: $(DEBUG_TGT) ## Build the whole compiler
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
-/ $(EXE)
-/ _target/program
+/ LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
+  PATH=$(GCC_PATH):$(PATH) \
+  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
+  $(EXE)
+/  _target/program
 
 
 clean: ## Delete cached build results
