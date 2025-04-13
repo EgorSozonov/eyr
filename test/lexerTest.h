@@ -1,17 +1,3 @@
-//{{{ Arena
-
-typedef struct Arena Arena;
-
-
-Arena* createArena(void);
-
-void* allocateOnArena(size_t allocSize, Arena* a);
-
-void deleteArena(Arena* ar);
-
-void clearArena(Arena* a);
-
-//}}}
 //{{{ Common for tests
 
 typedef struct {
@@ -24,8 +10,6 @@ typedef struct {
 //}}}
 //{{{ Lexer tests
 
-typedef int32_t NameId;   // name index (in @stringTable)
-
 String prepareInput(char const* content, Arena* a);
 Compiler* lexicallyAnalyze(String input, Arena*);
 void printLexer(Compiler* a);
@@ -37,8 +21,8 @@ Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 NameId nameOfStandard(Int strId);
 void printRawOverload(Int listInd, Compiler* cm);
 void printName(Int name, Compiler* cm);
-
 void setLexerError(String errMsg, CM);
+
 //}}}
 //{{{ Standard strings :standardStr
 

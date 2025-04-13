@@ -14,74 +14,6 @@
 jmp_buf excBuf;
 
 //}}}
-//{{{ Basic definitions
-
-typedef int32_t NameId;   // name index (in @names)
-typedef uint32_t NameLoc; // 8 bit of length, 24 bits of startBt (in @standardText)
-typedef int32_t Int;
-typedef uint32_t Unt;
-typedef int64_t Long;
-typedef uint64_t Ulong;
-typedef int16_t Short;
-typedef uint16_t Ushort;
-typedef char Byte;
-typedef bool Bool;
-typedef tech_sozonov_eyr_String String;
-#define InListUlong InListuint64_t
-#define InListUnt InListuint32_t
-#define Arr(T) T*
-#define AARG(var, T) var, sizeof(var)/sizeof(T) // For passing array args to functions with length
-#define null NULL
-#define VarId int32_t
-#define FunctionId int32_t
-#ifdef TEST
-   #define private
-#else
-   #define private static
-#endif
-#define OUT // the "out" parameters and args in functions
-#define BIG 70000000
-#define LOWER24BITS 0x00FFFFFF
-#define LOWER26BITS 0x03FFFFFF
-#define LOWER16BITS 0x0000FFFF
-#define LOWER32BITS 0x00000000FFFFFFFF
-#define PENULTIMATE8BITS 0xFF00
-#define THIRTYFIRSTBIT 0x40000000
-#define MAXTOKENLEN 67108864 // 2^26
-#define SIXTEENPLUSONE 65537 // 2^16 + 1
-#define LEXER_INIT_SIZE 1000
-#define ei else if
-#define defstruct(T) typedef struct T T
-#define print(...) \
-  printf(__VA_ARGS__);\
-  printf("\n");
-
-#define dg(...) \
-  printf(__VA_ARGS__);\
-  printf("\n");
-
-typedef struct Arena Arena;
-typedef struct Compiler Compiler;
-
-void printStringNoLn(String s);
-void printString(String s);
-
-String str(const char* cent);
-private Bool endsWith(String a, String b);
-
-#define s(lit) str(lit)
-
-void* allocateOnArena(size_t, Arena*);
-#define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
-#define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
-#define LX Compiler* restrict lx // Compiler for lexer functions
-#define CM Compiler* restrict cm // compiler during parsing
-
-#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
-#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
-
-//}}}
 //{{{ Language definition
 //{{{ Lexical structure
 
@@ -233,7 +165,7 @@ constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define miscUnderscore 1    // _
 #define miscArrow      2    // ->
 
-#define maxWordLength 255
+#define maxWordLength 128
 
 //}}}
 
@@ -406,7 +338,6 @@ operatorStartSymbols[] = {
 //}}}
 //{{{ Syntactical structure
 
-defstruct(Compiler);
 defstruct(BtToken);
 defstruct(ParseFrame);
 defstruct(TypeFrame);
@@ -714,7 +645,7 @@ allocateOnArena(size_t allocSize, Arena* a) { //:allocateOnArena
    return result;
 }
 
-private void
+void
 deleteArena(Arena* ar) { //:deleteArena
 // Returns memory of the arena to the OS
    ArenaChunk* curr = ar->firstChunk;
@@ -1903,7 +1834,7 @@ errWordChunkStart[]          = "In an identifier, each word piece must start wit
 char const
 errWordCapitalizationOrder[]   = "An identifier may not contain a capitalized piece after an uncapitalized one!";
 char const
-errWordLengthExceeded[]       = "I don't know why you want an identifier of more than 255 chars, but they aren't supported";
+errWordLengthExceeded[]       = "I don't know why you want an identifier of more than 128 chars, but they aren't supported";
 char const
 errWordMutability[]                     = "Mutable variables should look like `asdf$` with no spaces in between";
 char const
@@ -2107,11 +2038,6 @@ nameOfStandard(Int strId) {
    return (NameId)((Unt)(strId + countOperators));
 }
 
-private NameLoc //:nameLocOfToken
-nameLocOfToken(Token tk) {
-   return (NameLoc)(tk.startBt + (tk.lenBts << 24));
-}
-
 private void //:skipSpaces
 skipSpaces(Arr(char const) source, LX) {
    while (lx->i < lx->stats.inpLength) {
@@ -2203,14 +2129,6 @@ setSpanLengthLexer(Int tokenInd, LX) { //:setSpanLengthLexer
 // Called when the matching closer is lexed. Does not pop anything from the "lexBtrack"
    lx->tokens.c[tokenInd].lenBts = lx->i - lx->tokens.c[tokenInd].startBt + 1;
    lx->tokens.c[tokenInd].pl2 = lx->tokens.len - tokenInd - 1;
-}
-
-private BtToken
-getLexContext(LX) { //:getLexContext
-   if (lx->lexBtrack->c) {
-      return (BtToken) { .tp = tokInt, .tokenInd = -1, .spanLevel = 0 };
-   }
-   return last(lx->lexBtrack);
 }
 
 private void
@@ -2603,19 +2521,6 @@ closeStatement(LX) {
    mbCloseAssignRight(&top, lx);
 }
 
-private void //:tryOpenAccessorInner
-tryOpenAccessor(SRC, LX) {
-// Checks whether there is a `[` right after a word, in which case it's an accessor
-// Or if there's a `(`, transforms this word into a call
-   if (lx->i == lx->stats.inpLength)
-      { return; }
-   Byte const currBt = CURR_BT;
-   if (currBt == aBracketLeft) { // `a[i][j]`
-      openPunctuation(tokAccessIn, slSubexpr, lx->i, lx);
-      lx->i++; // CONSUME the `[`
-   }
-}
-
 private void //:wordNormal
 wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          Bool wasCapitalized, SRC, LX) {
@@ -2831,8 +2736,8 @@ lexOperator(SRC, LX) { //:lexOperator
    lx->i = j; // CONSUME the operator
 }
 
-private void
-lexDollar(SRC, LX) { //:lexDollar
+private void //:lexDollar
+lexDollar(SRC, LX) {
 // Handles type variables and ordinary mutable variables
    if (lx->i < lx->stats.inpLength - 1 && isCapitalLetter(NEXT_BT)) {
       lx->i++; // CONSUME the "$"
@@ -2842,8 +2747,8 @@ lexDollar(SRC, LX) { //:lexDollar
    }
 }
 
-private void
-lexEqual(SRC, LX) { //:lexEqual
+private void //:lexEqual
+lexEqual(SRC, LX) {
 // The humble "=" can be the definition statement or a comparison "=="
    checkPrematureEnd(2, lx);
    Byte nextBt = NEXT_BT;
@@ -2855,8 +2760,8 @@ lexEqual(SRC, LX) { //:lexEqual
    }
 }
 
-private void
-lexUnderscore(SRC, LX) { //:lexUnderscore
+private void //:lexUnderscore
+lexUnderscore(SRC, LX) {
    if ((lx->i < lx->stats.inpLength - 1) && NEXT_BT == aUnderscore) {
       pushIntokens((Token){ .tp = tokMisc, .pl1 = miscUnderscore, .pl2 = 2,
                 .startBt = lx->i - 1, .lenBts = 2 }, lx);
@@ -2868,8 +2773,8 @@ lexUnderscore(SRC, LX) { //:lexUnderscore
    }
 }
 
-private void
-lexNewline(SRC, LX) { //:lexNewline
+private void //:lexNewline
+lexNewline(SRC, LX) {
    pushInnewlines(lx->i, lx);
 
    lx->i++;    // CONSUME the LF
@@ -2880,8 +2785,8 @@ lexNewline(SRC, LX) { //:lexNewline
    }
 }
 
-private void
-lexComment(SRC, LX) { //:lexComment
+private void //:lexComment
+lexComment(SRC, LX) {
 // Eyr separates between documentation comments (which live in meta info and are
 // spelt as "meta(`comment`)") and comments for, well, eliding text from code;
 // Elision comments are of the "//" form.
@@ -2892,8 +2797,8 @@ lexComment(SRC, LX) { //:lexComment
    }
 }
 
-private void
-lexMinus(SRC, LX) { //:lexMinus
+private void //:lexMinus
+lexMinus(SRC, LX) {
 // Handles the binary operator as well as the unary negation operator
    VALIDATEL(lx->i < lx->stats.inpLength - 1, errPrematureEndOfInput)
    Byte nextBt = NEXT_BT;
@@ -2933,8 +2838,8 @@ lexParenLeft(SRC, LX) { //:lexParenLeft
    lx->i++; // CONSUME the left parenthesis
 }
 
-private void
-lexParenRight(SRC, LX) { //:lexParenRight
+private void //:lexParenRight
+lexParenRight(SRC, LX) {
 // A closing parenthesis may close the following configurations of lexer backtrack:
 // 1. [scope stmt] - if it's just a scope nested within another scope or a function
 // 2. [coreForm stmt] - eg. if it's closing the function body
@@ -2952,8 +2857,8 @@ lexParenRight(SRC, LX) { //:lexParenRight
 }
 
 
-private void
-lexFn(SRC, LX) { //:lexFn
+private void //:lexFn
+lexFn(SRC, LX) {
    if (lx->lexBtrack->len > 0) {
       BtToken top = last(lx->lexBtrack);
       VALIDATEL(top.spanLevel == slStmt, errPunctuationFnNotInStmt)
@@ -3005,8 +2910,8 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
    lx->i++; // CONSUME the "{"
 }
 
-private void
-lexCurlyRight(SRC, LX) { //:lexCurlyRight
+private void //:lexCurlyRight
+lexCurlyRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
@@ -3016,15 +2921,15 @@ lexCurlyRight(SRC, LX) { //:lexCurlyRight
    lx->i++; // CONSUME the "}"
 }
 
-private void
-lexBracketLeft(SRC, LX) { //:lexBracketLeft
+private void //:lexBracketLeft
+lexBracketLeft(SRC, LX) {
    wrapInAStatement(lx->i, source, lx);
    openPunctuation(tokData, slSubexpr, lx->i, lx);
    lx->i++; // CONSUME the `[`
 }
 
-private void
-lexBracketRight(SRC, LX) { //:lexBracketRight
+private void //:lexBracketRight
+lexBracketRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
@@ -3216,9 +3121,8 @@ createVar(NameId name, Byte class, FunctionId fnId, CM) {
 
    VarId newVarId = cm->vars.len;
    pushInvars(((Var){ .name = name, .class = class, .fnId = fnId }), cm);
-   if (name > -1) { // nameId == -1 only for the built-in operators
-      addBinding(name, newVarId, cm);
-   }
+   if (name > -1) // nameId == -1 only for the built-in operators
+      { addBinding(name, newVarId, cm); }
    return newVarId;
 }
 
@@ -4282,15 +4186,6 @@ parseUpTo(Int sentinelToken, TOKS, CM) {
    }
 }
 
-private void //:setClassToMutated
-setClassToMutated(Int bindingId, CM) {
-// Changes a mutable variable to mutated. Throws an exception for an immutable one
-   Int class = cm->vars.c[bindingId].class;
-   VALIDATEP(class == classMutable, errCannotMutateImmutable);
-   if (class % 2 == 0)
-      { cm->vars.c[bindingId].class++; }
-}
-
 private void //:pAlias
 pAlias(Token tok, TOKS, CM) {
    throwExcParser(errTemp);
@@ -4300,14 +4195,6 @@ private void
 parseAssert(Token tok, TOKS, CM) {
    throwExcParser(errTemp);
 }
-
-private void
-parseAssertDbg(Token tok, TOKS, CM) {
-   throwExcParser(errTemp);
-}
-
-private void
-parseAwait(Token tok, TOKS, CM) { throwExcParser(errTemp); }
 
 private Int //:breakContinue
 breakContinue(Token tok, Int* sentinel, TOKS, CM) {
@@ -4441,8 +4328,8 @@ importFns(Arr(Function) impts, Int const countFns, CM) {
    cm->stats.countNonparsedFns = cm->functions.len;
 }
 
-private LUnt* //:copynames
-copynames(LUnt* table, Arena* a) {
+private LUnt* //:copyNames
+copyNames(LUnt* table, Arena* a) {
    LUnt* result = createLUnt(table->cap, a);
    result->len = table->len;
    result->cap = table->cap;
@@ -4669,7 +4556,7 @@ importGenericTypesList(OUT TypeId* addType, OUT TypeId* lengthType, CM) {
    pushIntypes(voidType, cm);
    *addType = mergeType(tentativeType, cm);
 
-   // add L $0 -> Int
+   // # L $0 -> Int
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX_LEN + 1, cm);
    typeAddHeader(
@@ -4682,42 +4569,42 @@ importGenericTypesList(OUT TypeId* addType, OUT TypeId* lengthType, CM) {
    *lengthType = mergeType(tentativeType, cm);
 }
 
-private TypeId //:importGenericTypeLength
-importGenericTypeLength(CM) {
-// Type for the generic list's `length` function: `L $T -> Int`
-   // add $0 type
-   TypeId tentativeType = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX_LEN, cm);
-   typeAddHeader(((TypeHeader){ .sort = sorGenericParam, .tyrity = 1, .arity = 0, .name = 0,
-        .isGeneric = true }), cm);
-   TypeId p0 = mergeType(tentativeType, cm);
-
-   // add L $0
-   tentativeType = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX_LEN + 1, cm);
-   typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strL),
-         .isGeneric = true }),
-         cm
-   );
-   pushIntypes(cm->stats.listType, cm);
-   pushIntypes(p0.v, cm);
-   TypeId l0 = mergeType(tentativeType, cm);
-
-   // add L $0, $0 -> Void
-   tentativeType = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX_LEN + 2, cm);
-   typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStandard(strF),
-         .isGeneric = true }),
-         cm
-   );
-   pushIntypes(l0.v, cm);
-   pushIntypes(p0.v, cm);
-   pushIntypes(voidType, cm);
-   TypeId res = mergeType(tentativeType, cm);
-   return res;
-}
+//~private TypeId //:importGenericTypeLength
+//~importGenericTypeLength(CM) {
+//~// Type for the generic list's `length` function: `L $T -> Int`
+//~   // add $0 type
+//~   TypeId tentativeType = typeOf(cm->types.len);
+//~   pushIntypes(TYPE_PREFIX_LEN, cm);
+//~   typeAddHeader(((TypeHeader){ .sort = sorGenericParam, .tyrity = 1, .arity = 0, .name = 0,
+//~        .isGeneric = true }), cm);
+//~   TypeId p0 = mergeType(tentativeType, cm);
+//~
+//~   // add L $0
+//~   tentativeType = typeOf(cm->types.len);
+//~   pushIntypes(TYPE_PREFIX_LEN + 1, cm);
+//~   typeAddHeader(
+//~      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strL),
+//~         .isGeneric = true }),
+//~         cm
+//~   );
+//~   pushIntypes(cm->stats.listType, cm);
+//~   pushIntypes(p0.v, cm);
+//~   TypeId l0 = mergeType(tentativeType, cm);
+//~
+//~   // add L $0, $0 -> Void
+//~   tentativeType = typeOf(cm->types.len);
+//~   pushIntypes(TYPE_PREFIX_LEN + 2, cm);
+//~   typeAddHeader(
+//~      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStandard(strF),
+//~         .isGeneric = true }),
+//~         cm
+//~   );
+//~   pushIntypes(l0.v, cm);
+//~   pushIntypes(p0.v, cm);
+//~   pushIntypes(voidType, cm);
+//~   TypeId res = mergeType(tentativeType, cm);
+//~   return res;
+//~}
 
 private void //:buildStandardStrings
 buildStandardStrings(LX) {
@@ -4970,7 +4857,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
       .newlines = createInListInt(500, a),
       .numeric = createInListInt(50, aTmp),
       .lexBtrack = createLBtToken(16, aTmp),
-      .names = copynames(PROTO.names, a),
+      .names = copyNames(PROTO.names, a),
       .stringDict = copyStringDict(PROTO.stringDict, a),
       .stats = PROTO.stats,
       .a = a, .aTmp = aTmp
@@ -5517,7 +5404,16 @@ typeReadHeader(TypeId t, CM) {
    return (TypeHeader){ .isGeneric = (tag >> 24) > 0, .sort = ((Unt)tag >> 16) & LOWER16BITS,
          .arity = (tag >> 8) & 0xFF, .tyrity = tag & 0xFF,
          .name = cm->types.c[t.v + 2]
-         };
+   };
+}
+
+TypeHeader //:tech_sozonov_eyr_readTypeHeader
+tech_sozonov_eyr_readTypeHeader(TypeId t, Arr(Int) types) {
+// Reads a type header from the type array. Does not work for primitive types
+   Int tag = types[t.v + 1];
+   return (TypeHeader){ .isGeneric = (tag >> 24) > 0, .sort = ((Unt)tag >> 16) & LOWER16BITS,
+         .arity = (tag >> 8) & 0xFF, .tyrity = tag & 0xFF, .name = types[t.v + 2]
+   };
 }
 
 private Int //:typeGetTyrity

@@ -53,6 +53,7 @@ typedef tech_sozonov_eyr_String String;
 
 typedef struct Arena Arena;
 Arena* createArena();
+void deleteArena(Arena* ar);
 
 typedef struct Compiler Compiler;
 
@@ -318,7 +319,7 @@ struct Function { //:Function Parsed function
 typedef struct { //:TypeHeader
    Byte sort;    // "sor" constants above
    Byte tyrity;  // "tyrity" = type arity, the number of type parameters
-   Byte arity;   // for function types, equals arity. For structs, number of fields
+   Byte arity;   // for function types, equals arity + 1. For structs, number of fields
    Bool isGeneric;
    NameLoc name;
 } TypeHeader;
@@ -433,6 +434,7 @@ Compiler* lexicallyAnalyzeFromFile(String sourceCode, Arena* a);
 String readSourceFile(String fName, Arena* a);
 CompResult* getCompResult(CM);
 
+TypeHeader tech_sozonov_eyr_readTypeHeader(TypeId t, Arr(Int) types);
 CompResult* tech_sozonov_eyr_compileFile(String filename);
 CompResult* tech_sozonov_eyr_compile(String sourceCode);
 

@@ -12,7 +12,7 @@
 extern jmp_buf excBuf;
 
 //}}}
-//{{{ GCC types and functions
+//{{{ Forward decls & generics
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -28,6 +28,136 @@ typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define pointerOf(x) gcc_jit_type_get_pointer(x)
 
+#define SRC Arr(char const) const restrict source // Source text
+#define CR CompResult const* const restrict cr // Compilation results
+private void closeStatement(LX);
+private NameId nameOfStandard(Int a);
+
+typedef FnParam* FnParamPtr;
+typedef Field* FieldPtr;
+defstruct(CgFrame);
+
+DEFINE_LIST_HEADER(FnParamPtr)
+DEFINE_LIST_HEADER(FieldPtr)
+DEFINE_LIST_HEADER(CgFrame)
+
+#define add(A, X) _Generic((X),\
+   LInt*: addInt,\
+   LUnt*: addUnt,\
+   LUlong*: addUlong,\
+   LNode*: addNode,\
+   LSourceLoc*: addSourceLoc,\
+   LCgFrame*: addCgFrame\
+)(A, X)
+
+#define removeLast(X) _Generic((X),\
+   LInt*: removeLastInt,\
+   LUnt*: removeLastUnt,\
+   LUlong*: removeLastUlong,\
+   LNode*: removeLastNode,\
+   LSourceLoc*: removeLastSourceLoc,\
+   LCgFrame*: removeLastCgFrame\
+)(X)
+
+DEFINE_LIST(Int)
+DEFINE_LIST(Unt)
+DEFINE_LIST(Ulong)
+DEFINE_LIST(Node)
+DEFINE_LIST(FnParamPtr)
+DEFINE_LIST(FieldPtr)
+DEFINE_LIST(SourceLoc)
+
+//{{{ Types & constants
+
+#define fraIf     1
+#define fraElse   2
+#define fraFor    3
+
+struct CgFrame { //:CgFrame Frame for the stack of nested codegen blocks
+   Byte tp; // frame type, the "fra" constants
+   Int pl1; // node pl1
+   Int pl3; // node pl3
+   CodeBlock* block;
+   CodeBlock* nextBlock; // if null, there is no next block
+   Int sentinel; // node sentinel
+};
+
+DEFINE_LIST(CgFrame)
+
+typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
+   Int ind;
+   CgType* cgType;
+} TypeRef;
+
+#define bloCommon   0 // common blocks. nextBlock = afterBlock
+#define bloIf       1 // if conditions. nextBlock = next "else if"/"else"
+#define bloLoopCond 2 // loop conditions. nextBlock = afterBlock
+#define bloLoopBody 3 // loop bodies. nextBlock = bloLoopCond
+
+typedef struct {
+   Byte tp; // the "blo" constants above
+   Int start; // start node ind
+   Int end; // end node ind, exclusive
+   CodeBlock* nextBlock;
+   CodeBlock* afterBlock;
+} CurrBlock;
+
+typedef struct {
+   Byte tp; // the "blo" constants above
+   Int nodeInd;
+   CodeBlock* c;
+} FutureBlock;
+
+DEFINE_LIST_HEADER(FutureBlock);
+DEFINE_LIST(FutureBlock);
+
+typedef CodeBlock* CodeBlockPtr;
+
+DEFINE_LIST_HEADER(CodeBlockPtr);
+DEFINE_LIST(CodeBlockPtr);
+
+typedef struct { //:Codegen
+   Int i; // current node index
+   CurrBlock cbl;
+   LFutureBlock futureBlocks;
+   LCodeBlockPtr loops; // outer loop conditions, used for "continue" block linking
+  
+   Module* md;
+
+   Int bufferLen;
+   Byte buffer[256]; // temporary buffer for name writing
+
+   LFnParamPtr* params; // temporary buffer for function params
+   LFieldPtr* fields; // temporary buffer for struct fields
+   LCgFrame* bt;
+   LFn* functions;
+
+   Int countTypeRefs;
+   Arr(TypeRef) typeRefs;
+   
+   CompResult compResult; // results of the compilation from libeyr
+
+   Arena* a;
+   Bool wasError;
+} Codegen;
+
+//}}}
+
+#define CG Codegen* restrict cg
+private void prepareName(NameId name, CG);
+
+#if defined(DEBUG) || defined(TEST)
+
+void printIntArray(Int count, Arr(Int) arr);
+void printParser(Compiler* cm);
+void dbgType0(TypeId type, CM);
+#define dbgType(t) dbgType0(t, cm)
+private void printLInt(LInt* st);
+
+#endif
+
+//}}}
+//{{{ GCC wrapper functions
 
 private void //:assignment
 assignment(LValue* left, RValue* right, CodeBlock* block) {
@@ -47,6 +177,21 @@ importFn(const char* name, int countParams, Arr(FnParam*) params,
       countParams,
       params,
       isVariadic ? 1 : 0
+   );
+}
+
+private Fn* //:newFnReal
+newFnReal(NameId name, LFnParamPtr* params, CgType* returnType, FnKind accessLevel, CG) {
+   prepareName(name, cg);
+   return gcc_jit_context_new_function(
+      cg->md,
+      NULL, // source location
+      accessLevel,
+      returnType,
+      cg->buffer,
+      params->len,
+      params->c,
+      0
    );
 }
 
@@ -167,133 +312,6 @@ stringOf(Arr(char) cString) {
 }
 
 //}}}
-//{{{ Forward decls & generics
-
-#define SRC Arr(char const) const restrict source // Source text
-#define CR CompResult const* const restrict cr // Compilation results
-private void closeStatement(LX);
-private NameId nameOfStandard(Int a);
-
-typedef FnParam* FnParamPtr;
-typedef Field* FieldPtr;
-defstruct(CgFrame);
-
-DEFINE_LIST_HEADER(FnParamPtr)
-DEFINE_LIST_HEADER(FieldPtr)
-DEFINE_LIST_HEADER(CgFrame)
-
-#define add(A, X) _Generic((X),\
-   LInt*: addInt,\
-   LUnt*: addUnt,\
-   LUlong*: addUlong,\
-   LNode*: addNode,\
-   LSourceLoc*: addSourceLoc,\
-   LCgFrame*: addCgFrame\
-)(A, X)
-
-#define removeLast(X) _Generic((X),\
-   LInt*: removeLastInt,\
-   LUnt*: removeLastUnt,\
-   LUlong*: removeLastUlong,\
-   LNode*: removeLastNode,\
-   LSourceLoc*: removeLastSourceLoc,\
-   LCgFrame*: removeLastCgFrame\
-)(X)
-
-
-DEFINE_LIST(Int)
-DEFINE_LIST(Unt)
-DEFINE_LIST(Ulong)
-DEFINE_LIST(Node)
-DEFINE_LIST(FnParamPtr)
-DEFINE_LIST(FieldPtr)
-DEFINE_LIST(SourceLoc)
-
-#if defined(DEBUG) || defined(TEST)
-
-void printIntArray(Int count, Arr(Int) arr);
-void printParser(Compiler* cm);
-void dbgType0(TypeId type, CM);
-#define dbgType(t) dbgType0(t, cm)
-private void printLInt(LInt* st);
-
-#endif
-
-//}}}
-//{{{ Types & constants
-
-#define fraIf     1
-#define fraElse   2
-#define fraFor    3
-
-struct CgFrame { //:CgFrame Frame for the stack of nested codegen blocks
-   Byte tp; // frame type, the "fra" constants
-   Int pl1; // node pl1
-   Int pl3; // node pl3
-   CodeBlock* block;
-   CodeBlock* nextBlock; // if null, there is no next block
-   Int sentinel; // node sentinel
-};
-
-DEFINE_LIST(CgFrame)
-
-typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
-   Int ind;
-   CgType* cgType;
-} TypeRef;
-
-#define bloCommon   0 // common blocks. nextBlock = afterBlock
-#define bloIf       1 // if conditions. nextBlock = next "else if"/"else"
-#define bloLoopCond 2 // loop conditions. nextBlock = afterBlock
-#define bloLoopBody 3 // loop bodies. nextBlock = bloLoopCond
-
-typedef struct {
-   Byte tp; // the "blo" constants above
-   Int start; // start node ind
-   Int end; // end node ind, exclusive
-   CodeBlock* nextBlock;
-   CodeBlock* afterBlock;
-} CurrBlock;
-
-typedef struct {
-   Byte tp; // the "blo" constants above
-   Int nodeInd;
-   CodeBlock* c;
-} FutureBlock;
-
-DEFINE_LIST_HEADER(FutureBlock);
-DEFINE_LIST(FutureBlock);
-
-typedef CodeBlock* CodeBlockPtr;
-
-DEFINE_LIST_HEADER(CodeBlockPtr);
-DEFINE_LIST(CodeBlockPtr);
-
-typedef struct { //:Codegen
-   Int i; // current node index
-   CurrBlock cbl;
-   LFutureBlock futureBlocks;
-   LCodeBlockPtr loops; // outer loop conditions, used for "continue" block linking
-  
-   Module* md;
-
-   Int bufferLen;
-   Arr(Byte) buffer; // temporary buffer for name writing, 256 bytes long
-
-   LFnParamPtr* params; // temporary buffer for function params
-   LFieldPtr* fields; // temporary buffer for struct fields
-   LCgFrame* bt;
-
-   Int countTypeRefs;
-   Arr(TypeRef) typeRefs;
-   
-   CompResult * restrict compResult; // results of the compilation from libeyr
-
-   Arena* a;
-   Bool wasError;
-} Codegen;
-
-//}}}
 //{{{ Host text
 
 // Host strings for codegen. Must agree in order with the "host" constants below :hostText
@@ -313,7 +331,6 @@ hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
 //{{{ Generation table
 
 typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
-#define CG Codegen* restrict cg
 #define CG_FUN(name) private void name(Node nd, Arr(Node const) nodes, CG);
 
 CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(writeAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
@@ -380,43 +397,23 @@ intConst(int val, Codegen* cg) {
 
 
 private void //:intConst Writes a name from source code to codegen buffer, zero-terminated
-prepareName(NameId name, Codegen* cg) {
-
-
+prepareName(NameId nameId, CG) {
+   NameLoc name = cg->compResult.names.c[name];
+   memcpy(cg->buffer, cg->compResult.sourceCode.c + (name & LOWER24BITS), name >> 24);
+   cg->buffer[name >> 24] = '\0';
 }
 
 //}}}
-
-
-
-//~private void //:ensureBufferLength
-//~ensureBufferLength(Int additionalLength, CG) {
-//~// Ensures that the buffer has space for at least that many bytes plus 10 by increasing its
-//~// capacity if necessary
-//~    if (cg->len + additionalLength + 10 < cg->cap) {
-//~        return;
-//~    }
-//~    Int neededLength = cg->len + additionalLength + 10;
-//~    Int newCap = 2*cg->cap;
-//~    while (newCap <= neededLength) {
-//~        newCap *= 2;
-//~    }
-//~    Arr(Byte) new = allocateOnArena(newCap, cg->a);
-//~    memcpy(new, cg->buffer, cg->len);
-//~    cg->buffer = new;
-//~    cg->cap = newCap;
-//~}
-
 
 private Codegen* //:createCodegen
 createCodegen(CR, Arena* a) {
    Codegen* cg = allocate(Codegen, a);
    Module* md = gcc_jit_context_acquire();
    (*cg) = (Codegen) {
-      .i = 0, .buffer = allocateOnArena(64, a),
+      .i = 0,
       .md = md, 
       .bt = createLCgFrame(16, a),
-      .compResult = cr,
+      .compResult = *cr,
       .a = a,
       .wasError = false
    };
@@ -426,8 +423,7 @@ createCodegen(CR, Arena* a) {
 
 void
 init() {
-   populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens),
-                         OUT hostOffsets);
+   populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
 }
 
 //~private void //:writeHostConstant
@@ -793,18 +789,16 @@ maybeCloseFrames(CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
-// create common block for the body
-   
    Function eyrFn = cr->functions.c[toplevelId];
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
-   Fn* newToplevel = newFn(
+   TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
+   Fn* newToplevel = newFnReal(
       eyrFn.name,
-      GCC_JIT_FUNCTION_EXPORTED,
-      countParams,
-      &cg->params->c,
+      cg->params,
       voidType(cg),
-      cg->md
+      GCC_JIT_FUNCTION_EXPORTED,
+      cg
    );
    
    
