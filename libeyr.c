@@ -471,18 +471,15 @@ private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
 private TypeId exprUpToWithFrame(ParseFrame fr, SourceLoc loc, TOKS, CM);
 private void typeAddHeader(TypeHeader hdr, CM);
 private TypeHeader typeReadHeader(TypeId typeId, CM);
-private void typeAddTypeParam(Int paramInd, Int arity, CM);
 private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
 private TypeId getFirstParamType(TypeId funcTypeId, CM);
 private TypeId tFunctionReturnType(TypeId funcTypeId, CM);
-private bool isFunctionWithParams(TypeId typeId, CM);
 private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
 private Int typeGetTyrity(TypeId typeId, CM);
 private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
 private TypeId typecheckList(Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM);
-private Int tGetFnArity(TypeId fnType, CM);
 private NameLoc nameOfHost(Int strId);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
@@ -5370,7 +5367,6 @@ parse(CM, Arena* a) {
 
 //}}}
 //{{{ Types
-
 //{{{ Type utils
 
 #define TYPE_DEFINE_EXP const LInt* exp = te->exp
@@ -5456,19 +5452,6 @@ tGetIndexOfFnFirstParam(TypeId fnType, CM) {
    return typeOf(fnType.v + TYPE_PREFIX_LEN);
 }
 
-private Int //:tGetFnArity
-tGetFnArity(TypeId fnType, CM) {
-   TypeHeader hdr = typeReadHeader(fnType, cm);
-#ifdef SAFETY //{{{
-   if(hdr.name != nameOfStandard(strF)) {
-      print("name %d but should've been %d for type %d ", hdr.name, nameOfStandard(strF), fnType.v);
-      dbgType(fnType);
-   }
-   VALIDATEI(hdr.name == nameOfStandard(strF), iErrorNotAFunction);
-#endif //}}}
-   return hdr.arity;
-}
-
 private Int //:tIsFunction
 tIsFunction(TypeId t, CM) {
 // Returns the function's arity if the type is a function type, -1 otherwise
@@ -5489,60 +5472,11 @@ tGetBody(TypeId ty, CM) {
 //}}}
 //{{{ Parsing type names
 
-private void //:typeAddTypeParam
-typeAddTypeParam(Int paramInd, Int tyrity, CM) {
-// Adds a type param to a TypeCall-sort type. Tyrity > 0 means the param is a type call
-   pushIntypes((0xFF << 24) + (paramInd << 8) + tyrity, cm);
-}
-
-private void //:typeAddTypeCall
-typeAddTypeCall(Int typeInd, Int arity, CM) {
-// Known type fn call
-   pushIntypes((arity << 24) + typeInd, cm);
-}
-
 private TypeId //:typeGetTypeByName
 typeGetTypeByName(Int t, CM) {
    Int mbTypeId = cm->activeBindings[t];
    VALIDATEP(mbTypeId > -1, errUnknownType);
    return typeOf(mbTypeId);
-}
-
-private Int //:typeParamBinarySearch
-typeParamBinarySearch(Int nameIdToFind, CM) {
-// Performs a binary search of the binary params in {typeParams}. Returns index of found type param,
-// or -1 if nothing is found
-   LInt* params = cm->tExpr->tParams;
-   if (params->len == 0) {
-      return -1;
-   }
-   Arr(Int) st = params->c;
-   Int i = 0;
-   Int j = params->len - 2;
-   if (st[i] == nameIdToFind) {
-      return i;
-   } ei (st[j] == nameIdToFind) {
-      return j;
-   }
-
-   while (i < j) {
-      if (j - i == 2) {
-         return -1;
-      }
-      Int midInd = (i + j)/2;
-      if (midInd % 2 == 1) {
-         midInd--;
-      }
-      Int mid = st[midInd];
-      if (mid > nameIdToFind) {
-         j = midInd;
-      } ei (mid < nameIdToFind) {
-         i = midInd;
-      } else {
-         return midInd;
-      }
-   }
-   return -1;
 }
 
 //}}}
@@ -5930,11 +5864,6 @@ tFunctionReturnType(TypeId funcTypeId, CM) {
    return typeOf(cm->types.c[funcTypeId.v + TYPE_PREFIX_LEN + hdr.arity - 1]);
 }
 
-private Bool //:isFunctionWithParams
-isFunctionWithParams(TypeId typeId, CM) {
-   return cm->types.c[typeId.v] > 1;
-}
-
 private Bool //:tFindOverload
 tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 // Params: typeId = type of the first function parameter, or -1 if it's 0-arity
@@ -6231,7 +6160,6 @@ typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM) {
 
 //}}}
 //{{{ Generic types
-
 
 TypeId //:tGenericSubstituteParams
 tGenericSubstituteParams(TypeId t, CM) {

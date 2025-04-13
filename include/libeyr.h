@@ -31,6 +31,7 @@ typedef tech_sozonov_eyr_String String;
    #define private static
 #endif
 #define OUT // the "out" parameters and args in functions
+#define NULLABLE // the marker of nullability
 #define BIG 70000000
 #define LOWER24BITS 0x00FFFFFF
 #define LOWER26BITS 0x03FFFFFF

@@ -35,6 +35,7 @@ private NameId nameOfStandard(Int a);
 
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
+typedef Fn* FnPtr;
 defstruct(CgFrame);
 
 DEFINE_LIST_HEADER(FnParamPtr)
@@ -114,7 +115,9 @@ DEFINE_LIST(FutureBlock);
 typedef CodeBlock* CodeBlockPtr;
 
 DEFINE_LIST_HEADER(CodeBlockPtr);
+DEFINE_LIST_HEADER(FnPtr);
 DEFINE_LIST(CodeBlockPtr);
+DEFINE_LIST(FnPtr);
 
 typedef struct { //:Codegen
    Int i; // current node index
@@ -130,7 +133,7 @@ typedef struct { //:Codegen
    LFnParamPtr* params; // temporary buffer for function params
    LFieldPtr* fields; // temporary buffer for struct fields
    LCgFrame* bt;
-   LFn* functions;
+   LFnPtr* functions;
 
    Int countTypeRefs;
    Arr(TypeRef) typeRefs;
@@ -145,6 +148,7 @@ typedef struct { //:Codegen
 
 #define CG Codegen* restrict cg
 private void prepareName(NameId name, CG);
+private CgType* cgType(TypeId tp, CG);
 
 #if defined(DEBUG) || defined(TEST)
 
@@ -181,7 +185,7 @@ importFn(const char* name, int countParams, Arr(FnParam*) params,
 }
 
 private Fn* //:newFnReal
-newFnReal(NameId name, LFnParamPtr* params, CgType* returnType, FnKind accessLevel, CG) {
+newFnReal(NameId name, NULLABLE LFnParamPtr* params, CgType* returnType, FnKind accessLevel, CG) {
    prepareName(name, cg);
    return gcc_jit_context_new_function(
       cg->md,
@@ -281,9 +285,10 @@ localVar(const char* name, CgType* tp, Fn* fn) {
    return gcc_jit_function_new_local(fn, NULL, tp, name);
 }
 
-private FnParam* //:newParam
-newParam(const char* name, CgType* tp, Module* md) {
-   return gcc_jit_context_new_param(md, NULL, tp, name);
+private FnParam* //:param
+param(NameId nameId, TypeId tp, CG) {
+   prepareName(nameId, cg);
+   return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg), cg->buffer);
 }
 
 private CgType* //:fnPointerType
@@ -361,9 +366,14 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
 //}}}
 //{{{ Type registry
 
-private CgType* //:getType
-getType(BuiltinType tp, Module* md) {
+private CgType* //:builtinType
+builtinType(BuiltinType tp, Module* md) {
    return gcc_jit_context_get_type(md, tp);
+}
+
+private CgType* //:cgType
+cgType(TypeId tp, CG) {
+   return cg->typeRefs[tp.v].cgType;
 }
 
 private void //:registerTypes
@@ -371,9 +381,9 @@ registerTypes(CG) {
    // for every type in @cm.types, create an entry in @cg.typeRefs
    cg->countTypeRefs = tokMisc;
    cg->typeRefs = allocateArray(cg->countTypeRefs, TypeRef, cg->a);
-   cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt, .cgType = getType(GCC_JIT_TYPE_INT32_T, cg->md) };
-   cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool, .cgType = getType(GCC_JIT_TYPE_BOOL, cg->md) };
-   cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc, .cgType = getType(GCC_JIT_TYPE_VOID, cg->md) };
+   cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt, .cgType = builtinType(GCC_JIT_TYPE_INT32_T, cg->md) };
+   cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool, .cgType = builtinType(GCC_JIT_TYPE_BOOL, cg->md) };
+   cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc, .cgType = builtinType(GCC_JIT_TYPE_VOID, cg->md) };
 }
 
 private CgType* //:intType
@@ -793,13 +803,32 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
-   Fn* newToplevel = newFnReal(
-      eyrFn.name,
-      cg->params,
-      voidType(cg),
-      GCC_JIT_FUNCTION_EXPORTED,
-      cg
-   );
+   Int const arity = typeHeader.arity - 1;
+   Fn* newToplevel;
+   TypeId returnType = typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + arity]);
+   if (arity == 0) {
+      Fn* newToplevel = newFnReal(
+         eyrFn.name,
+         null,
+         cgType(returnType, cg),
+         GCC_JIT_FUNCTION_EXPORTED,
+         cg
+      );
+   } else {
+      cg->params->len = 0;
+      for (Int i = 0; i < arity; i++) {
+         FnParam* newParam = param(name, cr->types.c[eyrFn.typeId + TYPE_PREFIX_LEN + i], cg);
+         add(, cg->params);
+      }
+      Fn* newToplevel = newFnReal(
+         eyrFn.name,
+         cg->params,
+         cgType(returnType, cg),
+         GCC_JIT_FUNCTION_EXPORTED,
+         cg
+      );
+   }
+   
    
    
 
