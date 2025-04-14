@@ -240,14 +240,52 @@ struct SourceLoc { // :SourceLoc
    Int lenBts;
 };
 
-struct Function { //:Function Parsed function
+typedef enum {   // :EmitFn
+   emitParsed,   // functions parsed from code, so not built-in
+   emitAdd,   
+   emitSubtract,
+   emitMultiply,
+   emitDivide,
+   emitModulo,
+   emitNegate,
+   emitAbsolute,
+   emitLogicAnd,
+   emitLogicOr,
+   emitLogicNegate,
+   emitBitAnd,
+   emitBitOr,
+   emitBitXor,
+   emitBitNegate,
+   emitBitLeftShift,
+   emitBitRightShift,
+   emitEq,
+   emitNotEq,
+   emitLessThanOrEq,
+   emitLessThan,
+   emitGreaterThan,
+   emitGreaterThanEq
+} EmitFn;
+
+typedef enum {
+   emitInt,
+   emitUnt,
+   emitUlong,
+   emitLong,
+   emitDouble
+} EmitPrimitiveType;
+
+typedef struct {
+   EmitFn kind;
+   EmitPrimitiveType prim; // meaningless for kind == emitParsed
+} Emit;
+
+struct Function { //:Function Parsed or built-in function
    TypeId typeId;
    NameId name;
    Int tokenInd;   // Index into @tokens
    Int nodeInd;    // Index into @ast
    Int genericInd; // index into @monos (get full mono type & code from arg types)
-   Byte emit;
-   Int hostName;   // for host-emitted function names
+   Emit emit;
 };
 
 #define assiVarAssignment  1 // definition of a var
@@ -308,13 +346,12 @@ struct Function { //:Function Parsed function
 #define opGreaterTh      31 // >
 #define opNullCoalesce   32 // ?:   null coalescing operator
 #define opQuestionMark   33 // ?   Initially nullable pointers
-#define opAwait          34 // @
-#define opBitwiseXor     35 // ^.   bitwise XOR
-#define opBitwiseOr      36 // ||.  bitwise or
-#define opBoolOr         37 // ||   logical or
-#define opGetElem        38 // Get list element
-#define opGetElemPtr     39 // Get pointer to list element
-#define countOperators   40 // sentinel
+#define opBitwiseXor     34 // ^.   bitwise XOR
+#define opBitwiseOr      35 // ||.  bitwise or
+#define opBoolOr         36 // ||   logical or
+#define opGetElem        37 // Get list element
+#define opGetElemPtr     38 // Get pointer to list element
+#define countOperators   39 // sentinel
 
 
 //}}}

@@ -147,9 +147,9 @@ typedef struct { //:Codegen
    LFnParamPtr* params; // temporary buffer for function params
    LFieldPtr* fields; // temporary buffer for struct fields
    LCgFrame* bt;
-   LFnPtr* functions;
+   Arr(Fn*) functions; // same len as @compResult.functions
    LRValuePtr* exp; // temporary buffer for expression evaluation
-   Arr(RValue*) vars; // len == len of @compResult.vars
+   Arr(RValue*) vars; // same len as @compResult.vars
 
    Int countTypeRefs;
    Arr(TypeRef) typeRefs;
@@ -172,6 +172,12 @@ stringOf(Arr(char) cString) {
 #define CG Codegen* restrict cg
 private void prepareName(NameId name, CG);
 private CgType* cgType(TypeId tp, CG);
+private CgType* intType(CG);
+private CgType* voidType(CG);
+private CgType* longType(CG);
+private CgType* boolType(CG);
+private CgType* doubleType(CG);
+
 
 #if defined(DEBUG) || defined(TEST)
 
@@ -238,8 +244,8 @@ newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) param
    );
 }
 
-private RValue* //:call
-call(Fn* fn, int countArgs, Arr(RValue*) args, Module* md) {
+private RValue* //:callParsed
+callParsed(Fn* fn, int countArgs, Arr(RValue*) args, Module* md) {
    return gcc_jit_context_new_call(md, NULL, fn, countArgs, args);
 }
 
@@ -336,11 +342,127 @@ callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
    return gcc_jit_context_new_call_through_ptr(md, null, fnPtr, countArgs, args);
 }
 
+#define builtinBinary(op, retType, arg1, arg2) gcc_jit_context_new_binary_op(\
+   cg->md, null, op, retType, arg1, arg2)
+#define builtinUnary(op, retType, arg1) gcc_jit_context_new_unary_op(\
+   cg->md, null, op, retType, arg1)
+#define builtinCompare(op, arg1, arg2) gcc_jit_context_new_comparison(\
+   cg->md, null, op, arg1, arg2)
+
+private RValue* //:call
+call(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
+// Handles all calls
+   Emit emit = cg->compResult.functions.c[fnId].emit;
+   CgType* retType;
+   switch (emit.primitive) {
+   case emitInt: {
+      retType = intType(cg); break;
+   }
+   case emitUnt: {
+      retType = intType(cg); break;
+   }
+   case emitLong: {
+      retType = longType(cg); break;
+   }
+   case emitUlong: {
+      retType = intType(cg); break;
+   }
+   case emitDouble: {
+      retType = doubleType(cg); break;
+   }
+   }
+   
+   switch (emit.kind) {
+   case emitParsed: {
+      return callParsed(cg->functions[fnId], countArgs, args, cg->md);
+   }
+   case emitAdd: {
+      return builtinBinary(GCC_JIT_BINARY_OP_PLUS, retType, args[0], args[1]);
+   }
+   case emitSubtract: {
+      return builtinBinary(GCC_JIT_BINARY_OP_MINUS, retType, args[0], args[1]);
+   }
+   case emitMultiply: {
+      return builtinBinary(GCC_JIT_BINARY_OP_MULT, retType, args[0], args[1]);
+   }
+   case emitDivide: {
+      return builtinBinary(GCC_JIT_BINARY_OP_DIVIDE, retType, args[0], args[1]);
+   }
+   case emitModulo: {
+      return builtinBinary(GCC_JIT_BINARY_OP_MODULO, retType, args[0], args[1]);
+   }
+   case emitNegate: {
+      return builtinUnary(GCC_JIT_UNARY_OP_MINUS, retType, args[0]);
+   }
+   case emitAbsolute: {
+      return builtinUnary(GCC_JIT_UNARY_OP_ABS, retType, args[0]);
+   }
+   case emitLogicAnd: {
+      return builtinBinary(GCC_JIT_BINARY_OP_LOGICAL_AND, boolType(cg), args[0], args[1]);
+   }
+   case emitLogicOr: {
+      return builtinBinary(GCC_JIT_BINARY_OP_LOGICAL_OR, boolType(cg), args[0], args[1]);
+   }
+   case emitLogicNegate: {
+      return builtinUnary(GCC_JIT_UNARY_OP_LOGICAL_NEGATE, retType, args[0]);
+   }
+   case emitBitAnd: {
+      return builtinBinary(GCC_JIT_BINARY_OP_BITWISE_AND, retType, args[0], args[1]);
+   }
+   case emitBitOr: {
+      return builtinBinary(GCC_JIT_BINARY_OP_BITWISE_OR, retType, args[0], args[1]);
+   }
+   case emitBitXor: {
+      return builtinBinary(GCC_JIT_BINARY_OP_BITWISE_XOR, retType, args[0], args[1]);
+   }
+   case emitBitNegate: {
+      return builtinUnary(GCC_JIT_UNARY_OP_BITWISE_NEGATE, retType, args[0]);
+   }
+   case emitBitLeftShift: {
+      return builtinBinary(GCC_JIT_BINARY_OP_LSHIFT, retType, args[0], args[1]);
+   }
+   case emitBitRightShift: {
+      return builtinBinary(GCC_JIT_BINARY_OP_RSHIFT, retType, args[0], args[1]);
+   }
+   case emitEq: {
+      return builtinCompare(GCC_JIT_COMPARISON_EQ, args[0], args[1]);
+   }
+   case emitNotEq: {
+      return builtinCompare(GCC_JIT_COMPARISON_NE, args[0], args[1]);
+   }
+   case emitLessThanOrEq: {
+      return builtinCompare(GCC_JIT_COMPARISON_LE, args[0], args[1]);
+   }
+   case emitLessThan: {
+      return builtinCompare(GCC_JIT_COMPARISON_LT, args[0], args[1]);
+   }
+   case emitGreaterThan: {
+      return builtinCompare(GCC_JIT_COMPARISON_GT, args[0], args[1]);
+   }
+   case emitGreaterThanEq:  {
+      return builtinCompare(GCC_JIT_COMPARISON_GE, args[0], args[1]);
+   }
+}
+
 //}}}
 //{{{ Generation table
 
 typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
 #define CG_FUN(name) private void name(Node nd, AST, CG);
+
+// host string constants
+#define hostFunction  0
+#define hostElse      1
+#define hostConst     2
+#define hostLet       3
+#define hostLo        4
+#define hostNew       5
+#define hostArray     6
+#define hostPrint     7
+#define hostAdd       8
+#define hostLength    9
+#define hostAbs      10
+
 
 CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(writeAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
 CG_FUN(writeBreakCont) CG_FUN(writeTry) CG_FUN(writeCatch) CG_FUN(writeFnDef) CG_FUN(writeDef)
@@ -401,9 +523,16 @@ registerTypes(CG) {
    // for every type in @cm.types, create an entry in @cg.typeRefs
    cg->countTypeRefs = tokMisc;
    cg->typeRefs = allocateArray(cg->countTypeRefs, TypeRef, cg->a);
-   cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt, .cgType = builtinType(GCC_JIT_TYPE_INT32_T, cg->md) };
-   cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool, .cgType = builtinType(GCC_JIT_TYPE_BOOL, cg->md) };
-   cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc, .cgType = builtinType(GCC_JIT_TYPE_VOID, cg->md) };
+   cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt,
+      .cgType = builtinType(GCC_JIT_TYPE_INT32_T, cg->md) };
+   cg->typeRefs[tokLong] = (TypeRef){.ind = tokLong,
+      .cgType = builtinType(GCC_JIT_TYPE_INT64_T, cg->md) };
+   cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool,
+      .cgType = builtinType(GCC_JIT_TYPE_BOOL, cg->md) };
+   cg->typeRefs[tokDouble] = (TypeRef){.ind = tokDouble,
+      .cgType = builtinType(GCC_JIT_TYPE_DOUBLE, cg->md) };
+   cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc,
+      .cgType = builtinType(GCC_JIT_TYPE_VOID, cg->md) };
 }
 
 private CgType* //:intType
@@ -411,9 +540,19 @@ intType(CG) {
    return cg->typeRefs[0].cgType;
 }
 
-private CgType* //:voidType
-voidType(CG) {
-   return cg->typeRefs[tokMisc].cgType;
+private CgType* //:longType
+longType(CG) {
+   return cg->typeRefs[tokLong].cgType;
+}
+
+private CgType* //:boolType
+boolType(CG) {
+   return cg->typeRefs[tokBool].cgType;
+}
+
+private CgType* //:doubleType
+doubleType(CG) {
+   return cg->typeRefs[tokDouble].cgType;
 }
 
 //}}}

@@ -3027,33 +3027,7 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 //}}}
 //}}}
 //{{{ Parser
-//{{{ Parser consts
-
-// how to emit various names during codegen
-#define emitPrefix         1  // normal native names
-#define emitHostPrefix     2  // prefix names that are emitted differently than in source code
-#define emitInfix          3  // infix operators that match between source code and target (e.g.
-                              // arithmetic operators)
-#define emitHostInfix      4  // infix operators that have a separate external name
-#define emitField          5  // emitted as field accesses, like ".length"
-#define emitNone           6
-
-// host string constants
-#define hostFunction  0
-#define hostElse      1
-#define hostConst     2
-#define hostLet       3
-#define hostLo        4
-#define hostNew       5
-#define hostArray     6
-#define hostPrint     7
-#define hostAdd       8
-#define hostLength    9
-#define hostAbs      10
-
-//}}}
 //{{{ Parser utils
-
 
 #define VALIDATEP(cond, errMsg) if (!(cond)) { throwExcParser0(errMsg, __LINE__, cm); }
 
@@ -4664,19 +4638,18 @@ buildInfixOperator(Int operId, TypeId typeId, CM) {
    addRawOverload(operId, typeId, newEntityId, cm);
 }
 
-private void //:buildOperator
-buildOperator(Int operId, TypeId typeId, Byte emit, Int hostName, CM) {
+private void //:buildOper
+buildOper(Int operId, TypeId typeId, Emit emit, CM) {
 //Creates an entity, pushes it to [rawOverloads] and activates its name
    FunctionId newFnId = cm->functions.len;
    pushInfunctions(
-      (Function){
-          .typeId = typeId, .name = OPERATORS[operId].name,
-          .emit = emit, .hostName = hostName
-      },
+      (Function){ .typeId = typeId, .name = OPERATORS[operId].name, .emit = emit, },
       cm
    );
    addRawOverload(operId, typeId, newFnId, cm);
 }
+
+#define emitOf(a, b) ((Emit){.kind = a, .prim = b})
 
 private void //:buildOperators
 buildOperators(CM) {
@@ -4700,74 +4673,76 @@ buildOperators(CM) {
    TypeId strOfFloat     = addConcrFnType(1, (Int[]){ tokDouble, tokString}, cm);
    TypeId strOfBool      = addConcrFnType(1, (Int[]){ tokBool, tokString}, cm);
    TypeId strOfStrStr    = addConcrFnType(2, (Int[]){ tokString, tokString, tokString}, cm);
-   TypeId flOfFlFl       = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
-   TypeId flOfFl         = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
+   TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
+   TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
    TypeId voidOfInt      = addConcrFnType(1, (Int[]){ tokInt, voidType}, cm);
-   buildOperator(opBitwiseNeg,   intOfInt, emitHostPrefix, hostConst, cm); // !. // dummy host name
-   buildOperator(opNotEqual,     boolOfIntInt, emitInfix, -1, cm);
-   buildOperator(opNotEqual,     boolOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opNotEqual,     boolOfStrStr, emitInfix, -1, cm);
-   buildOperator(opBoolNeg,      boolOfBool, emitHostPrefix, hostConst, cm);
-   buildOperator(opSize,         intOfStr, emitField, hostLength, cm); // #
-   buildOperator(opSize,         intOfInt, emitHostPrefix, hostAbs, cm);
-   buildOperator(opToString,     strOfInt, emitNone, hostConst, cm); // $
-   buildOperator(opToString,     strOfBool, emitNone, hostConst, cm);
-   buildOperator(opToString,     strOfFloat, emitNone, hostConst, cm);
-   buildOperator(opRemainder,    intOfIntInt, emitInfix, -1, cm); // %
-   buildOperator(opBitwiseAnd,   intOfIntInt, emitInfix, -1, cm); // &&.
-   buildOperator(opBoolAnd,      boolOfBoolBool, emitInfix, -1, cm); // &&
-   buildOperator(opRef,          intOfIntInt, emitInfix, -1, cm); // ' dummy type, this oper is type-level
-   buildOperator(opTimesExt,     flOfFlFl, emitHostPrefix, hostConst, cm);
-   buildOperator(opTimes,        intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opTimes,        flOfFlFl, emitInfix, -1, cm);
-   buildOperator(opIncrement,    voidOfInt, emitInfix, -1, cm);
-   buildOperator(opPlusExt,      strOfStrStr, emitInfix, -1, cm);
-   buildOperator(opPlus,         intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opPlus,         flOfFlFl, emitInfix, -1, cm);
-   buildOperator(opPlus,         strOfStrStr, emitInfix, -1, cm);
-   buildOperator(opDecrement,    voidOfInt, emitInfix, -1, cm);
-   buildOperator(opMinusExt,     intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opMinus,        intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opMinus,        flOfFlFl, emitInfix, -1, cm);
-   buildOperator(opNegate,       intOfInt, emitInfix, -1, cm);
-   buildOperator(opNegate,       flOfFl, emitInfix, -1, cm);
-   buildOperator(opDivByExt,     intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opIntersect,    intOfIntInt, emitInfix, -1, cm); // dummy, oper is type-level
-   buildOperator(opDivBy,        intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opDivBy,        flOfFlFl, emitInfix, -1, cm);
-   buildOperator(opBitShiftL,    intOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opComparator,   intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opComparator,   intOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opComparator,   intOfStrStr, emitInfix, -1, cm);
-   buildOperator(opLTZero,       boolOfInt, emitInfix, -1, cm);
-   buildOperator(opLTZero,       boolOfDoub, emitInfix, -1, cm);
-   buildOperator(opLTZero,       boolOfStr, emitInfix, -1, cm);
-   buildOperator(opLTEQ,         boolOfIntInt, emitInfix, -1, cm); // <=
-   buildOperator(opLTEQ,         boolOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opLTEQ,         boolOfStrStr, emitInfix, -1, cm);
-   buildOperator(opLessTh,       boolOfIntInt, emitInfix, -1, cm);
-   buildOperator(opLessTh,       boolOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opLessTh,       boolOfStrStr, emitInfix, -1, cm);
-   buildOperator(opRefEquality,  boolOfIntInt, emitInfix, -1, cm);
-   buildOperator(opEquality,     boolOfIntInt, emitInfix, -1, cm);
-   buildOperator(opBitShiftR,    boolOfBoolBool, emitInfix, -1, cm);
-   buildOperator(opGTZero,       boolOfInt, emitInfix, -1, cm);
-   buildOperator(opGTZero,       boolOfDoub, emitInfix, -1, cm);
-   buildOperator(opGTZero,       boolOfStr, emitInfix, -1, cm);
-   buildOperator(opGTEQ,         boolOfIntInt, emitInfix, -1, cm);
-   buildOperator(opGTEQ,         boolOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opGTEQ,         boolOfStrStr, emitInfix, -1, cm);
-   buildOperator(opGreaterTh,    boolOfIntInt, emitInfix, -1, cm);
-   buildOperator(opGreaterTh,    boolOfDoubDoub, emitInfix, -1, cm);
-   buildOperator(opGreaterTh,    boolOfStrStr, emitInfix, -1, cm);
-   buildOperator(opNullCoalesce, intOfIntInt, emitInfix, -1, cm); // ?:
-   buildOperator(opQuestionMark, intOfIntInt, emitInfix, -1, cm); // dummy, type
-   buildOperator(opAwait,        flOfFlFl, emitInfix, -1, cm); // @ dummy, this will be async/await
-   buildOperator(opBitwiseXor,   intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opBitwiseOr,    intOfIntInt, emitInfix, -1, cm);
-   buildOperator(opBoolOr,       flOfFl, emitInfix, -1, cm);
-   buildOperator(opGetElem,      flOfFl, emitInfix, -1, cm); // dummy
-   buildOperator(opGetElemPtr,   flOfFl, emitInfix, -1, cm); // dummy
+   // !. // dummy host name
+   buildOper(opBitwiseNeg,   intOfInt, emitOf(emitBitNegate, emitInt), cm);
+   buildOper(opNotEqual,     boolOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opNotEqual,     boolOfDoubDoub, emitOf(emitNotEq, emitDouble), cm);
+   buildOper(opNotEqual,     boolOfStrStr, emitOf(emitNotEq, emitInt), cm); //TODO
+   buildOper(opBoolNeg,      boolOfBool, emitOf(emitNegate, emitInt), cm);
+   buildOper(opSize,         intOfStr, emitOf(emitNotEq, emitInt), cm); // #
+   buildOper(opSize,         intOfInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opToString,     strOfInt, emitOf(emitNotEq, emitInt), cm); // $
+   buildOper(opToString,     strOfBool, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opToString,     strOfFloat, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opRemainder,    intOfIntInt, emitOf(emitModulo, emitInt), cm); // %
+   buildOper(opBitwiseAnd,   intOfIntInt, emitOf(emitBitAnd, emitInt), cm); // &&.
+   buildOper(opBoolAnd,      boolOfBoolBool, emitOf(emitLogicAnd, emitInt), cm); // &&
+   // ' dummy type, this oper is type-level
+   buildOper(opRef,          intOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opTimesExt,     douOfDouDou, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opTimes,        intOfIntInt, emitOf(emitMultiply, emitInt), cm);
+   buildOper(opTimes,        douOfDouDou, emitOf(emitMultiply, emitDouble), cm);
+   buildOper(opIncrement,    voidOfInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opPlusExt,      strOfStrStr, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opPlus,         intOfIntInt, emitOf(emitAdd, emitInt), cm);
+   buildOper(opPlus,         douOfDouDou, emitOf(emitAdd, emitDouble), cm);
+   buildOper(opPlus,         strOfStrStr, emitOf(emitAdd, emitInt), cm);
+   buildOper(opDecrement,    voidOfInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opMinusExt,     intOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opMinus,        intOfIntInt, emitOf(emitSubtract, emitInt), cm);
+   buildOper(opMinus,        douOfDouDou, emitOf(emitSubtract, emitDouble), cm);
+   buildOper(opNegate,       intOfInt, emitOf(emitNegate, emitInt), cm);
+   buildOper(opNegate,       douOfDou, emitOf(emitNegate, emitDouble), cm);
+   buildOper(opDivByExt,     intOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   // dummy, oper is type-level
+   buildOper(opIntersect,    intOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opDivBy,        intOfIntInt, emitOf(emitDivide, emitInt), cm);
+   buildOper(opDivBy,        douOfDouDou, emitOf(emitDivide, emitDouble), cm);
+   buildOper(opBitShiftL,    intOfIntInt, emitOf(emitBitLeftShift, emitInt), cm);
+   buildOper(opComparator,   intOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opComparator,   intOfDoubDoub, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opComparator,   intOfStrStr, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opLTZero,       boolOfInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opLTZero,       boolOfDoub, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opLTZero,       boolOfStr, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opLTEQ,         boolOfIntInt, emitOf(emitLessThanOrEq, emitInt), cm);//<=
+   buildOper(opLTEQ,         boolOfDoubDoub, emitOf(emitLessThanOrEq, emitDouble), cm);
+   buildOper(opLTEQ,         boolOfStrStr, emitOf(emitLessThanOrEq, emitInt), cm);
+   buildOper(opLessTh,       boolOfIntInt, emitOf(emitLessThan, emitInt), cm);
+   buildOper(opLessTh,       boolOfDoubDoub, emitOf(emitLessThan, emitDouble), cm);
+   buildOper(opLessTh,       boolOfStrStr, emitOf(emitLessThan, emitInt), cm);
+   buildOper(opRefEquality,  boolOfIntInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opEquality,     boolOfIntInt, emitOf(emitEq, emitInt), cm);
+   buildOper(opBitShiftR,    boolOfBoolBool, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opGTZero,       boolOfInt, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opGTZero,       boolOfDoub, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opGTZero,       boolOfStr, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opGTEQ,         boolOfIntInt, emitOf(emitGreaterThanEq, emitInt), cm);
+   buildOper(opGTEQ,         boolOfDoubDoub, emitOf(emitGreaterThanEq, emitDouble), cm);
+   buildOper(opGTEQ,         boolOfStrStr, emitOf(emitNotEq, emitInt), cm);
+   buildOper(opGreaterTh,    boolOfIntInt, emitOf(emitGreaterThan, emitInt), cm);
+   buildOper(opGreaterTh,    boolOfDoubDoub, emitOf(emitGreaterThan, emitDouble), cm);
+   buildOper(opGreaterTh,    boolOfStrStr, emitOf(emitGreaterThan, emitInt), cm);
+   buildOper(opNullCoalesce, intOfIntInt, emitOf(emitNotEq, emitInt), cm); // ?:
+   buildOper(opQuestionMark, intOfIntInt, emitOf(emitNotEq, emitInt), cm); // dummy, type
+   buildOper(opBitwiseXor,   intOfIntInt, emitOf(emitBitXor, emitInt), cm);
+   buildOper(opBitwiseOr,    intOfIntInt, emitOf(emitBitOr, emitInt), cm);
+   buildOper(opBoolOr,       douOfDou, emitOf(emitLogicOr, emitInt), cm);
+   buildOper(opGetElem,      douOfDou, emitOf(emitNotEq, emitInt), cm); // dummy
+   buildOper(opGetElemPtr,   douOfDou, emitOf(emitNotEq, emitInt), cm); // dummy
 }
 
 private void //:createBuiltins
@@ -4796,8 +4771,8 @@ importPrelude(CM) {
    // List length
    Int lengthFnId = cm->functions.len;
    pushInfunctions(
-      (Function){ .name = opSize, .typeId = listLength, .hostName = hostLength,
-                  .genericInd = genericInd2, .tokenInd = -1, .emit = emitField },
+      (Function){ .name = opSize, .typeId = listLength,
+                  .genericInd = genericInd2, .tokenInd = -1, .emit = emitOf(emitParsed, emitInt) },
       cm
    );
    addRawOverload(opSize, listLength, lengthFnId, cm);
@@ -4813,14 +4788,11 @@ importPrelude(CM) {
       },
    };
    Function fnImports[5] =  {
-      (Function){ .name = nameOfStandard(strPrint), .typeId = strToVoid, .hostName = hostPrint,
-                  .emit = emitHostPrefix },
-      (Function){ .name = nameOfStandard(strPrint), .typeId = intToVoid, .hostName = hostPrint,
-                  .emit = emitHostPrefix },
-      (Function){ .name = nameOfStandard(strPrint), .typeId = dblToVoid, .hostName = hostPrint,
-                  .emit = emitHostPrefix },
-      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd, .hostName = hostAdd,
-                  .genericInd = genericInd, .tokenInd = -1, .emit = emitHostInfix },
+      (Function){ .name = nameOfStandard(strPrint), .emit = emitOf(emitPrint, emitInt) },
+      (Function){ .name = nameOfStandard(strPrint), .emit = emitOf(emitPrint, emitDouble) },
+      (Function){ .name = nameOfStandard(strPrint), .emit = emitOf(emitPrint, emitInt) },
+      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd, 
+                  .genericInd = genericInd, .tokenInd = -1, .emit = emitOf(emitParsed, emitInt) },
       (Function){ .name = nameOfStandard(strPrintErr), .typeId = strToVoid }
       // TODO functions for casting (int, double, unsigned)
    };
