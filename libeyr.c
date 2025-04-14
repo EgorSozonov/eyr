@@ -165,7 +165,6 @@ constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define miscUnderscore 1    // _
 #define miscArrow      2    // ->
 
-#define maxWordLength 128
 
 //}}}
 

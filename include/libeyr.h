@@ -213,6 +213,8 @@ DEFINE_SLICE_HEADER(Function)
 #define metaDefault     2  // Default values for type arguments
 
 
+#define maxWordLength   127 // Maximum name of an identifier
+
 typedef struct Compiler Compiler;
 
 struct Node { // :Node

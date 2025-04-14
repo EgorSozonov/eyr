@@ -12,7 +12,7 @@
 extern jmp_buf excBuf;
 
 //}}}
-//{{{ Forward decls & generics
+//{{{ Forward decls, generics & utils
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -28,6 +28,8 @@ typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define pointerOf(x) gcc_jit_type_get_pointer(x)
 
+
+#define AST Arr(Node const) const restrict ast // Source text
 #define SRC Arr(char const) const restrict source // Source text
 #define CR CompResult const* const restrict cr // Compilation results
 private void closeStatement(LX);
@@ -48,6 +50,8 @@ DEFINE_LIST_HEADER(CgFrame)
    LUlong*: addUlong,\
    LNode*: addNode,\
    LSourceLoc*: addSourceLoc,\
+   LFnParamPtr*: addFnParamPtr,\
+   LRValuePtr*: addRValuePtr,\
    LCgFrame*: addCgFrame\
 )(A, X)
 
@@ -57,6 +61,8 @@ DEFINE_LIST_HEADER(CgFrame)
    LUlong*: removeLastUlong,\
    LNode*: removeLastNode,\
    LSourceLoc*: removeLastSourceLoc,\
+   LFnParamPtr*: removeLastFnParamPtr,\
+   LRValuePtr*: removeLastRValuePtr,\
    LCgFrame*: removeLastCgFrame\
 )(X)
 
@@ -90,50 +96,60 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
    CgType* cgType;
 } TypeRef;
 
-#define bloCommon   0 // common blocks. nextBlock = afterBlock
-#define bloIf       1 // if conditions. nextBlock = next "else if"/"else"
-#define bloLoopCond 2 // loop conditions. nextBlock = afterBlock
-#define bloLoopBody 3 // loop bodies. nextBlock = bloLoopCond
+#define bloCommon        0 // common blocks. nextBlock = afterBlock
+#define bloIf            1 // if conditions. nextBlock = next "else if"/"else"
+#define bloLoopCond      2 // loop conditions. nextBlock = afterBlock
+#define bloLoopBody      3 // loop bodies. nextBlock = bloLoopCond
+#define bloEndOfFunction 4 // end of function marker. for this type, c = null
 
-typedef struct {
+typedef struct { //:TypedBlock
    Byte tp; // the "blo" constants above
+   CodeBlock* c; // == null iff tp = bloEndOfFunction
+} TypedBlock;
+
+typedef struct { //:CurrBlock
    Int start; // start node ind
    Int end; // end node ind, exclusive
-   CodeBlock* nextBlock;
-   CodeBlock* afterBlock;
+   TypedBlock c;
+   TypedBlock nextBlock;
+   TypedBlock afterBlock;
 } CurrBlock;
 
-typedef struct {
-   Byte tp; // the "blo" constants above
+typedef struct { //:FutureBlock
    Int nodeInd;
-   CodeBlock* c;
+   TypedBlock c;
 } FutureBlock;
 
 DEFINE_LIST_HEADER(FutureBlock);
 DEFINE_LIST(FutureBlock);
 
 typedef CodeBlock* CodeBlockPtr;
+typedef RValue* RValuePtr;
 
 DEFINE_LIST_HEADER(CodeBlockPtr);
 DEFINE_LIST_HEADER(FnPtr);
+DEFINE_LIST_HEADER(RValuePtr);
 DEFINE_LIST(CodeBlockPtr);
 DEFINE_LIST(FnPtr);
+DEFINE_LIST(RValuePtr);
 
 typedef struct { //:Codegen
    Int i; // current node index
-   CurrBlock cbl;
+   CurrBlock cbl; // no relation to Carbon-Based Lifeforms
    LFutureBlock futureBlocks;
    LCodeBlockPtr loops; // outer loop conditions, used for "continue" block linking
   
    Module* md;
 
    Int bufferLen;
-   Byte buffer[256]; // temporary buffer for name writing
+   Byte buffer[maxWordLength + 1]; // temporary buffer for name writing
 
    LFnParamPtr* params; // temporary buffer for function params
    LFieldPtr* fields; // temporary buffer for struct fields
    LCgFrame* bt;
    LFnPtr* functions;
+   LRValuePtr* exp; // temporary buffer for expression evaluation
+   Arr(RValue*) vars; // len == len of @compResult.vars
 
    Int countTypeRefs;
    Arr(TypeRef) typeRefs;
@@ -145,7 +161,14 @@ typedef struct { //:Codegen
 } Codegen;
 
 //}}}
+//{{{ Utils
 
+private String
+stringOf(Arr(char) cString) {
+   return (String){.c = cString, .len = strlen(cString) };
+}
+
+//}}}
 #define CG Codegen* restrict cg
 private void prepareName(NameId name, CG);
 private CgType* cgType(TypeId tp, CG);
@@ -291,6 +314,11 @@ param(NameId nameId, TypeId tp, CG) {
    return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg), cg->buffer);
 }
 
+private FnParam* //:param
+paramFromChars(char const* s, TypeId tp, CG) {
+   return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg), s);
+}
+
 private CgType* //:fnPointerType
 fnPointerType(Int countParams, Arr(CgType*) paramTypes, CgType* returnTp, Module* md) {
    return gcc_jit_context_new_function_ptr_type (
@@ -309,34 +337,10 @@ callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
 }
 
 //}}}
-//{{{ Utils
-
-private String
-stringOf(Arr(char) cString) {
-   return (String){.c = cString, .len = strlen(cString) };
-}
-
-//}}}
-//{{{ Host text
-
-// Host strings for codegen. Must agree in order with the "host" constants below :hostText
-constexpr char hostText[] = "functionelseconstletlonewArrayconsole.logpushlengthMath.abs"
-                            "";
-constexpr Byte
-hostStringLens[] = {
-    8, 4, 5, 3, 2,  // lo
-    3, 5, 11, 4, 6, // length
-    8
-};
-
-private Int
-hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
-
-//}}}
 //{{{ Generation table
 
 typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
-#define CG_FUN(name) private void name(Node nd, Arr(Node const) nodes, CG);
+#define CG_FUN(name) private void name(Node nd, AST, CG);
 
 CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(writeAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
 CG_FUN(writeBreakCont) CG_FUN(writeTry) CG_FUN(writeCatch) CG_FUN(writeFnDef) CG_FUN(writeDef)
@@ -363,6 +367,22 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [nodMatch      - nodScope] = &writeMatch
 };
 
+//{{{ Host text
+
+// Host strings for codegen. Must agree in order with the "host" constants below :hostText
+constexpr char hostText[] = "functionelseconstletlonewArrayconsole.logpushlengthMath.abs"
+                            "";
+constexpr Byte
+hostStringLens[] = {
+    8, 4, 5, 3, 2,  // lo
+    3, 5, 11, 4, 6, // length
+    8
+};
+
+private Int
+hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
+
+//}}}
 //}}}
 //{{{ Type registry
 
@@ -410,6 +430,7 @@ private void //:intConst Writes a name from source code to codegen buffer, zero-
 prepareName(NameId nameId, CG) {
    NameLoc name = cg->compResult.names.c[name];
    memcpy(cg->buffer, cg->compResult.sourceCode.c + (name & LOWER24BITS), name >> 24);
+   cg->bufferLen = (name & LOWER24BITS) + 1;
    cg->buffer[name >> 24] = '\0';
 }
 
@@ -424,6 +445,7 @@ createCodegen(CR, Arena* a) {
       .md = md, 
       .bt = createLCgFrame(16, a),
       .compResult = *cr,
+      .vars = allocateArray(cr->vars.len, RValue*, a),
       .a = a,
       .wasError = false
    };
@@ -481,13 +503,35 @@ init() {
 //~}
 
 private void //:writeExprInternal
-writeExprInternal(Node nd, Int sentinel, Arr(Node const) ast, CG) {
+writeExprInternal(Node nd, Int sentinel, AST, CG) {
 // Consumes no nodes
 // Precondition: we are looking 1 past the nodExpr/singular node. Consumes all nodes of the expr
+   LRValuePtr* exp = cg->exp;
+   exp->len = 0;
+   for (Int j = cg->i; j < sentinel; j++) {
+      Node nd = ast[j];
+      switch (nd.tp) {
+         case tokInt: {
+            Int value = nd.pl2;
+            add(intConst(value, cg), exp);
+            break;
+         } 
+         case nodVar: {
+            add(cg->vars[nd.pl1], exp);
+            break;
+         } 
+         case nodCall: {
+            Int countArgs = nd.pl2;
+            //Int callTp = nd.pl3;
+            cg->compResult.functions.c[nd.pl1];
+            break;
+         } 
+      }
+   }
 }
 
 private void //:writeExpr
-writeExpr(Node nd, Arr(Node const) ast, CG) {
+writeExpr(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    writeExprInternal(nd, sentinel, ast, cg);
    cg->i = sentinel;
@@ -815,10 +859,14 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          cg
       );
    } else {
+      Int n = eyrFn.nodeInd + 1;
       cg->params->len = 0;
-      for (Int i = 0; i < arity; i++) {
-         FnParam* newParam = param(name, cr->types.c[eyrFn.typeId + TYPE_PREFIX_LEN + i], cg);
-         add(, cg->params);
+      for (Int n = eyrFn.nodeInd + 1; n < eyrFn.nodeInd + 1 + arity; n++) {
+         NameId parName = cr->vars.c[cr->ast.c[n].pl1].name;
+         FnParam* newParam = param(
+            parName, typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + n]), cg
+         );
+         add(newParam, cg->params);
       }
       Fn* newToplevel = newFnReal(
          eyrFn.name,
@@ -828,11 +876,15 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          cg
       );
    }
+   CodeBlock* mainBlock = newBlock(newToplevel);
+   cg->cbl = (CurrBlock){
+      .start = eyrFn.nodeInd,
+      .end = calcNodeSentinel(cr->ast.c[eyrFn.nodeInd], eyrFn.nodeInd),
+      .c = { .tp = bloCommon, .c = mainBlock },
+      .nextBlock = { .tp = bloEndOfFunction, .c = null }, 
+      .afterBlock = { .tp = bloEndOfFunction, .c = null },
+   };
    
-   
-   
-
-
 //~   Function fn = cr->functions.c[toplevelId];
 //~   if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
 //~      { return; }
@@ -898,12 +950,11 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
 //~   cgMaybeCloseFrames(cg);
 }
 
-
 void temp(CG);
 
 private void //:generateMainCode
 generateMainCode(CG) {
-   CompResult* cr = cg->compResult;
+   CompResult* cr = &cg->compResult;
    for (int j = 0; j < cr->toplevels.len; j++) {
       //toplevelFn(cr.toplevels.c[j], cr, cg);
    }
@@ -1007,10 +1058,7 @@ temp2(CG) {
         gcc_jit_context_new_array_constructor(ctxt, NULL, f_table_type, 2, fns)
     );
    
-   
-   
-   
-   gcc_jit_result* result = gcc_jit_context_compile(ctxt);
+    gcc_jit_result* result = gcc_jit_context_compile(ctxt);
     
     typedef int (*intToVoid)(void);
     intToVoid *compiledFns = gcc_jit_result_get_global (result, "F_TABLE");
@@ -1024,85 +1072,85 @@ temp2(CG) {
     }
 }
 
-void //:temp
-temp(CG) {
-   Module* md = cg->md;
-   registerTypes(cg);
-   
-   CgType* constCharPtrTp = getType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
-   CgType* const intTp = intType(cg);
-   CgType* const voidTp = voidType(cg);
-   FnParam* paramFormat = newParam("format", constCharPtrTp, md);
-   Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
-   
-   
-   FnParam* paramInt1 = newParam("i", intTp, md);
-   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
-   CodeBlock* bl1 = newBlock(fn1);
-   FnParam* paramInt2 = newParam("i", intTp, md);
-   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
-   CodeBlock* bl2 = newBlock(fn2);
-   
-   RValue* zero = intConst(0, cg);
-   RValue* one = intConst(1, cg);
-   RValue* fifteen = intConst(15, cg);
-   RValue* hundred = intConst(100, cg);
-   RValue* hwArgs[2];
-   hwArgs[0] = strConst("HW from f1 %d\n", md);
-   hwArgs[1] = fifteen;
-   evalExpr(call(printfFn, 2, hwArgs, md), bl1);
-   returnVoid(bl1);
-   
-   hwArgs[0] = strConst("HW from f2 %d\n", md);
-   hwArgs[1] = hundred;
-   evalExpr(call(printfFn, 2, hwArgs, md), bl2);
-   returnVoid(bl2);
-   
-   CgType* fnTp = fnPointerType(0, null, voidTp, md);
-   CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
-   LValue* fTable = gcc_jit_context_new_global(
-      md, null, GCC_JIT_GLOBAL_INTERNAL, fTableTp, "FTABLE"
-   );
-   RValue* fns[2];
-   fns[0] = gcc_jit_function_get_address(fn1, null);
-   fns[1] = gcc_jit_function_get_address(fn2, null);
-   
-   gcc_jit_function_type* validatingT1 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[0])); 
-   gcc_jit_function_type* validatingT2 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[1])); 
-   print("function pointer types %p and %p", validatingT1, validatingT2);
-   
-   fTable = gcc_jit_global_set_initializer_rvalue(
-      fTable, 
-      gcc_jit_context_new_array_constructor(md, null, fTableTp, 2, fns)
-   );
-   
-   FnParam* mainParams[2];
-   mainParams[0] = newParam("argc", intTp, md);
-   mainParams[1] = newParam("argv", pointerOf(constCharPtrTp), md);
-   Fn* mainFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intTp, md);
-   
-   CodeBlock* mainBlock = newBlock(mainFn);
-   
-   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), zero, md)), 0, null, md), mainBlock);
-   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), one, md)), 0, null, md), mainBlock);
-   
-   returnFromBlock(intConst(0, cg), mainBlock);
-   
-   //gcc_jit_type *gcc_jit_context_new_function_ptr_type(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *return_type, int num_params, gcc_jit_type **param_types, int is_variadic)
-
-
-   //gcc_jit_lvalue *gcc_jit_context_new_global(gcc_jit_context *ctxt, gcc_jit_location *loc, GCC_JIT_GLOBAL_INTERNAL, gcc_jit_type *type, const char *name)
-   // gcc_jit_lvalue *gcc_jit_global_set_initializer_rvalue(gcc_jit_lvalue *global, gcc_jit_rvalue *init_value)
-   //gcc_jit_rvalue *gcc_jit_context_new_array_constructor(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *type, size_t num_values, gcc_jit_rvalue **values)
-   
-   
-   
-   
-   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "_target/program");
-   
-   gcc_jit_result* result = gcc_jit_context_compile(md);
-   gcc_jit_context_dump_to_file(md, "_target/outputDump.c", 0);
-}
+//~void //:temp
+//~temp(CG) {
+//~   Module* md = cg->md;
+//~   registerTypes(cg);
+//~   
+//~   CgType* constCharPtrTp = builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
+//~   CgType* const intTp = intType(cg);
+//~   CgType* const voidTp = voidType(cg);
+//~   FnParam* paramFormat = paramFromChars("format", constCharPtrTp, md);
+//~   Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
+//~   
+//~   
+//~   FnParam* paramInt1 = paramFrom("i", intTp, md);
+//~   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
+//~   CodeBlock* bl1 = newBlock(fn1);
+//~   FnParam* paramInt2 = newParam("i", intTp, md);
+//~   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
+//~   CodeBlock* bl2 = newBlock(fn2);
+//~   
+//~   RValue* zero = intConst(0, cg);
+//~   RValue* one = intConst(1, cg);
+//~   RValue* fifteen = intConst(15, cg);
+//~   RValue* hundred = intConst(100, cg);
+//~   RValue* hwArgs[2];
+//~   hwArgs[0] = strConst("HW from f1 %d\n", md);
+//~   hwArgs[1] = fifteen;
+//~   evalExpr(call(printfFn, 2, hwArgs, md), bl1);
+//~   returnVoid(bl1);
+//~   
+//~   hwArgs[0] = strConst("HW from f2 %d\n", md);
+//~   hwArgs[1] = hundred;
+//~   evalExpr(call(printfFn, 2, hwArgs, md), bl2);
+//~   returnVoid(bl2);
+//~   
+//~   CgType* fnTp = fnPointerType(0, null, voidTp, md);
+//~   CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
+//~   LValue* fTable = gcc_jit_context_new_global(
+//~      md, null, GCC_JIT_GLOBAL_INTERNAL, fTableTp, "FTABLE"
+//~   );
+//~   RValue* fns[2];
+//~   fns[0] = gcc_jit_function_get_address(fn1, null);
+//~   fns[1] = gcc_jit_function_get_address(fn2, null);
+//~   
+//~   gcc_jit_function_type* validatingT1 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[0])); 
+//~   gcc_jit_function_type* validatingT2 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[1])); 
+//~   print("function pointer types %p and %p", validatingT1, validatingT2);
+//~   
+//~   fTable = gcc_jit_global_set_initializer_rvalue(
+//~      fTable, 
+//~      gcc_jit_context_new_array_constructor(md, null, fTableTp, 2, fns)
+//~   );
+//~   
+//~   FnParam* mainParams[2];
+//~   mainParams[0] = paramFromChars("argc", typeOf(tokInt), cg);
+//~   mainParams[1] = paramFromChars("argv", pointerOf(constCharPtrTp), cg);
+//~   Fn* mainFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intTp, md);
+//~   
+//~   CodeBlock* mainBlock = newBlock(mainFn);
+//~   
+//~   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), zero, md)), 0, null, md), mainBlock);
+//~   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), one, md)), 0, null, md), mainBlock);
+//~   
+//~   returnFromBlock(intConst(0, cg), mainBlock);
+//~   
+//~   //gcc_jit_type *gcc_jit_context_new_function_ptr_type(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *return_type, int num_params, gcc_jit_type **param_types, int is_variadic)
+//~
+//~
+//~   //gcc_jit_lvalue *gcc_jit_context_new_global(gcc_jit_context *ctxt, gcc_jit_location *loc, GCC_JIT_GLOBAL_INTERNAL, gcc_jit_type *type, const char *name)
+//~   // gcc_jit_lvalue *gcc_jit_global_set_initializer_rvalue(gcc_jit_lvalue *global, gcc_jit_rvalue *init_value)
+//~   //gcc_jit_rvalue *gcc_jit_context_new_array_constructor(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *type, size_t num_values, gcc_jit_rvalue **values)
+//~   
+//~   
+//~   
+//~   
+//~   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "_target/program");
+//~   
+//~   gcc_jit_result* result = gcc_jit_context_compile(md);
+//~   gcc_jit_context_dump_to_file(md, "_target/outputDump.c", 0);
+//~}
 
 //}}}
 //{{{ Main
@@ -1140,7 +1188,7 @@ main(int argc, char** argv) {
    Codegen* cg = allocate(Codegen, a);
    Module* md = gcc_jit_context_acquire();
    (*cg) = (Codegen) {
-      .i = 0, .buffer = allocateOnArena(64, a),
+      .i = 0,
       .md = md, 
       .bt = createLCgFrame(16, a),
       .compResult = null,
