@@ -263,20 +263,8 @@ typedef enum {   // :EmitFn
    emitLessThanOrEq,
    emitLessThan,
    emitGreaterThan,
-   emitGreaterThanEq
-} EmitFn;
-
-typedef enum {
-   emitInt,
-   emitUnt,
-   emitUlong,
-   emitLong,
-   emitDouble
-} EmitPrimitiveType;
-
-typedef struct {
-   EmitFn kind;
-   EmitPrimitiveType prim; // meaningless for kind == emitParsed
+   emitGreaterThanEq,
+   emitPrint
 } Emit;
 
 struct Function { //:Function Parsed or built-in function

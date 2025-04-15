@@ -120,18 +120,18 @@ typedef struct { //:FutureBlock
    TypedBlock c;
 } FutureBlock;
 
-DEFINE_LIST_HEADER(FutureBlock);
-DEFINE_LIST(FutureBlock);
+DEFINE_LIST_HEADER(FutureBlock)
+DEFINE_LIST(FutureBlock)
 
 typedef CodeBlock* CodeBlockPtr;
 typedef RValue* RValuePtr;
 
-DEFINE_LIST_HEADER(CodeBlockPtr);
-DEFINE_LIST_HEADER(FnPtr);
-DEFINE_LIST_HEADER(RValuePtr);
-DEFINE_LIST(CodeBlockPtr);
-DEFINE_LIST(FnPtr);
-DEFINE_LIST(RValuePtr);
+DEFINE_LIST_HEADER(CodeBlockPtr)
+DEFINE_LIST_HEADER(FnPtr)
+DEFINE_LIST_HEADER(RValuePtr)
+DEFINE_LIST(CodeBlockPtr)
+DEFINE_LIST(FnPtr)
+DEFINE_LIST(RValuePtr)
 
 typedef struct { //:Codegen
    Int i; // current node index
@@ -349,30 +349,14 @@ callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
 #define builtinCompare(op, arg1, arg2) gcc_jit_context_new_comparison(\
    cg->md, null, op, arg1, arg2)
 
-private RValue* //:call
-call(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
-// Handles all calls
-   Emit emit = cg->compResult.functions.c[fnId].emit;
-   CgType* retType;
-   switch (emit.primitive) {
-   case emitInt: {
-      retType = intType(cg); break;
-   }
-   case emitUnt: {
-      retType = intType(cg); break;
-   }
-   case emitLong: {
-      retType = longType(cg); break;
-   }
-   case emitUlong: {
-      retType = intType(cg); break;
-   }
-   case emitDouble: {
-      retType = doubleType(cg); break;
-   }
-   }
+private RValue* //:eCall
+eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
+// Handles all calls in expressions. Does NOT change the expression stack
+   Function fn = cg->compResult.functions.c[fnId];
+   Int eyrRetType = cg->compResult.types.c[fn.typeId.v + TYPE_PREFIX_LEN + countArgs];
+   CgType* retType = cgType(typeOf(eyrRetType), cg);
    
-   switch (emit.kind) {
+   switch (fn.emit) {
    case emitParsed: {
       return callParsed(cg->functions[fnId], countArgs, args, cg->md);
    }
@@ -439,16 +423,21 @@ call(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
    case emitGreaterThan: {
       return builtinCompare(GCC_JIT_COMPARISON_GT, args[0], args[1]);
    }
-   case emitGreaterThanEq:  {
+   case emitGreaterThanEq: {
       return builtinCompare(GCC_JIT_COMPARISON_GE, args[0], args[1]);
    }
+   case emitPrint: {
+      return builtinUnary(GCC_JIT_UNARY_OP_BITWISE_NEGATE, retType, args[0]); // TODO
+   }
+   }
+   return null; // unreachable
 }
 
 //}}}
 //{{{ Generation table
 
-typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
-#define CG_FUN(name) private void name(Node nd, AST, CG);
+typedef void (*CgFunc)(Node, Arr(Node const) const restrict, Codegen* restrict);
+#define CG_FUN(fnName) static void fnName(Node nd, AST, CG)
 
 // host string constants
 #define hostFunction  0
@@ -464,10 +453,11 @@ typedef void (*CgFunc)(Node, Arr(Node const), Codegen* restrict);
 #define hostAbs      10
 
 
-CG_FUN(writeScope) CG_FUN(writeExpr) CG_FUN(writeAssignment) CG_FUN(writeDataAlloc) CG_FUN(writeAssert)
-CG_FUN(writeBreakCont) CG_FUN(writeTry) CG_FUN(writeCatch) CG_FUN(writeFnDef) CG_FUN(writeDef)
-CG_FUN(writeTrait) CG_FUN(writeImpl) CG_FUN(writeReturn)
-CG_FUN(writeFor) CG_FUN(writeIf) CG_FUN(writeIfClause) CG_FUN(writeMatch)
+CG_FUN(writeScope); CG_FUN(writeExpr); CG_FUN(writeAssignment); CG_FUN(writeDataAlloc);
+CG_FUN(writeAssert); CG_FUN(writeBreakCont); CG_FUN(writeTry); CG_FUN(writeCatch); 
+CG_FUN(writeFnDef); CG_FUN(writeDef);
+CG_FUN(writeTrait); CG_FUN(writeImpl); CG_FUN(writeReturn);
+CG_FUN(writeFor); CG_FUN(writeIf); CG_FUN(writeIfClause); CG_FUN(writeMatch);
 
 private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [0]                        = &writeScope,
@@ -622,25 +612,6 @@ init() {
 //~   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
 //~}
 
-//~private void //:writeExprProcessFirstArg
-//~writeExprProcessFirstArg(Call* top, CG) {
-//~   if (top->countArgs != 1)
-//~      { return; }
-//~   switch (top->emit) {
-//~   case emitField:
-//~      writeChar(aDot, cg);
-//~      writeConstant(top->startInd, cg); return;
-//~   case emitInfix:
-//~      writeChar(aSpace, cg);
-//~      writeBytes(cg->sourceCode.cont + top->startInd, top->len, cg);
-//~      writeChar(aSpace, cg); return;
-//~   case emitHostInfix:
-//~      writeChar(aSpace, cg);
-//~      writeConstant(top->startInd, cg);
-//~      writeChar(aSpace, cg); return;
-//~   }
-//~}
-
 private void //:writeExprInternal
 writeExprInternal(Node nd, Int sentinel, AST, CG) {
 // Consumes no nodes
@@ -648,21 +619,23 @@ writeExprInternal(Node nd, Int sentinel, AST, CG) {
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
    for (Int j = cg->i; j < sentinel; j++) {
-      Node nd = ast[j];
-      switch (nd.tp) {
+      Node expNode = ast[j];
+      switch (expNode.tp) {
          case tokInt: {
-            Int value = nd.pl2;
+            Int value = expNode.pl2;
             add(intConst(value, cg), exp);
             break;
          } 
          case nodVar: {
-            add(cg->vars[nd.pl1], exp);
+            add(cg->vars[expNode.pl1], exp);
             break;
          } 
          case nodCall: {
-            Int countArgs = nd.pl2;
+            Int countArgs = expNode.pl2;
             //Int callTp = nd.pl3;
-            cg->compResult.functions.c[nd.pl1];
+            RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
+            exp->len -= (countArgs - 1);
+            exp->c[exp->len - 1] = callResult;
             break;
          } 
       }
@@ -738,7 +711,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
       { return; }
    Int const sentinel = cg->i + nd.pl2;
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
-   Node const rightNode = ast[rightNodeInd];
+   //Node const rightNode = ast[rightNodeInd];
    if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
       { goto end; }
    Int innerExprInd = rightNodeInd + 1; // for complex expressions, will skip the inner assigns
@@ -787,13 +760,12 @@ writeReturn(Node fr, Arr(Node const) ast, CG) {
 }
 
 private void //:writeScope
-writeScope(Node nd, Arr(Node const) ast, CG) {
+writeScope(Node nd, AST, CG) {
 }
 
 private void //:writeIfClause
-writeIfClause(Node nd, Arr(Node const) ast, CG) {
+writeIfClause(Node nd, AST, CG) {
    openFrame(nd, cg);
-
 
    if (nd.pl3 == ifclElse) {
    } else {
@@ -809,12 +781,12 @@ writeIfClause(Node nd, Arr(Node const) ast, CG) {
 }
 
 private void //:writeIf
-writeIf(Node nd, Arr(Node const) ast, CG) {
+writeIf(Node nd, AST, CG) {
    openFrame(nd, cg);
 }
 
 private void //:writeMatch
-writeMatch(Node nd, Arr(Node const) ast, CG) {
+writeMatch(Node nd, AST, CG) {
 }
 
 private void //:writeLoopLabel
@@ -825,7 +797,7 @@ writeLoopLabel(Int labelId, CG) {
 
 void //:preambleFor
 preambleFor(
-   Int sentinel, Int skipToBody, Arr(Node const) ast, CG,
+   Int sentinel, Int skipToBody, AST, CG,
    OUT Int* initCount, OUT Int* condInd, OUT Int* stepCount, OUT Int* stepInd, OUT Int* bodyInd
 ) {
 // Precondition: 1 past the nodFor
@@ -846,7 +818,7 @@ preambleFor(
 }
 
 private void //:writeFor
-writeFor(Node nd, Arr(Node const) ast, CG) {
+writeFor(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    Int initCount = 0;
    Int condInd = 0;
@@ -987,10 +959,11 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       { return; }
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    Int const arity = typeHeader.arity - 1;
-   Fn* newToplevel;
    TypeId returnType = typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + arity]);
+   
+   Fn* newToplevel;
    if (arity == 0) {
-      Fn* newToplevel = newFnReal(
+      newToplevel = newFnReal(
          eyrFn.name,
          null,
          cgType(returnType, cg),
@@ -998,7 +971,6 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          cg
       );
    } else {
-      Int n = eyrFn.nodeInd + 1;
       cg->params->len = 0;
       for (Int n = eyrFn.nodeInd + 1; n < eyrFn.nodeInd + 1 + arity; n++) {
          NameId parName = cr->vars.c[cr->ast.c[n].pl1].name;
@@ -1007,7 +979,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          );
          add(newParam, cg->params);
       }
-      Fn* newToplevel = newFnReal(
+      newToplevel = newFnReal(
          eyrFn.name,
          cg->params,
          cgType(returnType, cg),
@@ -1024,69 +996,22 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       .afterBlock = { .tp = bloEndOfFunction, .c = null },
    };
    
-//~   Function fn = cr->functions.c[toplevelId];
-//~   if (fn.genericInd != -1 || fn.tokenInd == -1) // generic or imported fn
-//~      { return; }
-//~
-//~   TypeHeader typeHdr = typeReadHeader(fn.typeId, cm);
-//~   Arr(Node const) ast = cr->ast.c;
-//~   Int countParams = typeHdr.arity - 1;
-//~   for (Int t = fn.typeId.v + TYPE_PREFIX_LEN; t < fn.typeId.v + TYPE_PREFIX_LEN + arity; t++) {
-//~      add(cr->types.c[t], cg->params);
-//~   }
-//~
-//~
-//~   // create all the params
-//~   Fn* newToplevel = newFn(
-//~      fn.name,
-//~      GCC_JIT_FUNCTION_EXPORTED,
-//~      countParams,
-//~      &cg->params->c,
-//~      voidType(cg),
-//~      cg->md
-//~   );
-//~
-//~   TypeHeader hdr = typeReadHeader(fn.typeId, cm);
-//~   if (hdr.arity != 2 || cr->types.cont[fn.typeId.v + TYPE_PREFIX_LEN] != voidType) {
-//~      writeChar(aUnderscore, cg);
-//~      writeInt(toplevelId, cg);
-//~   }
-//~
-//~   Node nodeFn = ast[fn.nodeInd];
-//~   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
+   Node nodeFn = ast[eyrFn.nodeInd];
+   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
 //~   pushFrame(
 //~      ((Frame){ .tp = nodFnDef, .pl1 = nodeFn.pl1, .sentinel = sentinel}),
 //~      &cg->bt
 //~   );
 //~   cg->local = 0;
 //~
-//~   cg->i = fn.nodeInd + 1;
-//~
-//~   // first param
-//~   Node paramNd = ast[cg->i];
-//~   if (paramNd.tp == nodVar && paramNd.pl3 == assiFnParam) {
-//~      writeVarNode(cm, cg);
-//~      cg->i++;
-//~      paramNd = ast[cg->i];
-//~   }
-//~
-//~   // function params
-//~   for ( ;
-//~         cg->i < sentinel && paramNd.tp == nodVar && paramNd.pl3 == assiFnParam;
-//~         cg->i++, paramNd = ast[cg->i]
-//~   ) {
-//~      writeChars(((Byte[]){ aComma, aSpace }), cg);
-//~      writeVarNode(cm, cg);
-//~   }
-//~   writeChars(((Byte[]){ aParenRight, aSpace, aCurlyLeft }), cg);
-//~
-//~   for (; cg->i < sentinel;) {
-//~      Node nd = cr->ast.cont[cg->i];
-//~      cg->i++; // CONSUME the span node
-//~      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.cont, cg);
-//~      cgMaybeCloseFrames(cg);
-//~   }
-//~   cgMaybeCloseFrames(cg);
+   cg->i = fn.nodeInd + 1;
+   for (; cg->i < sentinel;) {
+      Node nd = cr->ast.c[cg->i];
+      cg->i++; // CONSUME the span node
+      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.c, cg);
+      cgMaybeCloseFrames(cg);
+   }
+   cgMaybeCloseFrames(cg);
 }
 
 void temp(CG);
@@ -1095,7 +1020,7 @@ private void //:generateMainCode
 generateMainCode(CG) {
    CompResult* cr = &cg->compResult;
    for (int j = 0; j < cr->toplevels.len; j++) {
-      //toplevelFn(cr.toplevels.c[j], cr, cg);
+      writeToplevelFn(cr->toplevels.c[j], cr, cg);
    }
 }
 
