@@ -242,7 +242,7 @@ struct SourceLoc { // :SourceLoc
 
 typedef enum {   // :EmitFn
    emitParsed,   // functions parsed from code, so not built-in
-   emitAdd,   
+   emitAdd,
    emitSubtract,
    emitMultiply,
    emitDivide,

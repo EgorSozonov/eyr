@@ -38,11 +38,9 @@ private NameId nameOfStandard(Int a);
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
 typedef Fn* FnPtr;
-defstruct(CgFrame);
 
 DEFINE_LIST_HEADER(FnParamPtr)
 DEFINE_LIST_HEADER(FieldPtr)
-DEFINE_LIST_HEADER(CgFrame)
 
 #define add(A, X) _Generic((X),\
    LInt*: addInt,\
@@ -52,7 +50,8 @@ DEFINE_LIST_HEADER(CgFrame)
    LSourceLoc*: addSourceLoc,\
    LFnParamPtr*: addFnParamPtr,\
    LRValuePtr*: addRValuePtr,\
-   LCgFrame*: addCgFrame\
+   LFutureBlock*: addFutureBlock,\
+   LBtLoop*: addBtLoop\
 )(A, X)
 
 #define removeLast(X) _Generic((X),\
@@ -63,7 +62,8 @@ DEFINE_LIST_HEADER(CgFrame)
    LSourceLoc*: removeLastSourceLoc,\
    LFnParamPtr*: removeLastFnParamPtr,\
    LRValuePtr*: removeLastRValuePtr,\
-   LCgFrame*: removeLastCgFrame\
+   LFutureBlock*: removeLastFutureBlock,\
+   LBtLoop*: removeLastBtLoop\
 )(X)
 
 DEFINE_LIST(Int)
@@ -80,17 +80,6 @@ DEFINE_LIST(SourceLoc)
 #define fraElse   2
 #define fraFor    3
 
-struct CgFrame { //:CgFrame Frame for the stack of nested codegen blocks
-   Byte tp; // frame type, the "fra" constants
-   Int pl1; // node pl1
-   Int pl3; // node pl3
-   CodeBlock* block;
-   CodeBlock* nextBlock; // if null, there is no next block
-   Int sentinel; // node sentinel
-};
-
-DEFINE_LIST(CgFrame)
-
 typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @Compiler.types)
    Int ind;
    CgType* cgType;
@@ -100,23 +89,23 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
 #define bloIf            1 // if conditions. nextBlock = next "else if"/"else"
 #define bloLoopCond      2 // loop conditions. nextBlock = afterBlock
 #define bloLoopBody      3 // loop bodies. nextBlock = bloLoopCond
-#define bloEndOfFunction 4 // end of function marker. for this type, c = null
 
 typedef struct { //:TypedBlock
    Byte tp; // the "blo" constants above
-   CodeBlock* c; // == null iff tp = bloEndOfFunction
+   CodeBlock* c;
 } TypedBlock;
 
 typedef struct { //:CurrBlock
    Int start; // start node ind
    Int end; // end node ind, exclusive
    TypedBlock c;
-   TypedBlock nextBlock;
-   TypedBlock afterBlock;
+   Fn* fn; // the function we are in
+   NULLABLE TypedBlock nextBlock;
+   NULLABLE TypedBlock afterBlock;
 } CurrBlock;
 
 typedef struct { //:FutureBlock
-   Int nodeInd;
+   Int start;
    TypedBlock c;
 } FutureBlock;
 
@@ -126,34 +115,42 @@ DEFINE_LIST(FutureBlock)
 typedef CodeBlock* CodeBlockPtr;
 typedef RValue* RValuePtr;
 
+typedef struct { //:BtLoop
+   CodeBlock* condition; // used for "continue" implementation
+   Int sentinel; // node index of end, exclusive
+} BtLoop;
+
 DEFINE_LIST_HEADER(CodeBlockPtr)
 DEFINE_LIST_HEADER(FnPtr)
 DEFINE_LIST_HEADER(RValuePtr)
+DEFINE_LIST_HEADER(BtLoop)
 DEFINE_LIST(CodeBlockPtr)
 DEFINE_LIST(FnPtr)
 DEFINE_LIST(RValuePtr)
+DEFINE_LIST(BtLoop)
+
 
 typedef struct { //:Codegen
    Int i; // current node index
    CurrBlock cbl; // no relation to Carbon-Based Lifeforms
-   LFutureBlock futureBlocks;
-   LCodeBlockPtr loops; // outer loop conditions, used for "continue" block linking
-  
+   LFutureBlock* futureBlocks;
+   LBtLoop* bt;// backtrack of loop conditions, used for "continue" block linking
+
    Module* md;
 
    Int bufferLen;
    Byte buffer[maxWordLength + 1]; // temporary buffer for name writing
 
-   LFnParamPtr* params; // temporary buffer for function params
-   LFieldPtr* fields; // temporary buffer for struct fields
-   LCgFrame* bt;
    Arr(Fn*) functions; // same len as @compResult.functions
-   LRValuePtr* exp; // temporary buffer for expression evaluation
    Arr(RValue*) vars; // same len as @compResult.vars
 
+   LFnParamPtr* params; // temporary buffer for function params
+   LRValuePtr* exp; // temporary buffer for expression evaluation
+   LFieldPtr* fields; // temporary buffer for struct fields
+
    Int countTypeRefs;
-   Arr(TypeRef) typeRefs;
-   
+   Arr(TypeRef) typeRefs; // links between Eyr types and GCC types
+
    CompResult compResult; // results of the compilation from libeyr
 
    Arena* a;
@@ -355,7 +352,7 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
    Function fn = cg->compResult.functions.c[fnId];
    Int eyrRetType = cg->compResult.types.c[fn.typeId.v + TYPE_PREFIX_LEN + countArgs];
    CgType* retType = cgType(typeOf(eyrRetType), cg);
-   
+
    switch (fn.emit) {
    case emitParsed: {
       return callParsed(cg->functions[fnId], countArgs, args, cg->md);
@@ -454,7 +451,7 @@ typedef void (*CgFunc)(Node, Arr(Node const) const restrict, Codegen* restrict);
 
 
 CG_FUN(writeScope); CG_FUN(writeExpr); CG_FUN(writeAssignment); CG_FUN(writeDataAlloc);
-CG_FUN(writeAssert); CG_FUN(writeBreakCont); CG_FUN(writeTry); CG_FUN(writeCatch); 
+CG_FUN(writeAssert); CG_FUN(writeBreakCont); CG_FUN(writeTry); CG_FUN(writeCatch);
 CG_FUN(writeFnDef); CG_FUN(writeDef);
 CG_FUN(writeTrait); CG_FUN(writeImpl); CG_FUN(writeReturn);
 CG_FUN(writeFor); CG_FUN(writeIf); CG_FUN(writeIfClause); CG_FUN(writeMatch);
@@ -571,8 +568,8 @@ createCodegen(CR, Arena* a) {
    Module* md = gcc_jit_context_acquire();
    (*cg) = (Codegen) {
       .i = 0,
-      .md = md, 
-      .bt = createLCgFrame(16, a),
+      .md = md,
+      .bt = createLBtLoop(16, a),
       .compResult = *cr,
       .vars = allocateArray(cr->vars.len, RValue*, a),
       .a = a,
@@ -625,11 +622,11 @@ writeExprInternal(Node nd, Int sentinel, AST, CG) {
             Int value = expNode.pl2;
             add(intConst(value, cg), exp);
             break;
-         } 
+         }
          case nodVar: {
             add(cg->vars[expNode.pl1], exp);
             break;
-         } 
+         }
          case nodCall: {
             Int countArgs = expNode.pl2;
             //Int callTp = nd.pl3;
@@ -637,7 +634,7 @@ writeExprInternal(Node nd, Int sentinel, AST, CG) {
             exp->len -= (countArgs - 1);
             exp->c[exp->len - 1] = callResult;
             break;
-         } 
+         }
       }
    }
 }
@@ -718,7 +715,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
 
    assignmentLeft(rightNodeInd, ast, cg);
    cg->i = innerExprInd;
-   
+
    assignmentRight(ast[rightNodeInd], sentinel, false, ast, cg);
    end:
    cg->i = sentinel;
@@ -942,14 +939,43 @@ writeImpl(Node nd, Arr(Node const) ast, CG) {
 // TODO
 }
 
-private void //:maybeCloseFrames
-maybeCloseFrames(CG) {
+private void //:mbCloseLoops
+mbCloseLoops(CG) {
    for (Int j = cg->bt->len - 1; j > -1 && cg->bt->c[j].sentinel == cg->i; j--) {
-      CgFrame fr = removeLast(cg->bt);
-      if (fr.tp == nodIf) {
-         continue;
-      }
+      BtLoop loop = removeLast(cg->bt);
    }
+}
+
+private void //:openBlock
+openBlock(FutureBlock futureBlock, Node nd, CG) {
+   Int newEnd = calcNodeSentinel(nd, cg->i);
+   CodeBlock* afterBlock;
+   if (newEnd < cg->cbl.end) {
+      // if the new block splits the current one into two, we need to schedule the
+      afterBlock = newBlock(cg->cbl.fn);
+      FutureBlock afterSplit = ;
+      add(afterSplit, cg->futureBlocks);
+   } else {
+
+   }
+   switch (futureBlock.c.tp) {
+   case (bloCommon): {
+
+   }
+   case (bloIf): {
+
+   }
+   case (bloLoopCond): {
+
+   }
+   case (bloLoopBody): {
+
+   }
+   }
+   CurrBlock newBlock;
+   cg->cbl = (CurrBlock){.start = newBlock.start, .end = calcNodeSentinel(nd, cg->i),
+      .c = newBlock.c, .nextBlock = futureBlock.c.c, .afterBlock = futureBlock.c.c
+   };
 }
 
 private void //:writeToplevelFn
@@ -960,7 +986,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    Int const arity = typeHeader.arity - 1;
    TypeId returnType = typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + arity]);
-   
+
    Fn* newToplevel;
    if (arity == 0) {
       newToplevel = newFnReal(
@@ -987,31 +1013,35 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          cg
       );
    }
+   cg->functions[toplevelId] = newToplevel;
+
    CodeBlock* mainBlock = newBlock(newToplevel);
    cg->cbl = (CurrBlock){
+      .fn = newToplevel,
       .start = eyrFn.nodeInd,
       .end = calcNodeSentinel(cr->ast.c[eyrFn.nodeInd], eyrFn.nodeInd),
       .c = { .tp = bloCommon, .c = mainBlock },
-      .nextBlock = { .tp = bloEndOfFunction, .c = null }, 
-      .afterBlock = { .tp = bloEndOfFunction, .c = null },
+      .nextBlock = null,
+      .afterBlock = null
    };
-   
-   Node nodeFn = ast[eyrFn.nodeInd];
-   Int const sentinel = calcNodeSentinel(nodeFn, fn.nodeInd);
-//~   pushFrame(
-//~      ((Frame){ .tp = nodFnDef, .pl1 = nodeFn.pl1, .sentinel = sentinel}),
-//~      &cg->bt
-//~   );
-//~   cg->local = 0;
-//~
-   cg->i = fn.nodeInd + 1;
+
+   Node nodeFn = cr->ast.c[eyrFn.nodeInd];
+   Int const sentinel = calcNodeSentinel(nodeFn, eyrFn.nodeInd);
+
+   cg->i = eyrFn.nodeInd + 1;
    for (; cg->i < sentinel;) {
       Node nd = cr->ast.c[cg->i];
-      cg->i++; // CONSUME the span node
-      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.c, cg);
-      cgMaybeCloseFrames(cg);
+      if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
+         FutureBlock newBlock = removeLast(cg->futureBlocks);
+         openBlock(newBlock, nd, cg);
+         cg->i++; // CONSUME the span node
+      } else {
+         cg->i++; // CONSUME the span node
+         (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.c, cg);
+      }
+      mbCloseLoops(cg);
    }
-   cgMaybeCloseFrames(cg);
+   mbCloseLoops(cg);
 }
 
 void temp(CG);
@@ -1042,14 +1072,13 @@ generateCode(CR) {
 //{{{ Debug & test utils
 
 void
-dbgCgFrames(Codegen* cg) {
-   printf("CgFrames [");
-   if (cg->bt->len == 0) {
-      goto closing;
-   }
-   printf("%d ", cg->bt->c[0].tp);
+dbgBtLoops(Codegen* cg) {
+   printf("BtLoops [");
+   if (cg->bt->len == 0)
+      { goto closing; }
+   printf("%d ", cg->bt->c[0].sentinel);
    for (Int i = 1; i < cg->bt->len; i++) {
-      printf("%d ", cg->bt->c[i].tp);
+      printf("%d ", cg->bt->c[i].sentinel);
    }
    closing:
    printf("]\n");
@@ -1071,11 +1100,11 @@ struct B_glb {
 void
 temp2(CG) {
    Module* ctxt = cg->md;
-   
-   
+
+
   gcc_jit_type *int_type = gcc_jit_context_get_type (ctxt,
     GCC_JIT_TYPE_INT);
-    /* fn1 = () -> 10 */ 
+    /* fn1 = () -> 10 */
     gcc_jit_function* fn1 = gcc_jit_context_new_function(
        ctxt,
        NULL,
@@ -1089,8 +1118,8 @@ temp2(CG) {
     gcc_jit_block *block1 = gcc_jit_function_new_block (fn1, "fn1");
     gcc_jit_rvalue* ten = gcc_jit_context_new_rvalue_from_int(ctxt, int_type, 10);
     gcc_jit_block_end_with_return(block1, NULL, ten);
-   
-    /* fn2 = () -> 2000 */ 
+
+    /* fn2 = () -> 2000 */
     gcc_jit_function* fn2 = gcc_jit_context_new_function(
        ctxt,
        NULL,
@@ -1104,10 +1133,10 @@ temp2(CG) {
     gcc_jit_block *block2 = gcc_jit_function_new_block (fn2, "fn2");
     gcc_jit_rvalue* twoThousand = gcc_jit_context_new_rvalue_from_int(ctxt, int_type, 2000);
     gcc_jit_block_end_with_return(block2, NULL, twoThousand);
-    
+
     gcc_jit_type* fn_type =
        gcc_jit_context_new_function_ptr_type(ctxt, NULL, int_type, 0, NULL, 0);
-    
+
     /* F_TABLE = {&fn1, &fn2}; */
     gcc_jit_type* f_table_type = gcc_jit_context_new_array_type(ctxt, NULL, fn_type, 2);
     gcc_jit_lvalue* f_table = gcc_jit_context_new_global(
@@ -1116,17 +1145,17 @@ temp2(CG) {
     gcc_jit_rvalue* fns[2];
     fns[0] = gcc_jit_function_get_address(fn1, NULL);
     fns[1] = gcc_jit_function_get_address(fn2, NULL);
-   
+
     f_table = gcc_jit_global_set_initializer_rvalue(
-        f_table, 
+        f_table,
         gcc_jit_context_new_array_constructor(ctxt, NULL, f_table_type, 2, fns)
     );
-   
+
     gcc_jit_result* result = gcc_jit_context_compile(ctxt);
-    
+
     typedef int (*intToVoid)(void);
     intToVoid *compiledFns = gcc_jit_result_get_global (result, "F_TABLE");
-   print("aaa %p %p", compiledFns[0], compiledFns[1]); 
+   print("aaa %p %p", compiledFns[0], compiledFns[1]);
     if (compiledFns[0]() != 10) {
        print("first fun not 10");
     } else if (compiledFns[1]() != 2000) {
@@ -1140,21 +1169,21 @@ temp2(CG) {
 //~temp(CG) {
 //~   Module* md = cg->md;
 //~   registerTypes(cg);
-//~   
+//~
 //~   CgType* constCharPtrTp = builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
 //~   CgType* const intTp = intType(cg);
 //~   CgType* const voidTp = voidType(cg);
 //~   FnParam* paramFormat = paramFromChars("format", constCharPtrTp, md);
 //~   Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
-//~   
-//~   
+//~
+//~
 //~   FnParam* paramInt1 = paramFrom("i", intTp, md);
 //~   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
 //~   CodeBlock* bl1 = newBlock(fn1);
 //~   FnParam* paramInt2 = newParam("i", intTp, md);
 //~   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
 //~   CodeBlock* bl2 = newBlock(fn2);
-//~   
+//~
 //~   RValue* zero = intConst(0, cg);
 //~   RValue* one = intConst(1, cg);
 //~   RValue* fifteen = intConst(15, cg);
@@ -1164,12 +1193,12 @@ temp2(CG) {
 //~   hwArgs[1] = fifteen;
 //~   evalExpr(call(printfFn, 2, hwArgs, md), bl1);
 //~   returnVoid(bl1);
-//~   
+//~
 //~   hwArgs[0] = strConst("HW from f2 %d\n", md);
 //~   hwArgs[1] = hundred;
 //~   evalExpr(call(printfFn, 2, hwArgs, md), bl2);
 //~   returnVoid(bl2);
-//~   
+//~
 //~   CgType* fnTp = fnPointerType(0, null, voidTp, md);
 //~   CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
 //~   LValue* fTable = gcc_jit_context_new_global(
@@ -1178,40 +1207,40 @@ temp2(CG) {
 //~   RValue* fns[2];
 //~   fns[0] = gcc_jit_function_get_address(fn1, null);
 //~   fns[1] = gcc_jit_function_get_address(fn2, null);
-//~   
-//~   gcc_jit_function_type* validatingT1 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[0])); 
-//~   gcc_jit_function_type* validatingT2 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[1])); 
+//~
+//~   gcc_jit_function_type* validatingT1 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[0]));
+//~   gcc_jit_function_type* validatingT2 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[1]));
 //~   print("function pointer types %p and %p", validatingT1, validatingT2);
-//~   
+//~
 //~   fTable = gcc_jit_global_set_initializer_rvalue(
-//~      fTable, 
+//~      fTable,
 //~      gcc_jit_context_new_array_constructor(md, null, fTableTp, 2, fns)
 //~   );
-//~   
+//~
 //~   FnParam* mainParams[2];
 //~   mainParams[0] = paramFromChars("argc", typeOf(tokInt), cg);
 //~   mainParams[1] = paramFromChars("argv", pointerOf(constCharPtrTp), cg);
 //~   Fn* mainFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intTp, md);
-//~   
+//~
 //~   CodeBlock* mainBlock = newBlock(mainFn);
-//~   
+//~
 //~   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), zero, md)), 0, null, md), mainBlock);
 //~   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), one, md)), 0, null, md), mainBlock);
-//~   
+//~
 //~   returnFromBlock(intConst(0, cg), mainBlock);
-//~   
+//~
 //~   //gcc_jit_type *gcc_jit_context_new_function_ptr_type(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *return_type, int num_params, gcc_jit_type **param_types, int is_variadic)
 //~
 //~
 //~   //gcc_jit_lvalue *gcc_jit_context_new_global(gcc_jit_context *ctxt, gcc_jit_location *loc, GCC_JIT_GLOBAL_INTERNAL, gcc_jit_type *type, const char *name)
 //~   // gcc_jit_lvalue *gcc_jit_global_set_initializer_rvalue(gcc_jit_lvalue *global, gcc_jit_rvalue *init_value)
 //~   //gcc_jit_rvalue *gcc_jit_context_new_array_constructor(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *type, size_t num_values, gcc_jit_rvalue **values)
-//~   
-//~   
-//~   
-//~   
+//~
+//~
+//~
+//~
 //~   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "_target/program");
-//~   
+//~
 //~   gcc_jit_result* result = gcc_jit_context_compile(md);
 //~   gcc_jit_context_dump_to_file(md, "_target/outputDump.c", 0);
 //~}
@@ -1240,7 +1269,7 @@ private TaskDescription
 getCommandParams(int argc, char** argv) {
    Byte whatToDo = argc == 1 ? whatToDoDisplayHelp : whatToDoBuildExe;
    return (TaskDescription){
-      .inputFilename = stringOf("testFile.eyr"), 
+      .inputFilename = stringOf("testFile.eyr"),
       .outputFilename = "testFile", .errMsg = empty, .whatToDo = whatToDo
    };
 }
@@ -1253,14 +1282,14 @@ main(int argc, char** argv) {
    Module* md = gcc_jit_context_acquire();
    (*cg) = (Codegen) {
       .i = 0,
-      .md = md, 
-      .bt = createLCgFrame(16, a),
+      .md = md,
+      .bt = createLBtLoop(16, a),
       .compResult = null,
       .a = a,
       .wasError = false
    };
    temp2(cg);
-   return 0;  
+   return 0;
 //}}}
 
 
@@ -1273,24 +1302,24 @@ main(int argc, char** argv) {
 //~      displayHelp();
 //~      return 0;
 //~   }
-//~   CompResult* compResult = tech_sozonov_eyr_compileFile(task.inputFilename);  
+//~   CompResult* compResult = tech_sozonov_eyr_compileFile(task.inputFilename);
 //~   if (compResult->wasLexerError || compResult->wasParserError) {
 //~      print("Compilation error");
 //~      printString(compResult->errMsg);
 //~      return 1;
 //~   }
 //~   Codegen* cg = generateCode(compResult);
-//~   if (cg->wasError) { 
+//~   if (cg->wasError) {
 //~      print("Code generation error");
 //~      return 1;
-//~   } 
-//~   
+//~   }
+//~
 //~   Module* md = cg->md;
 //~   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, task.outputFilename.c);
-//~   
+//~
 //~   gcc_jit_result* result = gcc_jit_context_compile(md);
 //~   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
-   
+
 
    cleanup:
 

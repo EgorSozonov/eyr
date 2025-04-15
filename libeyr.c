@@ -936,7 +936,7 @@ stringOfInt(Int i, Arena* a) {
 
 void //:printString
 printString(String s) {
-   if (s.len == 0) 
+   if (s.len == 0)
       { return; }
    fwrite(s.c, 1, s.len, stdout);
    printf("\n");
@@ -944,14 +944,14 @@ printString(String s) {
 
 void //:printStringNoLn
 printStringNoLn(String s) {
-   if (s.len == 0) 
+   if (s.len == 0)
       { return; }
    fwrite(s.c, 1, s.len, stdout);
 }
 
 private void
 printStringBuilder(StringBuilder s) { //:printStringBuilder
-   if (s.len == 0) 
+   if (s.len == 0)
       { return; }
    fwrite(s.c, 1, s.len, stdout);
    printf("\n");
@@ -4351,7 +4351,7 @@ lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
    Int const inpLength = lx->stats.inpLength;
    Arr(char const) inp = lx->sourceCode.c;
    VALIDATEL(inpLength > 0, "Empty input")
-   
+
    // Main loop over the input
    if (setjmp(excBuf) == 0) {
       while (lx->i < inpLength) {
@@ -4788,7 +4788,7 @@ importPrelude(CM) {
       (Function){ .name = nameOfStandard(strPrint), .emit = emitPrint, .typeId = intToVoid },
       (Function){ .name = nameOfStandard(strPrint), .emit = emitPrint, .typeId = douToVoid },
       (Function){ .name = nameOfStandard(strPrint), .emit = emitPrint, .typeId = strToVoid },
-      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd, 
+      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd,
                   .genericInd = genericInd, .tokenInd = -1, .emit = emitParsed },
       (Function){ .name = nameOfStandard(strPrintErr), .typeId = strToVoid }
       // TODO functions for casting (int, double, unsigned)
@@ -6912,7 +6912,7 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
 // differing token otherwise
    CompResult* statsA = getCompResult(a);
    CompResult* statsB = getCompResult(b);
-   if (statsA->wasParserError != statsB->wasParserError 
+   if (statsA->wasParserError != statsB->wasParserError
          || (!endsWith(statsA->errMsg, statsB->errMsg)))
       { return -1; }
    Int const commonLength = MIN(statsA->stats.astLen, statsB->stats.astLen);
@@ -7021,7 +7021,7 @@ CompResult* //:tech_sozonov_eyr_compile
 tech_sozonov_eyr_compile(String sourceCode) {
    Arena* a = createArena();
    CompResult* cr = allocate(CompResult, a);
-   if (sourceCode.len == 0) { 
+   if (sourceCode.len == 0) {
       cr->wasLexerError = true;
       cr->errMsg = s("Empty input");
       return cr;
@@ -7061,11 +7061,11 @@ tech_sozonov_eyr_compileFile(String filename) {
       cr->errMsg = s("Empty file name!");
       cr->wasLexerError = true;
       return cr;
-   } 
+   }
    initCompiler();
 
    String sourceCode = readSourceFile(filename, a);
-   
+
    Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
    if (cm->wasError) {
       printString(cm->errMsg);
@@ -7080,7 +7080,7 @@ tech_sozonov_eyr_compileFile(String filename) {
       cr->wasParserError = true;
       return cr;
    }
-   
+
 #ifdef TRACE
    printParser(cm);
 #endif
@@ -7094,7 +7094,7 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .toplevels = sliceOfInternal(cm->toplevels),
       .entrypoint = cm->entrypoint,
       .ast = sliceOfInternal(cm->ast),
-      .sourceLocs = cm->sourceLocs != null 
+      .sourceLocs = cm->sourceLocs != null
             ? ((SliSourceLoc){.len = cm->sourceLocs->len, .c = cm->sourceLocs->c})
             : ((SliSourceLoc){.len = 0, .c = null}),
       .vars = sliceOfInternal(cm->vars),
@@ -7107,7 +7107,7 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
             : ((SliUnt){.len = 0, .c = null}),
       .a = cm->a,
       .stats = cm->stats,
-   }; 
+   };
 }
 
 CompResult*
