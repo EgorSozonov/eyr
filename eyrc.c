@@ -142,7 +142,7 @@ typedef struct { //:Codegen
    Byte buffer[maxWordLength + 1]; // temporary buffer for name writing
 
    Arr(Fn*) functions; // same len as @compResult.functions
-   Arr(RValue*) vars; // same len as @compResult.vars
+   Arr(LValue*) vars; // same len as @compResult.vars
 
    LFnParamPtr* params; // temporary buffer for function params
    LRValuePtr* exp; // temporary buffer for expression evaluation
@@ -256,8 +256,8 @@ newBlock(Fn* fn) {
    return gcc_jit_function_new_block(fn, NULL);
 }
 
-private void
-returnFromBlock(RValue* retValue, CodeBlock* bl) {
+private void //:returnFromFn
+returnFromFn(RValue* retValue, CodeBlock* bl) {
    gcc_jit_block_end_with_return(bl, NULL, retValue);
 }
 
@@ -609,10 +609,11 @@ init() {
 //~   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
 //~}
 
-private void //:writeExprInternal
-writeExprInternal(Node nd, Int sentinel, AST, CG) {
-// Consumes no nodes
+private RValue* //:exprInternal
+exprInternal(Node nd, Int sentinel, AST, CG) {
+// Consumes no nodes. Does NOT handle complex expressions
 // Precondition: we are looking 1 past the nodExpr/singular node. Consumes all nodes of the expr
+print("writeExpr");
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
    for (Int j = cg->i; j < sentinel; j++) {
@@ -624,7 +625,7 @@ writeExprInternal(Node nd, Int sentinel, AST, CG) {
             break;
          }
          case nodVar: {
-            add(cg->vars[expNode.pl1], exp);
+            add(rValueOf(cg->vars[expNode.pl1]), exp);
             break;
          }
          case nodCall: {
@@ -637,12 +638,13 @@ writeExprInternal(Node nd, Int sentinel, AST, CG) {
          }
       }
    }
+   return exp->c[0];
 }
 
 private void //:writeExpr
 writeExpr(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
-   writeExprInternal(nd, sentinel, ast, cg);
+   exprInternal(nd, sentinel, ast, cg);
    cg->i = sentinel;
 }
 
@@ -672,31 +674,32 @@ writeVarNode(CR, CG) {
 //~   SourceLoc loc = cr->sourceLocs.c[cg->i];
 }
 
-private void //:assignmentLeft
+private LValue* //:assignmentLeft
 assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
 // Writes the left side & equals sign
    Node leftNd = ast[cg->i];
    if (leftNd.tp == nodVar) {
+   
    } else if (leftNd.tp == nodExpr) {
       cg->i++; // CONSUME the nodExpr
       writeExprInternal(leftNd, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
    }
 }
 
-private void //:assignmentRight
+private RValue* //:assignmentRight
 assignmentRight(Node rightNode, Int sentinel, Bool isComplex,
                   Arr(Node const) ast, CG) {
-   if (cg->i == sentinel) {
-   } else {
-      // the "start" here is the actual expression start (so for complex expressions, the inner
-      // assignments have been skipped). Correspondingly, we pass "isComplex = false" here:
-      // the inner assignments have already been emitted.
-      Int start = cg->i;
-      if (isComplex) {
-         for(; start < sentinel && ast[start].tp == nodAssignment;
-               start = calcNodeSentinel(ast[start], start)
-         ) {}
-      }
+   
+   
+   
+   // the "start" here is the actual expression start (so for complex expressions, the inner
+   // assignments have been skipped). Correspondingly, we pass "isComplex = false" here:
+   // the inner assignments have already been emitted.
+   Int start = cg->i;
+   if (isComplex) {
+      for(; start < sentinel && ast[start].tp == nodAssignment;
+            start = calcNodeSentinel(ast[start], start)
+      ) {}
    }
 }
 
@@ -707,16 +710,18 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
    if (nd.pl2 == 0)
       { return; }
    Int const sentinel = cg->i + nd.pl2;
-   Int const rightNodeInd = cg->i + nd.pl3 - 1;
-   //Node const rightNode = ast[rightNodeInd];
    if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
       { goto end; }
+      
+   Int const rightNodeInd = cg->i + nd.pl3 - 1;
    Int innerExprInd = rightNodeInd + 1; // for complex expressions, will skip the inner assigns
 
-   assignmentLeft(rightNodeInd, ast, cg);
+   LValue* lValue = assignmentLeft(rightNodeInd, ast, cg);
    cg->i = innerExprInd;
 
-   assignmentRight(ast[rightNodeInd], sentinel, false, ast, cg);
+   RValue* rValue = assignmentRight(ast[rightNodeInd], sentinel, false, ast, cg);
+   
+   assignment(lValue, rValue, cg->cbl.c.c);
    end:
    cg->i = sentinel;
 }
@@ -751,8 +756,8 @@ writeReturn(Node fr, Arr(Node const) ast, CG) {
    Node rightSide = ast[cg->i];
    cg->i++; // CONSUME the expr node
 
-   writeExprInternal(rightSide, sentinel, ast, cg);
-
+   RValue* returnValue = exprInternal(rightSide, sentinel, ast, cg);
+   returnFromFn(returnValue, cg->cbl.c.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
 
@@ -1042,6 +1047,8 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       mbCloseLoops(cg);
    }
    mbCloseLoops(cg);
+   if (returnType.v == tokMisc)
+      { returnVoid(cg->cbl.c.c); }
 }
 
 void temp(CG);
