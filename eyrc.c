@@ -129,6 +129,9 @@ DEFINE_LIST(FnPtr)
 DEFINE_LIST(RValuePtr)
 DEFINE_LIST(BtLoop)
 
+typedef struct { //:Builtins
+   Fn* printer;
+} Builtins;
 
 typedef struct { //:Codegen
    Int i; // current node index
@@ -152,6 +155,7 @@ typedef struct { //:Codegen
    Arr(TypeRef) typeRefs; // links between Eyr types and GCC types
 
    CompResult compResult; // results of the compilation from libeyr
+   Builtins builtins;
 
    Arena* a;
    Bool wasError;
@@ -226,8 +230,9 @@ newFnReal(NameId name, NULLABLE LFnParamPtr* params, CgType* returnType, FnKind 
 }
 
 private Fn* //:newFn
-newFn(const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params,
-      CgType* returnType, Module* md
+newFn(
+   const char* name, FnKind accessLevel, int countParams, Arr(FnParam*) params, CgType* returnType,
+   Module* md
 ) {
    return gcc_jit_context_new_function(
       md,
@@ -423,8 +428,8 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
    case emitGreaterThanEq: {
       return builtinCompare(GCC_JIT_COMPARISON_GE, args[0], args[1]);
    }
-   case emitPrint: {
-      return builtinUnary(GCC_JIT_UNARY_OP_BITWISE_NEGATE, retType, args[0]); // TODO
+   case emitPrintInt: {
+      return callParsed(cg->builtins.printer, retType, args[0]); // TODO
    }
    }
    return null; // unreachable
@@ -562,6 +567,20 @@ prepareName(NameId nameId, CG) {
 
 //}}}
 
+private Builtins //:createBuiltins
+createBuiltins(CG) {
+   CgType* constCharPtrTp = cgType(GCC_JIT_TYPE_CONST_CHAR_PTR, ctx);
+   FnParam* paramFormat = gcc_jit_context_new_param(ctx, NULL, constCharPtrTp, "format");
+   Fn* printfFn = importFn(
+      "printf",
+      1,
+      &paramFormat,
+      intType(cg),
+      true,
+      cg->md
+   );
+}
+
 private Codegen* //:createCodegen
 createCodegen(CR, Arena* a) {
    Codegen* cg = allocate(Codegen, a);
@@ -575,6 +594,9 @@ createCodegen(CR, Arena* a) {
       .a = a,
       .wasError = false
    };
+   registerTypes(cg);
+   Builtins builtins = createBuiltins(cg);
+   cg->builtins = builtins;
 
    return cg;
 }

@@ -264,7 +264,7 @@ typedef enum {   // :EmitFn
    emitLessThan,
    emitGreaterThan,
    emitGreaterThanEq,
-   emitPrint
+   emitPrintInt
 } Emit;
 
 struct Function { //:Function Parsed or built-in function
