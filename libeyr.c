@@ -1205,13 +1205,14 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* names, StringDict
    Int newIndString;
    Bucket* bu = *(hm->dict + hashOffset);
 
+   NameLoc newName = ((Unt)(lenBts) << 24) + (Unt)startBt;
    if (bu == null) {
       Bucket* newBucket = allocateOnArena(sizeof(Bucket) + initBucketSize*sizeof(StringValue), hm->a);
       newBucket->capAndLen = (initBucketSize << 16) + 1; // left u16 = cap, right u16 = len
       StringValue* firstElem = (StringValue*)newBucket->c;
 
       newIndString = names->len;
-      NameLoc newName = ((Unt)(lenBts) << 24) + (Unt)startBt;
+      
       add(newName, names);
 
       *firstElem = (StringValue){.hash = hash, .indString = newIndString };
@@ -1230,8 +1231,8 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* names, StringDict
       }
 
       newIndString = names->len;
-      NameLoc newName = ((Unt)(lenBts) << 24) + (Unt)startBt;
       add(newName, names);
+      
       addValueToBucket(hm->dict + hashOffset, newIndString, hash, hm->a);
    }
    return newIndString;
@@ -4298,7 +4299,6 @@ pReturn(Token tok, TOKS, CM) {
    TypeId const exprTy = exprHeadless(sentinelToken, loc, toks, cm);
    VALIDATEP(exprTy.v > -1, errReturn)
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
-   print("ret type %d", returnType.v);
    VALIDATEP(eq(returnType, exprTy), errTypeWrongReturnType);
 }
 
@@ -5168,7 +5168,6 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    if (hasReturnType) {
       cm->i = fnAssign.nameTokenInd; // To function name token
       returnType = teClause(te, fnAssign.rightTokenInd, toks, cm);
-      print("fn signature has ret type %d return %d", hasReturnType, returnType.v);
    }
    
    Int arity = 0;
@@ -5192,7 +5191,6 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    returnTypeAdding:
    if (arity == 0)
       { add(voidType, te->fnTypes); }
-   print("arity %d ret type %d", arity, returnType.v);   
    add(returnType.v, te->fnTypes);
    newFnType = pFnCreateType(te, cm);
    entityAdding:
@@ -7132,6 +7130,7 @@ tech_sozonov_eyr_compileFile(String filename) {
 private void
 fillInCompilationResult(CM, OUT CompResult* cr) {
    *cr = (CompResult) {
+      .sourceCode = cm->sourceCode,
       .toplevels = sliceOfInternal(cm->toplevels),
       .entrypoint = cm->entrypoint,
       .ast = sliceOfInternal(cm->ast),

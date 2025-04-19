@@ -571,10 +571,10 @@ stringConst(Arr(char const) val, Codegen* cg) {
    return gcc_jit_context_new_string_literal(cg->md, val);
 }
 
-private void //:intConst Writes a name from source code to codegen buffer, zero-terminated
+private void //:prepareName Writes a name from source code to codegen buffer, zero-terminated
 prepareName(NameId nameId, CG) {
-   NameLoc name = cg->compResult.names.c[name];
-   memcpy(cg->buffer, cg->compResult.sourceCode.c + (name & LOWER24BITS), name >> 24);
+   NameLoc name = cg->compResult.names.c[nameId];
+   memcpy(&(cg->buffer), cg->compResult.sourceCode.c + (name & LOWER24BITS), name >> 24);
    cg->bufferLen = (name & LOWER24BITS) + 1;
    cg->buffer[name >> 24] = '\0';
 }
@@ -624,10 +624,10 @@ createCodegen(CR, Arena* a) {
       .a = a,
       .wasError = false
    };
+   
    registerTypes(cg);
    Builtins builtins = createBuiltins(cg);
    cg->builtins = builtins;
-   
    return cg;
 }
 
@@ -666,7 +666,6 @@ expr(Int start, Int sentinel, AST, CG) {
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Consumes no nodes. Does NOT handle complex expressions or void-returning functions
 // Precondition: we are looking 1 past the nodExpr/singular node. Consumes all nodes of the expr
-   print("writeExpr");
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
    for (Int j = start; j < sentinel; j++) {
@@ -750,7 +749,6 @@ private RValue* //:assignmentRight
 assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
 // the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
 // assignments have been skipped).
-   print("Assignment right %d inner expr %d sentinel %d", rightNodeInd, innerExprInd, sentinel);
    if (innerExprInd > rightNodeInd) {
 //~      for(; start < sentinel && ast[start].tp == nodAssignment;
 //~            start = calcNodeSentinel(ast[start], start)
@@ -805,15 +803,16 @@ writeAssert(Node fr, Arr(Node const) ast, CG) {
    cg->i = sentinel; // CONSUME the whole assignment
 }
 
-private void //:cgReturn
-writeReturn(Node fr, Arr(Node const) ast, CG) {
+private void //:writeReturn
+writeReturn(Node fr, AST, CG) {
    Int sentinel = cg->i + fr.pl2;
 
    if (cg->i == sentinel)
       { return; }
 
    Node rightSide = ast[cg->i];
-   cg->i++; // CONSUME the expr node
+   if (rightSide.tp == nodExpr)
+      { cg->i++; }// CONSUME the expr node
 
    RValue* returnValue = expr(cg->i, sentinel, ast, cg);
    returnFromFn(returnValue, cg->cbl.c.c);
