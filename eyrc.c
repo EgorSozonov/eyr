@@ -23,11 +23,11 @@ typedef gcc_jit_context Module;
 typedef gcc_jit_result CgResult;
 typedef gcc_jit_lvalue LValue;
 typedef gcc_jit_rvalue RValue;
+typedef gcc_jit_struct Struct;
 typedef enum gcc_jit_function_kind FnKind;
 typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define pointerOf(x) gcc_jit_type_get_pointer(x)
-
 
 #define AST Arr(Node const) const restrict ast // Source text
 #define SRC Arr(char const) const restrict source // Source text
@@ -132,6 +132,7 @@ DEFINE_LIST(BtLoop)
 typedef struct { //:Builtins
    Fn* printer; // the "printf" function
    CgType* cString; // the zero-terminated array of chars
+   CgType* sloppyInt; // the sloppy "int" type of C 
    RValue* formatInt; // "%d\n"
    RValue* formatDou; // "%f\n"
    RValue* formatStr; // "%s\n"
@@ -445,6 +446,18 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
    return null; // unreachable
 }
 
+Field* //:field
+field(NameId nameId, CgType* tp, CG) {
+   prepareName(nameId, cg);
+   return gcc_jit_context_new_field(cg->md, null, tp, cg->buffer);
+}
+
+Struct* //:newStruct
+newStruct(NameId nameId, Int countFields, Arr(Field*) fields, CG) {
+   prepareName(nameId, cg);
+   return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
+}
+
 //}}}
 //{{{ Generation table
 
@@ -535,6 +548,12 @@ registerTypes(CG) {
       .cgType = builtinType(GCC_JIT_TYPE_DOUBLE, cg->md) };
    cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc,
       .cgType = builtinType(GCC_JIT_TYPE_VOID, cg->md) };
+      
+   Field* stringFields[2];
+   stringFields[0] = field(nameOfStandard(strLen), intType(cg), cg);
+   stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
+   Struct* stringStruct = struct(nameOfStandard(strString), 2, stringFields, cg);
+   cg->typeRefs[tokString] = gcc_jit_struct_as_type(stringStruct);
 }
 
 private CgType* //:intType
@@ -584,19 +603,20 @@ prepareName(NameId nameId, CG) {
 private Builtins //:createBuiltins
 createBuiltins(CG) {
    CgType* constCharPtrTp = builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md);
-   
+   CgType* sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md);
    FnParam* paramFormat = paramFromChars("format", constCharPtrTp, cg);
    Fn* printfFn = importFn(
       "printf",
       1,
       &paramFormat,
-      intType(cg),
+      sloppyInt,
       true,
       cg->md
    );
    
    return (Builtins){
       .printer = printfFn, .cString = constCharPtrTp,
+      .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
       .formatInt = stringConst("%d\n", cg), .formatDou = stringConst("%f\n", cg),
       .formatStr = stringConst("%s\n", cg)
    };
@@ -1059,10 +1079,13 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          cg
       );
    } else if (toplevelId == cr->entrypoint) {
+      CgType* sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md);
       FnParam* mainParams[2];
-      mainParams[0] = paramFromChars("argc", intType(cg), cg);
+      mainParams[0] = paramFromChars("argc", sloppyInt, cg);
       mainParams[1] = paramFromChars("argv", pointerOf(cg->builtins.cString), cg);
-      newToplevel = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intType(cg), cg->md);
+      newToplevel = newFn(
+         "main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md
+      );
    } else {
       cg->params->len = 0;
       for (Int n = eyrFn.nodeInd + 1; n < eyrFn.nodeInd + 1 + arity; n++) {
