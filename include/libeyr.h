@@ -167,12 +167,11 @@ DEFINE_SLICE_HEADER(Function)
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
 
-
 // AST nodes
 #define nodVar          7  // pl1 = index into @vars.
-                           // pl2 = iff pl3 = assiFnVarUse, assiFnVarDef then fnId
+                           // pl2 = fnId iff pl3 = assiFnVarUse /\ assiFnVarDef
                            // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
-                           // of the "assi" constants
+                           //     of the "assi" constants
 #define nodCall         8  // pl1 =
                            //   index into @functions (after type resolution) when pl3 = callNormal,
                            //   into @monos if pl3 = callMonomorph,
@@ -184,8 +183,8 @@ DEFINE_SLICE_HEADER(Function)
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
 #define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the inner
-                           // right side, which is always an atom, nodExpr or a nodDataAlloc
+#define nodAssignment  11  /* Followed by binding or complex left side. pl3 = distance to the right
+                           side, which is always an atom, nodExpr or a nodDataAlloc */
 #define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
 
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
@@ -264,7 +263,9 @@ typedef enum {   // :EmitFn
    emitLessThan,
    emitGreaterThan,
    emitGreaterThanEq,
-   emitPrintInt
+   emitPrintInt,
+   emitPrintDou,
+   emitPrintStr
 } Emit;
 
 struct Function { //:Function Parsed or built-in function
@@ -463,6 +464,7 @@ String readSourceFile(String fName, Arena* a);
 CompResult* getCompResult(CM);
 
 TypeHeader tech_sozonov_eyr_readTypeHeader(TypeId t, Arr(Int) types);
+
 CompResult* tech_sozonov_eyr_compileFile(String filename);
 CompResult* tech_sozonov_eyr_compile(String sourceCode);
 

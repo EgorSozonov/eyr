@@ -92,7 +92,7 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
 
 typedef struct { //:TypedBlock
    Byte tp; // the "blo" constants above
-   CodeBlock* c;
+   NULLABLE CodeBlock* c;
 } TypedBlock;
 
 typedef struct { //:CurrBlock
@@ -100,8 +100,8 @@ typedef struct { //:CurrBlock
    Int end; // end node ind, exclusive
    TypedBlock c;
    Fn* fn; // the function we are in
-   NULLABLE TypedBlock nextBlock;
-   NULLABLE TypedBlock afterBlock;
+   TypedBlock nextBlock;
+   TypedBlock afterBlock;
 } CurrBlock;
 
 typedef struct { //:FutureBlock
@@ -130,7 +130,11 @@ DEFINE_LIST(RValuePtr)
 DEFINE_LIST(BtLoop)
 
 typedef struct { //:Builtins
-   Fn* printer;
+   Fn* printer; // the "printf" function
+   CgType* cString; // the zero-terminated array of chars
+   RValue* formatInt; // "%d\n"
+   RValue* formatDou; // "%f\n"
+   RValue* formatStr; // "%s\n"
 } Builtins;
 
 typedef struct { //:Codegen
@@ -312,8 +316,9 @@ ptrCast(RValue* v, CgType* tp, Module* md) {
 }
 
 private LValue* //:localVar
-localVar(const char* name, CgType* tp, Fn* fn) {
-   return gcc_jit_function_new_local(fn, NULL, tp, name);
+localVar(NameId name, TypeId tp, CG) {
+   prepareName(name, cg);
+   return gcc_jit_function_new_local(cg->cbl.fn, NULL, cgType(tp, cg), cg->buffer);
 }
 
 private FnParam* //:param
@@ -322,9 +327,9 @@ param(NameId nameId, TypeId tp, CG) {
    return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg), cg->buffer);
 }
 
-private FnParam* //:param
-paramFromChars(char const* s, TypeId tp, CG) {
-   return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg), s);
+private FnParam* //:paramFromChars
+paramFromChars(char const* s, CgType* tp, CG) {
+   return gcc_jit_context_new_param(cg->md, NULL, tp, s);
 }
 
 private CgType* //:fnPointerType
@@ -351,9 +356,11 @@ callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
 #define builtinCompare(op, arg1, arg2) gcc_jit_context_new_comparison(\
    cg->md, null, op, arg1, arg2)
 
-private RValue* //:eCall
+private NULLABLE RValue* //:eCall
 eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
-// Handles all calls in expressions. Does NOT change the expression stack
+// A call within an expression.
+// It returns null for void-returning functions. This is safe because the return value
+// is used only in assignments, where the type checker already validated the return type.
    Function fn = cg->compResult.functions.c[fnId];
    Int eyrRetType = cg->compResult.types.c[fn.typeId.v + TYPE_PREFIX_LEN + countArgs];
    CgType* retType = cgType(typeOf(eyrRetType), cg);
@@ -429,7 +436,10 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
       return builtinCompare(GCC_JIT_COMPARISON_GE, args[0], args[1]);
    }
    case emitPrintInt: {
-      return callParsed(cg->builtins.printer, retType, args[0]); // TODO
+      RValue* printfArgs[2];
+      printfArgs[0] = cg->builtins.formatInt;
+      printfArgs[1] = args[0];
+      return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
    }
    }
    return null; // unreachable
@@ -556,6 +566,10 @@ intConst(int val, Codegen* cg) {
    return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
 }
 
+private RValue* //:intConst
+stringConst(Arr(char const) val, Codegen* cg) {
+   return gcc_jit_context_new_string_literal(cg->md, val);
+}
 
 private void //:intConst Writes a name from source code to codegen buffer, zero-terminated
 prepareName(NameId nameId, CG) {
@@ -569,8 +583,9 @@ prepareName(NameId nameId, CG) {
 
 private Builtins //:createBuiltins
 createBuiltins(CG) {
-   CgType* constCharPtrTp = cgType(GCC_JIT_TYPE_CONST_CHAR_PTR, ctx);
-   FnParam* paramFormat = gcc_jit_context_new_param(ctx, NULL, constCharPtrTp, "format");
+   CgType* constCharPtrTp = builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md);
+   
+   FnParam* paramFormat = paramFromChars("format", constCharPtrTp, cg);
    Fn* printfFn = importFn(
       "printf",
       1,
@@ -579,6 +594,12 @@ createBuiltins(CG) {
       true,
       cg->md
    );
+   
+   return (Builtins){
+      .printer = printfFn, .cString = constCharPtrTp,
+      .formatInt = stringConst("%d\n", cg), .formatDou = stringConst("%f\n", cg),
+      .formatStr = stringConst("%s\n", cg)
+   };
 }
 
 private Codegen* //:createCodegen
@@ -587,17 +608,26 @@ createCodegen(CR, Arena* a) {
    Module* md = gcc_jit_context_acquire();
    (*cg) = (Codegen) {
       .i = 0,
-      .md = md,
+      .cbl = (CurrBlock){
+         .start = 0, .end = 0, .c = {}, .fn = null, .nextBlock = {}, .afterBlock = {}
+      },
+      .futureBlocks = createLFutureBlock(16, a),
       .bt = createLBtLoop(16, a),
+      .bufferLen = 0,
+      .functions = allocateArray(cr->functions.len, Fn*, a),
+      .vars = allocateArray(cr->vars.len, LValue*, a),
+      .params = createLFnParamPtr(16, a),
+      .exp = createLRValuePtr(16, a),
+      .fields = createLFieldPtr(16, a),
+      .md = md,
       .compResult = *cr,
-      .vars = allocateArray(cr->vars.len, RValue*, a),
       .a = a,
       .wasError = false
    };
    registerTypes(cg);
    Builtins builtins = createBuiltins(cg);
    cg->builtins = builtins;
-
+   
    return cg;
 }
 
@@ -631,14 +661,15 @@ init() {
 //~   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
 //~}
 
-private RValue* //:exprInternal
-exprInternal(Node nd, Int sentinel, AST, CG) {
-// Consumes no nodes. Does NOT handle complex expressions
+private RValue* //:expr
+expr(Int start, Int sentinel, AST, CG) {
+// "start" = first node of the expression body (so, 1 past the nodExpr, if any)
+// Consumes no nodes. Does NOT handle complex expressions or void-returning functions
 // Precondition: we are looking 1 past the nodExpr/singular node. Consumes all nodes of the expr
-print("writeExpr");
+   print("writeExpr");
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
-   for (Int j = cg->i; j < sentinel; j++) {
+   for (Int j = start; j < sentinel; j++) {
       Node expNode = ast[j];
       switch (expNode.tp) {
          case tokInt: {
@@ -652,7 +683,6 @@ print("writeExpr");
          }
          case nodCall: {
             Int countArgs = expNode.pl2;
-            //Int callTp = nd.pl3;
             RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
             exp->len -= (countArgs - 1);
             exp->c[exp->len - 1] = callResult;
@@ -666,7 +696,8 @@ print("writeExpr");
 private void //:writeExpr
 writeExpr(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
-   exprInternal(nd, sentinel, ast, cg);
+   RValue* exprResult = expr(cg->i, sentinel, ast, cg);
+   evalExpr(exprResult, cg->cbl.c.c);
    cg->i = sentinel;
 }
 
@@ -701,47 +732,53 @@ assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
 // Writes the left side & equals sign
    Node leftNd = ast[cg->i];
    if (leftNd.tp == nodVar) {
-   
+      VarId varId = leftNd.pl1;
+      if (leftNd.pl3 == assiVarAssignment) {
+         Var v = cg->compResult.vars.c[varId];
+         cg->vars[varId] = localVar(v.name, v.typeId, cg);
+      }
+      return cg->vars[varId];
    } else if (leftNd.tp == nodExpr) {
       cg->i++; // CONSUME the nodExpr
-      writeExprInternal(leftNd, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
+      expr(cg->i, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
    }
+   
+   return null; // TODO
 }
 
 private RValue* //:assignmentRight
-assignmentRight(Node rightNode, Int sentinel, Bool isComplex,
-                  Arr(Node const) ast, CG) {
-   
-   
-   
-   // the "start" here is the actual expression start (so for complex expressions, the inner
-   // assignments have been skipped). Correspondingly, we pass "isComplex = false" here:
-   // the inner assignments have already been emitted.
-   Int start = cg->i;
-   if (isComplex) {
-      for(; start < sentinel && ast[start].tp == nodAssignment;
-            start = calcNodeSentinel(ast[start], start)
-      ) {}
+assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
+// the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
+// assignments have been skipped).
+   print("Assignment right %d inner expr %d sentinel %d", rightNodeInd, innerExprInd, sentinel);
+   if (innerExprInd > rightNodeInd) {
+//~      for(; start < sentinel && ast[start].tp == nodAssignment;
+//~            start = calcNodeSentinel(ast[start], start)
+//~      ) {
+//~      }
+   } else {
+      return expr(innerExprInd, sentinel, ast, cg);
    }
+   return null;
 }
 
 private void //:assignmentWorker
 assignmentWorker(Node nd, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
 // Consumes the whole assignment
-   if (nd.pl2 == 0)
-      { return; }
    Int const sentinel = cg->i + nd.pl2;
    if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
-      { goto end; }
+      { goto end; } // a function-typed local var - nothing to codegen here
       
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
-   Int innerExprInd = rightNodeInd + 1; // for complex expressions, will skip the inner assigns
+   Int innerExprInd = rightNodeInd; // for complex expressions
+   for (; innerExprInd < sentinel && ast[innerExprInd].tp == nodAssignment; innerExprInd++) {
+   }
 
    LValue* lValue = assignmentLeft(rightNodeInd, ast, cg);
    cg->i = innerExprInd;
 
-   RValue* rValue = assignmentRight(ast[rightNodeInd], sentinel, false, ast, cg);
+   RValue* rValue = assignmentRight(rightNodeInd, innerExprInd, sentinel, ast, cg);
    
    assignment(lValue, rValue, cg->cbl.c.c);
    end:
@@ -778,7 +815,7 @@ writeReturn(Node fr, Arr(Node const) ast, CG) {
    Node rightSide = ast[cg->i];
    cg->i++; // CONSUME the expr node
 
-   RValue* returnValue = exprInternal(rightSide, sentinel, ast, cg);
+   RValue* returnValue = expr(cg->i, sentinel, ast, cg);
    returnFromFn(returnValue, cg->cbl.c.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
@@ -799,7 +836,7 @@ writeIfClause(Node nd, AST, CG) {
       Node expression = ast[cg->i];
       Int exprSentinel = calcNodeSentinel(expression, cg->i);
       cg->i++; // CONSUME the nodExpr
-      writeExprInternal(expression, calcNodeSentinel(expression, cg->i - 1), ast, cg);
+      expr(cg->i, calcNodeSentinel(expression, cg->i - 1), ast, cg);
       cg->i = exprSentinel; // CONSUME the if of "else if" condition
    }
 }
@@ -871,7 +908,7 @@ writeFor(Node nd, AST, CG) {
 
    // loop condition
    Node exprNd = ast[condInd];
-   writeExprInternal(exprNd, calcNodeSentinel(exprNd, condInd), ast, cg);
+   expr(condInd + 1, calcNodeSentinel(exprNd, condInd), ast, cg);
 
    // loop steps
    if (stepCount > 0) {
@@ -881,7 +918,7 @@ writeFor(Node nd, AST, CG) {
             assignmentWorker(currNd, ast, cg);
          } ei (currNd.tp == nodExpr)  {
             Int exprSentinel = calcNodeSentinel(currNd, cg->i - 1);
-            writeExprInternal(currNd, exprSentinel, ast, cg);
+            expr(cg->i, exprSentinel, ast, cg);
             cg->i = exprSentinel;
          } else { // TODO assert
             cg->i = calcNodeSentinel(currNd, cg->i - 1) + 1;
@@ -975,34 +1012,34 @@ mbCloseLoops(CG) {
 
 private void //:openBlock
 openBlock(FutureBlock futureBlock, Node nd, CG) {
-   Int newEnd = calcNodeSentinel(nd, cg->i);
-   CodeBlock* afterBlock;
-   if (newEnd < cg->cbl.end) {
-      // if the new block splits the current one into two, we need to schedule the
-      afterBlock = newBlock(cg->cbl.fn);
-      FutureBlock afterSplit = ;
-      add(afterSplit, cg->futureBlocks);
-   } else {
-
-   }
-   switch (futureBlock.c.tp) {
-   case (bloCommon): {
-
-   }
-   case (bloIf): {
-
-   }
-   case (bloLoopCond): {
-
-   }
-   case (bloLoopBody): {
-
-   }
-   }
-   CurrBlock newBlock;
-   cg->cbl = (CurrBlock){.start = newBlock.start, .end = calcNodeSentinel(nd, cg->i),
-      .c = newBlock.c, .nextBlock = futureBlock.c.c, .afterBlock = futureBlock.c.c
-   };
+//~   Int newEnd = calcNodeSentinel(nd, cg->i);
+//~   CodeBlock* afterBlock;
+//~   if (newEnd < cg->cbl.end) {
+//~      // if the new block splits the current one into two, we need to schedule the
+//~      afterBlock = newBlock(cg->cbl.fn);
+//~      FutureBlock afterSplit = ;
+//~      add(afterSplit, cg->futureBlocks);
+//~   } else {
+//~
+//~   }
+//~   switch (futureBlock.c.tp) {
+//~   case (bloCommon): {
+//~
+//~   }
+//~   case (bloIf): {
+//~
+//~   }
+//~   case (bloLoopCond): {
+//~
+//~   }
+//~   case (bloLoopBody): {
+//~
+//~   }
+//~   }
+//~   CurrBlock newBlock;
+//~   cg->cbl = (CurrBlock){.start = newBlock.start, .end = calcNodeSentinel(nd, cg->i),
+//~      .c = newBlock.c, .nextBlock = futureBlock.c.c, .afterBlock = futureBlock.c.c
+//~   };
 }
 
 private void //:writeToplevelFn
@@ -1013,7 +1050,6 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    Int const arity = typeHeader.arity - 1;
    TypeId returnType = typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + arity]);
-
    Fn* newToplevel;
    if (arity == 0) {
       newToplevel = newFnReal(
@@ -1023,6 +1059,11 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          GCC_JIT_FUNCTION_EXPORTED,
          cg
       );
+   } else if (toplevelId == cr->entrypoint) {
+      FnParam* mainParams[2];
+      mainParams[0] = paramFromChars("argc", intType(cg), cg);
+      mainParams[1] = paramFromChars("argv", pointerOf(cg->builtins.cString), cg);
+      newToplevel = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intType(cg), cg->md);
    } else {
       cg->params->len = 0;
       for (Int n = eyrFn.nodeInd + 1; n < eyrFn.nodeInd + 1 + arity; n++) {
@@ -1041,15 +1082,14 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       );
    }
    cg->functions[toplevelId] = newToplevel;
-
    CodeBlock* mainBlock = newBlock(newToplevel);
    cg->cbl = (CurrBlock){
       .fn = newToplevel,
       .start = eyrFn.nodeInd,
       .end = calcNodeSentinel(cr->ast.c[eyrFn.nodeInd], eyrFn.nodeInd),
       .c = { .tp = bloCommon, .c = mainBlock },
-      .nextBlock = null,
-      .afterBlock = null
+      .nextBlock = (TypedBlock){},
+      .afterBlock = (TypedBlock){}
    };
 
    Node nodeFn = cr->ast.c[eyrFn.nodeInd];
@@ -1279,7 +1319,7 @@ temp2(CG) {
 
 private void
 displayHelp() {
-   printf("Eyr compiler. Usage:\n\neyrc file.eyr\n\nor\n\neyrc folder\n");
+   printf("Eyr compiler. Usage:\n\neyrc file.eyr\n\nor\n\neyrc directory\n");
 }
 
 
@@ -1305,23 +1345,38 @@ getCommandParams(int argc, char** argv) {
 
 Int //:main
 main(int argc, char** argv) {
-//{{{ TEMP CODE
    Arena* a = createArena();
-   Codegen* cg = allocate(Codegen, a);
-   Module* md = gcc_jit_context_acquire();
-   (*cg) = (Codegen) {
-      .i = 0,
-      .md = md,
-      .bt = createLBtLoop(16, a),
-      .compResult = null,
-      .a = a,
-      .wasError = false
-   };
-   temp2(cg);
-   return 0;
+   
+//{{{ TEMP CODE
+//~   Codegen* cg = allocate(Codegen, a);
+//~   Module* md = gcc_jit_context_acquire();
+//~   (*cg) = (Codegen) {
+//~      .i = 0,
+//~      .md = md,
+//~      .bt = createLBtLoop(16, a),
+//~      .compResult = null,
+//~      .a = a,
+//~      .wasError = false
+//~   };
+//~   temp2(cg);
+//~   return 0;
 //}}}
 
+   CompResult* compResult = tech_sozonov_eyr_compileFile(str("program.eyr"));
+   Codegen* cg = generateCode(compResult);
+   
+   if (cg->wasError) {
+      print("Code generation error");
+      return 1;
+   }
 
+   Module* md = cg->md;
+   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "compiledProgram");
+
+   gcc_jit_result* result = gcc_jit_context_compile(md);
+   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
+   
+   
 //~   TaskDescription task = getCommandParams(argc, argv);
 //~   if (task.errMsg.len > 0) {
 //~      print("Erroneous task description!");

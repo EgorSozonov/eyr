@@ -1850,82 +1850,108 @@ char const
 errNumericMultipleDots[]      = "Multiple dots in numeric literals are not allowed!";
 char const
 errNumericIntWidthExceeded[]   = "Integer literals must be within the range [-9,223,372,036,854,775,808; 9,223,372,036,854,775,807]!";
-char const errPunctuationExtraOpening[]   = "Extra opening punctuation";
-char const errPunctuationExtraClosing[]   = "Extra closing punctuation";
-char const errPunctuationCommaNotClause[]  = "The comma is only allowed inside clauses!";
-char const errPunctuationOnlyInMultiline[] = "The statement ender `;` is not allowed inside subexpressions!";
-char const errPunctuationFnNotInStmt[]    = "Function definitions must be directly in a statement";
-char const errPunctuationUnmatched[]      = "Unmatched closing punctuation";
-char const errPunctuationScope[]         = "Scopes may only be opened in multi-line syntax forms or in `for`, `if` forms";
-char const errOperatorUnknown[]         = "Unknown operator";
-char const errOperatorAssignmentPunct[]   = "Incorrect assignment operator: must be directly inside an ordinary statement, after the binding name(s) or l-value!";
-char const errAssignmentEmptyRight[]      = "Assignment or definition with empty right side";
-char const errOperatorTypeDeclPunct[]     = "Incorrect type declaration operator placement: must be the first in a statement!";
 char const
-errOperatorMutationInDef[]     = "Mutation (e.g. `+=`) is not allowed for defs which signify compile-time known constants";
+errPunctuationExtraOpening[]   = "Extra opening punctuation";
 char const
-errCoreNotInsideStmt[]        = "Core form must be directly inside statement";
+errPunctuationExtraClosing[]   = "Extra closing punctuation";
 char const
-errCoreMisplacedElse[]        = "The else statement must be inside an if, ifEq, ifPr or match form";
+errPunctuationCommaNotClause[]  = "The comma is only allowed inside clauses!";
 char const
-errCoreMissingParen[]         = "Core form requires opening parenthesis/curly brace immediately after keyword!";
+errPunctuationOnlyInMultiline[] = "The statement ender `;` is not allowed inside subexpressions!";
 char const
-errBareAtom[]               = "Malformed token stream (atoms and parentheses must not be bare)";
+errPunctuationFnNotInStmt[]    = "Function definitions must be directly in a statement";
 char const
-errImportsNonUnique[]         = "Import names must be unique!";
+errPunctuationUnmatched[]      = "Unmatched closing punctuation";
 char const
-errCannotMutateImmutable[]     = "Immutable variables cannot be reassigned to!";
+errPunctuationScope[]         = "Scopes may only be opened in multi-line syntax forms or in `for`, `if` forms";
 char const
-errPrematureEndOfTokens[]      = "Premature end of tokens";
+errOperatorUnknown[]         = "Unknown operator";
+char const
+errOperatorAssignmentPunct[] = "Incorrect assignment operator: must be directly inside an ordinary statement, after the binding name(s) or l-value!";
+char const
+errAssignmentEmptyRight[]    = "Assignment or definition with empty right side";
+char const
+errOperatorTypeDeclPunct[]   = "Incorrect type declaration operator placement: must be the first in a statement!";
+char const
+errOperatorMutationInDef[]   = "Mutation (e.g. `+=`) is not allowed for defs which signify compile-time known constants";
+char const
+errCoreNotInsideStmt[]       = "Core form must be directly inside statement";
+char const
+errCoreMisplacedElse[]       = "The else statement must be inside an if, ifEq, ifPr or match form";
+char const
+errCoreMissingParen[]        = "Core form requires opening parenthesis/curly brace immediately after keyword!";
+char const
+errBareAtom[]                = "Malformed token stream (atoms and parentheses must not be bare)";
+char const
+errImportsNonUnique[]        = "Import names must be unique!";
+char const
+errCannotMutateImmutable[]   = "Immutable variables cannot be reassigned to!";
+char const
+errPrematureEndOfTokens[]    = "Premature end of tokens";
 char const
 errUnexpectedToken[]         = "Unexpected token";
 char const
-errCoreFormTooShort[]         = "Core syntax form too short";
+errCoreFormTooShort[]        = "Core syntax form too short";
 char const
-errCoreFormUnexpected[]       = "Unexpected core form";
+errCoreFormUnexpected[]      = "Unexpected core form";
 char const
-errCoreFormAssignment[]       = "A core form may not contain any assignments!";
+errCoreFormAssignment[]      = "A core form may not contain any assignments!";
 char const
-errCoreFormInappropriate[]     = "Inappropriate reserved word!";
-char const errIfLeft[]                     = "A left-hand clause in an if can only contain variables, boolean literals and expressions!";
-char const errIfRight[]                    = "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!";
-char const errIfEmpty[]                    = "Empty `if` expression";
-char const errIfMalformed[]                = "Malformed `if` expression, should look like (if pred: `true case` else `default`)";
-char const errIfElseMustBeLast[]           = "An `else` subexpression must be the last thing in an `if`";
-char const errFnNameAndParams[]            = "Function signature must look like this: `{x Type1 y Type 2 ->  ReturnType => body...}`";
-char const errFnDuplicateParams[]          = "Duplicate parameter names in a function are not allowed";
-char const errFnMissingBody[]              = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
-char const errLoopSyntaxError[]            = "A loop should look like `for {x = 0; x < 101; x++}{ loopBody } `";
-char const errLoopNoCondition[]            = "A loop header should contain a condition";
-char const errLoopEmptyStepBody[]          = "Empty loop step code & body, but at least one must be present!";
-char const errLoopWrongFormInStepper[]     = "A for loop's stepper can only contain assignments, expressions and asserts";
-char const errLoopBreakOutside[]           = "The break keyword can only be used inside a loop scope!";
+errCoreFormInappropriate[]   = "Inappropriate reserved word!";
+char const
+errIfLeft[]                  = "A left-hand clause in an if can only contain variables, boolean literals and expressions!";
+char const errIfRight[]      = "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!";
+char const errIfEmpty[]      = "Empty `if` expression";
+char const errIfMalformed[]  = "Malformed `if` expression, should look like (if pred: `true case` else `default`)";
+char const errIfElseMustBeLast[] = "An `else` subexpression must be the last thing in an `if`";
+char const
+errFnNameAndParams[]  = "Function signature must look like this: `{x Type1 y Type 2 ->  ReturnType => body...}`";
+char const
+errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name must be unique!";
+char const
+errFnDuplicateParams[] = "Duplicate parameter names in a function are not allowed";
+char const
+errFnMissingBody[]  = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
+char const errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++}{ loopBody } `";
+char const errLoopNoCondition[] = "A loop header should contain a condition";
+char const errLoopEmptyStepBody[] = "Empty loop step code & body, but at least one must be present!";
+char const errLoopWrongFormInStepper[] = "A for loop's stepper can only contain assignments, expressions and asserts";
+char const errLoopBreakOutside[] = "The break keyword can only be used inside a loop scope!";
 char const errBreakContinueTooComplex[]    = "This statement is too complex! Continues and breaks may contain one thing only: the postitive number of enclosing loops to continue/break!";
 char const errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a positive 32-bit integer!";
-char const errDuplicateFunction[]          = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
-char const errExpressionError[]            = "Cannot parse expression!";
+char const errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
+char const errExpressionError[]   = "Cannot parse expression!";
 char const errExpressionWrongArgCount[]    = "Wrong argument count for a function";
 char const errExpressionCannotContain[]    = "Expressions cannot contain scopes or statements!";
 char const errExpressionFunctionless[]     = "Functionless expression!";
-char const errTypeDefCountNames[]          = "Wrong count of names in a type definition!";
+char const errTypeDefCountNames[] = "Wrong count of names in a type definition!";
 char const errTypeDefCannotContain[]       = "Type declarations may only contain types (like Int), type params (like A), type constructors (like List) and parentheses!";
-char const errTypeDefError[]               = "Cannot parse type declaration!";
-char const errTypeDefParamsError[]         = "Error parsing type params. Should look like this: [T U/2]";
-char const errOperatorWrongArity[]         = "Wrong number of arguments for operator!";
-char const errUnknownBinding[]             = "Unknown binding!";
-char const errUnknownFunction[]            = "Unknown function!";
+char const errTypeDefError[]      = "Cannot parse type declaration!";
+char const errTypeDefParamsError[] = "Error parsing type params. Should look like this: [T U/2]";
+char const errOperatorWrongArity[] = "Wrong number of arguments for operator!";
+char const errUnknownBinding[]     = "Unknown binding!";
+char const errUnknownFunction[]    = "Unknown function!";
 char const errOperatorUsedInappropriately[] = "Operator used in an inappropriate location!";
-char const errAssignment[]                 = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
-char const errListDifferentEltTypes[]      = "A list's elements must all be of the same type";
-char const errMutation[]                   = "Cannot parse mutation, it must look like `freshIdentifier` += `expression`";
-char const errAssignmentShadowing[]        = "Assignment error: existing identifier is being shadowed";
-char const errAssignmentToplevelFn[]       = "Assignment of top-level functions must be immutable";
-char const errAssignmentLeftSide[]         = "Assignment error: left side must be a var name, a type name, or an existing var with one or more accessors";
-char const errAssignmentAccessOnToplevel[] = "Accessor on the left side of an assignment at toplevel";
-char const errAssignmentToFunctionVar[]    = "Assignment to a function variable should look like `fn F Int Long = overloadedName;`";
-char const errReturn[]                     = "Cannot parse return statement, it must look like `return ` {expression}";
-char const errScope[]                      = "A scope may consist only of expressions, assignments, function definitions and other scopes!";
-char const errTemp[]                       = "Not implemented yet";
+char const errAssignment[]         = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
+char const errListDifferentEltTypes[] = "A list's elements must all be of the same type";
+char const errMutation[]           = "Cannot parse mutation, it must look like `freshIdentifier` += `expression`";
+char const
+errAssignmentShadowing[] = "Assignment error: existing identifier is being shadowed";
+char const
+errAssignmentToplevelFn[] = "Assignment of top-level functions must be immutable";
+char const
+errAssignmentLeftSide[]   = "Assignment error: left side must be a var name, a type name, or an existing var with one or more accessors";
+char const
+errAssignmentAccessOnToplevel[] = "Accessor on the left side of an assignment at toplevel";
+char const
+errAssignmentToFunctionVar[]    = "Assignment to a function variable should look like "
+                                  "`fn F[Int -> Long] = overloadedName;`";
+char const
+errReturn[]               = "Cannot parse return statement, it must look like `return ` {expression}";
+char const
+errScope[]  = "A scope may consist only of expressions, assignments, function definitions and other scopes!";
+char const
+errTemp[]                 = "Not implemented yet";
 
 //}}}
 //{{{ Type errors
@@ -2028,8 +2054,8 @@ prepareInput(char const* content, Arena* a) {
 
 NameId //:nameOfStandard
 nameOfStandard(Int strId) {
-// Converts a standard string to its nameId. Doesn't work for reserved words, obviously. So the
-// argument must be >= "strFirstNonreserved"
+/* Converts a standard string to its nameId. Doesn't work for reserved words, obviously. So the
+   argument must be >= "strFirstNonreserved" */
    return (NameId)((Unt)(strId + countOperators));
 }
 
@@ -3356,8 +3382,8 @@ pIf(Token tok, TOKS, CM) {
 
 private void //:pAssignmentFnVar
 pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
-// Resolution of an overloaded function into a local var.
-// Validates that the right side consists of one word
+/* Resolution of an overloaded function into a local var.
+   Validates that the right side consists of one word */
    VALIDATEP(assignment.rightTokenInd + 2 == assignment.sentinel, errAssignmentToFunctionVar)
    Token rightTk = cm->tokens.c[assignment.rightTokenInd + 1];
    NameId fnName = rightTk.pl1;
@@ -3374,9 +3400,9 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
 
 private TypeId //:pAssignmentLeftAccessors
 pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
-// Complex left side in an assignment like `a[i][j] = ...`.
-// It gets transformed like this:
-// arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElemPtr
+/* Complex left side in an assignment like `a[i][j] = ...`.
+   It gets transformed like this:
+   arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElemPtr */
    LInt* sc = cm->expr->exp;
    sc->len = 0;
    Int const startBt = firstTok.startBt;
@@ -3409,9 +3435,9 @@ pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
 private TypeId //:pAssignmentLeftWithType
 pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT Bool* isAFnVar,
       TOKS, CM) {
-// Typechecks a complex left side like `x Foo Int = ...` in an assignment, consumes tokens,
-// inserts nodes. Returns the type of the left side.
-// Precondition: we are looking right past tokDef or tokAssignment.
+/* Typechecks a complex left side like `x Foo Int = ...` in an assignment, consumes tokens,
+ inserts nodes. Returns the type of the left side.
+ Precondition: we are looking right past tokDef or tokAssignment */
    LInt* sc = cm->expr->exp;
    sc->len = 0;
    Token nextTk = toks[cm->i + 1]; // +1 is safe because we know left side is long
@@ -3482,17 +3508,15 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
       } else {
          varId = createVar(assignment.name, firstTok.pl2 == 1 ? classMutable : classImm, -1, cm);
       }
-      newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort },
-              locOf(firstTok), cm);
+      newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort }, locOf(firstTok), cm);
    } else if (firstTok.tp == tokAccessor) {
       leftType = pAssignmentLeftAccessors(firstTok, assignment.rightTokenInd, toks, cm);
    } else {
       Bool isAFnVar = false;
       leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide,
             OUT &isAFnVar, toks, cm);
-      if (isAFnVar) {
+      if (isAFnVar)
          { goto closeSpans; }
-      }
    }
 
    cm->i = assignment.rightTokenInd + 1; // CONSUME everything up to body of right side
@@ -3510,9 +3534,9 @@ closeSpans:
 
 private Assignment //:pPreparseAssignment
 pPreparseAssignment(Token tok, Int tokInd, TOKS, CM) {
-// Looks at a tokDef or tokAssignment to determine its key points: where is the right side,
-// is it a func definition, is the right side empty etc. Consumes no tokens.
-// Precondition: tokInd is 1 past the "tok".
+/* Looks at a tokDef or tokAssignment to determine its key points: where is the right side,
+ is it a func definition, is the right side empty etc. Consumes no tokens.
+ Precondition: tokInd is 1 past the "tok" */
    Int const sentinel = calcSentinel(tok, tokInd - 1);
    Int indRight = tokInd;
    NameId firstTokenName = toks[tokInd].pl1;
@@ -3541,16 +3565,17 @@ pAssignment(Token tok, TOKS, CM) {
 
 private void //:preambleFor
 preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int* bodyInd) {
-// Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
-// Every out index is set to either positive or 0 for "not found".
-// A "for" syntax form is quadripartite:
-// 1) var inits (they must all be assignments),
-// 2) the condition (must be an expression),
-// 3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
-// 4) loop body (arbitrary syntax forms).
-// Precondition: looking at the tokScope right after tokFor.
-// Postcondition: "condInd" & one of "stepInd" and "bodyInd" are guaranteed to be found
-// (=> positive).
+/*Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
+Every out index is set to either positive or 0 for "not found".
+A "for" syntax form is quadripartite:
+1) var inits (they must all be assignments),
+2) the condition (must be an expression),
+3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
+4) loop body (arbitrary syntax forms).
+Precondition: looking at the tokScope right after tokFor.
+Postcondition: "condInd" & one of "stepInd" and "bodyInd" are guaranteed to be found
+(=> positive).
+*/
 
    Int const scopeSentinel = calcSentinel(toks[cm->i], cm->i);
 
@@ -3584,17 +3609,18 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int*
 
 private void //:pFor
 pFor(Token forTk, TOKS, CM) {
-// For loops. Look like "(for x~ = 0;  x < 100; x++:  ... )"
-//                            ^initInd ^condInd ^stepInd ^bodyInd
-// At least a step or a body is syntactically required.
-// End result of a parse looks like:
-// nodFor
-//    scope (pl3 = length of nodes to inner scope)
-//       initializations
-//       expr evaluating to a bool (the cond - if present)
-//       step(s)
-//       scope (if body not empty)
-//          body
+/* For loops. Look like "(for x~ = 0;  x < 100; x++:  ... )"
+                            ^initInd ^condInd ^stepInd ^bodyInd
+ At least a step or a body is syntactically required.
+ End result of a parse looks like:
+ nodFor
+    scope (pl3 = length of nodes to inner scope)
+       initializations
+       expr evaluating to a bool (the cond - if present)
+       step(s)
+       scope (if body not empty)
+          body
+*/
    Int const initInd = cm->i; // index of the tokScope inside tokFor
 
    cm->stats.loopCounter++;
@@ -3672,8 +3698,8 @@ parseErrorBareAtom(Token tok, TOKS, CM) {
 
 private ParseFrame //:popAParseFrame
 popAParseFrame(CM) {
-// Pops a frame from the scopes. For a scope type of frame, also deactivates its bindings.
-// Returns pointer to previous frame (which will be top after this call) or null if there isn't any
+/* Pops a frame from the scopes. For a scope type of frame, also deactivates its bindings.
+ Returns pointer to previous frame (which will be top after this call) or null if there isn't any */
    ParseFrame frame = removeLast(cm->backtrack); // matched by scopes->len-- below
    if (frame.level < pfrScope)
       { goto finishUp; }
@@ -3713,10 +3739,10 @@ exprSingleItem(Token tk, CM) {
 
 private void //:subexDataAllocation
 subexDataAllocation(ExprFrame frame, Expr* e, CM) {
-// Creates an assignment in main. Then walks over the data allocator
-// nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
-// careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
-// an id linked to the new entity
+/* Creates an assignment in main. Then walks over the data allocator
+nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
+careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
+an id linked to the new entity */
    LNode* scr = e->scr;  // ((ind in scr) (count of nodes in subexpr))
 
    const VarId newVarId = cm->vars.len;
@@ -3856,10 +3882,11 @@ exprCopyFromScratch(Int startNodeInd, CM) {
 
 Int //:subexSkipFirstThing
 subexSkipFirstThing(Int subSentinel, TOKS, CM) {
-// Skips a lump of tokens consisting of
-// - possibly unary operator calls
-// - definitely, an atom or a span
-// - possibly, field accessors
+/* Skips a lump of tokens consisting of
+ - possibly unary operator calls
+ - definitely, an atom or a span
+ - possibly, field accessors
+*/
    Int j = cm->i;
    for (; j < subSentinel && toks[j].tp == tokOperator && OPERATORS[toks[j].pl1].prec == precUnary;
          j++
@@ -4014,11 +4041,12 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
 
 private void //:eParse
 eParse(Int sentinel, TOKS, CM) {
-// The core code of the general, long expression parse. Starts at cm->i and parses until
-// "sentinel". Produces a linear sequence of operands and calls with arg counts in
-// Reverse Polish Notation. Handles data allocations, too. But not single-item exprs.
-// Consumes the whole expression
-// Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's the whole exp)
+/* The core code of the general, long expression parse. Starts at cm->i and parses until
+"sentinel". Produces a linear sequence of operands and calls with arg counts in
+Reverse Polish Notation. Handles data allocations, too. But not single-item exprs.
+Consumes the whole expression
+Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's the whole exp)
+*/
    Expr* e = cm->expr;
    e->metAnAllocation = false;
    LNode* scr = e->scr;
@@ -4040,10 +4068,11 @@ eParse(Int sentinel, TOKS, CM) {
 
 private TypeId //:exprUpToWithFrame
 exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
-// The main "big" expression parser. Parses an expression whether there is a
-// token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
-// Precondition: we are looking 1 past the tokExpr or tokParens
-// CONSUMES the whole expression
+/* The main "big" expression parser. Parses an expression whether there is a
+token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
+Precondition: we are looking 1 past the tokExpr or tokParens
+CONSUMES the whole expression
+*/
    if (cm->i + 1 == frame.sentinel) { // the [stmt 1, tokInt] case
       Token singleToken = toks[cm->i];
       if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord
@@ -4065,11 +4094,11 @@ exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
 
 private TypeId //:exprUpTo
 exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
-// The main "big" expression parser. Parses an expression whether there is a token or not.
-// Precondition: we are looking 1 past the tokExpr or tokParens
-// Starts from cm->i and goes up to the sentinel token.
-// Emits a nodExpr and opens a corresponding parse frame
-// Returns the expression's type
+/* The main "big" expression parser. Parses an expression whether there is a token or not.
+Precondition: we are looking 1 past the tokExpr or tokParens
+Starts from cm->i and goes up to the sentinel token.
+Emits a nodExpr and opens a corresponding parse frame
+Returns the expression's type */
    Int startNodeInd = cm->ast.len;
    add(((ParseFrame){
       .startNodeInd = startNodeInd, .sentinel = sentinelToken }), cm->backtrack);
@@ -4083,10 +4112,10 @@ exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
 
 private TypeId //:exprHeadless
 exprHeadless(Int sentinel, SourceLoc loc, TOKS, CM) {
-// Precondition: we are looking at the first token of expr which does not have a
-// tokStmt/tokParens header. If "omitSpan" is set, this function will not emit a nodExpr nor
-// create a ParseFrame.
-// Consumes 1 or more tokens. Returns the type of parsed expression
+/* Precondition: we are looking at the first token of expr which does not have a
+tokStmt/tokParens header. If "omitSpan" is set, this function will not emit a nodExpr nor
+create a ParseFrame.
+Consumes 1 or more tokens. Returns the type of parsed expression */
    if (cm->i + 1 == sentinel) { // the [stmt 1, tokInt] case
       Token singleToken = toks[cm->i];
       if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord) {
@@ -4269,6 +4298,7 @@ pReturn(Token tok, TOKS, CM) {
    TypeId const exprTy = exprHeadless(sentinelToken, loc, toks, cm);
    VALIDATEP(exprTy.v > -1, errReturn)
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
+   print("ret type %d", returnType.v);
    VALIDATEP(eq(returnType, exprTy), errTypeWrongReturnType);
 }
 
@@ -4785,9 +4815,9 @@ importPrelude(CM) {
       },
    };
    Function fnImports[5] =  {
-      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrint, .typeId = intToVoid },
-      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrint, .typeId = douToVoid },
-      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrint, .typeId = strToVoid },
+      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrintInt, .typeId = intToVoid },
+      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrintDou, .typeId = douToVoid },
+      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrintStr, .typeId = strToVoid },
       (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd,
                   .genericInd = genericInd, .tokenInd = -1, .emit = emitParsed },
       (Function){ .name = nameOfStandard(strPrintErr), .typeId = strToVoid }
@@ -4899,6 +4929,8 @@ initializeParser(Compiler* lx, Arena* a) {
       .genericSt = createLTypeLoc(16, cm->aTmp),
       .concreteSt = createLTypeLoc(16, cm->aTmp),
    };
+   
+   cm->entrypoint = -1;
 
    importPrelude(cm);
 }
@@ -5125,6 +5157,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    Int paramsSentinel = calcSentinel(paramListTk, cm->i);
    TypeId newFnType = voidToVoid; // default for nullary functions
    Bool const hasReturnType = fnAssign.rightTokenInd - fnAssign.nameTokenInd > 1;
+   
 
    te->isGeneric = false;
    if (!hasReturnType && paramListTk.pl2 == 0) // A void -> void function
@@ -5135,12 +5168,14 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    if (hasReturnType) {
       cm->i = fnAssign.nameTokenInd; // To function name token
       returnType = teClause(te, fnAssign.rightTokenInd, toks, cm);
+      print("fn signature has ret type %d return %d", hasReturnType, returnType.v);
    }
+   
+   Int arity = 0;
    if (paramListTk.pl2 == 0)
-      { goto entityAdding; }
+      { goto returnTypeAdding; }
 
    tFreshState(te);
-   Int arity = 0;
    te->fnTypes->len = 0;
    for (cm->i = indParams + 1; cm->i < paramsSentinel;) {
       Token clause = toks[cm->i];
@@ -5154,8 +5189,10 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
       arity++;
    }
 
+   returnTypeAdding:
    if (arity == 0)
       { add(voidType, te->fnTypes); }
+   print("arity %d ret type %d", arity, returnType.v);   
    add(returnType.v, te->fnTypes);
    newFnType = pFnCreateType(te, cm);
    entityAdding:
@@ -5168,6 +5205,10 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
                    .genericInd = genericInd, .tokenInd = fnAssign.rightTokenInd + 1 }),
       cm
    );
+   if (fnAssign.name == nameOfStandard(strMain)) {
+      VALIDATEP(cm->entrypoint == -1, errFnEntrypoint);
+      cm->entrypoint = newFnId;
+   }
    addRawOverload(fnAssign.name, newFnType, newFnId, cm);
    pushIntoplevels(newFnId, cm);
 }
@@ -5283,9 +5324,6 @@ pToplevelSignatures(TOKS, CM) {
          { continue; }
 
       Token nameTk = toks[cm->i + 1];
-      if (!(nameTk.tp == tokWord && nameTk.pl2 == 0))  {
-         print("i %d name tp %d", cm->i, nameTk.tp)
-      }
       VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errAssignmentToplevelFn)
 
       // since this is an immutable definition tokDef, its pl1 is the nameId
@@ -5316,6 +5354,8 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
+      
+      printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");
@@ -7057,6 +7097,7 @@ CompResult* //:tech_sozonov_eyr_compileFile
 tech_sozonov_eyr_compileFile(String filename) {
    Arena* a = createArena();
    CompResult* cr = allocate(CompResult, a);
+   cr->a = a;
    if (filename.len == 0) {
       cr->errMsg = s("Empty file name!");
       cr->wasLexerError = true;
