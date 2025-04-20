@@ -32,8 +32,6 @@ typedef enum gcc_jit_comparison BuiltinComparison;
 #define AST Arr(Node const) const restrict ast // Source text
 #define SRC Arr(char const) const restrict source // Source text
 #define CR CompResult const* const restrict cr // Compilation results
-private void closeStatement(LX);
-private NameId nameOfStandard(Int a);
 
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
@@ -90,23 +88,20 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
 #define bloLoopCond      2 // loop conditions. nextBlock = afterBlock
 #define bloLoopBody      3 // loop bodies. nextBlock = bloLoopCond
 
-typedef struct { //:TypedBlock
-   Byte tp; // the "blo" constants above
-   NULLABLE CodeBlock* c;
-} TypedBlock;
-
 typedef struct { //:CurrBlock
    Int start; // start node ind
    Int end; // end node ind, exclusive
-   TypedBlock c;
    Fn* fn; // the function we are in
-   TypedBlock nextBlock;
-   TypedBlock afterBlock;
+   CodeBlock* c; // non-null during code generation
+   NULLABLE CodeBlock* afterBlock;
 } CurrBlock;
 
 typedef struct { //:FutureBlock
    Int start;
-   TypedBlock c;
+   Byte tp; // the "blo" constants above
+   NULLABLE CodeBlock* c;
+   CodeBlock* adjacentBlock;
+   CodeBlock* afterBlock;
 } FutureBlock;
 
 DEFINE_LIST_HEADER(FutureBlock)
@@ -117,6 +112,7 @@ typedef RValue* RValuePtr;
 
 typedef struct { //:BtLoop
    CodeBlock* condition; // used for "continue" implementation
+   CodeBlock* afterBlock; // used for "break" implementation
    Int sentinel; // node index of end, exclusive
 } BtLoop;
 
@@ -500,7 +496,7 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [nodReturn     - nodScope] = &writeReturn,
    [nodFor        - nodScope] = &writeFor,
    [nodIf         - nodScope] = &writeIf,
-   [nodIfClause   - nodScope] = &writeIfClause,
+/* [nodIfClause   - nodScope] = &writeIfClause, not needed because will be handled by {openBlock} */
    [nodMatch      - nodScope] = &writeMatch
 };
 
@@ -552,8 +548,9 @@ registerTypes(CG) {
    Field* stringFields[2];
    stringFields[0] = field(nameOfStandard(strLen), intType(cg), cg);
    stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
-   Struct* stringStruct = struct(nameOfStandard(strString), 2, stringFields, cg);
-   cg->typeRefs[tokString] = gcc_jit_struct_as_type(stringStruct);
+   Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
+   cg->typeRefs[tokString] = (TypeRef){
+      .ind = tokString, .cgType = gcc_jit_struct_as_type(stringStruct) };
 }
 
 private CgType* //:intType
@@ -629,7 +626,7 @@ createCodegen(CR, Arena* a) {
    (*cg) = (Codegen) {
       .i = 0,
       .cbl = (CurrBlock){
-         .start = 0, .end = 0, .c = {}, .fn = null, .nextBlock = {}, .afterBlock = {}
+         .start = 0, .end = 0, .c = null, .fn = null, .afterBlock = null
       },
       .futureBlocks = createLFutureBlock(16, a),
       .bt = createLBtLoop(16, a),
@@ -716,22 +713,8 @@ private void //:writeExpr
 writeExpr(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    RValue* exprResult = expr(cg->i, sentinel, ast, cg);
-   evalExpr(exprResult, cg->cbl.c.c);
+   evalExpr(exprResult, cg->cbl.c);
    cg->i = sentinel;
-}
-
-private void //:openFrame
-openFrame(Node nd, CG) {
-}
-
-private void //:openFrameWithSentinel
-openFrameWithSentinel(Node nd, Int sentinel, CG) {
-}
-
-
-private void //:writeDummy
-writeDummy(Node fr, Bool isEntry, Arr(Node const) ast, CG) {
-
 }
 
 private void //:writeVarNode
@@ -798,7 +781,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
 
    RValue* rValue = assignmentRight(rightNodeInd, innerExprInd, sentinel, ast, cg);
    
-   assignment(lValue, rValue, cg->cbl.c.c);
+   assignment(lValue, rValue, cg->cbl.c);
    end:
    cg->i = sentinel;
 }
@@ -835,7 +818,7 @@ writeReturn(Node fr, AST, CG) {
       { cg->i++; }// CONSUME the expr node
 
    RValue* returnValue = expr(cg->i, sentinel, ast, cg);
-   returnFromFn(returnValue, cg->cbl.c.c);
+   returnFromFn(returnValue, cg->cbl.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
 
@@ -862,7 +845,47 @@ writeIfClause(Node nd, AST, CG) {
 
 private void //:writeIf
 writeIf(Node nd, AST, CG) {
-   openFrame(nd, cg);
+   /* - determine the after block for the whole "if"
+    - cut the current block into two, if needed
+    - create blocks for every else if cond and every branch body
+   */ 
+   
+   Int sentinel = calcNodeSentinel(nd, cg->i);
+   CodeBlock* ifAfterBlock;
+   Bool weSplitCurrentBlock = false;
+   if (sentinel < cg->cbl.end) {
+      // if the new block splits the current one into two, we need to create the tail
+      ifAfterBlock = newBlock(cg->cbl.fn);
+      weSplitCurrentBlock = true;
+   } else {
+      ifAfterBlock = cg->cbl.afterBlock;
+   }
+   
+   
+   /* For an "if" expression, we need to create a block for every "else if" condition (but not for
+   the "if" condition - it goes into the preceding block) and a block for every branch's body */
+   Int countElseIfs = 0;
+   Int countBranches = 0;
+   for (Int j = cg->i; j < sentinel; j = calcNodeSentinel(nd, cg->i)) {
+      Int ifClause = ast[j].pl3;
+      if (ifClause == ifclElseIf) {
+         add(
+            (FutureBlock){.start= , .tp = ,
+               .c = , .adjacentBlock = , .afterBlock = 
+               
+            },
+            futureBlocks
+         );
+      }
+         { countElseIfs++; }
+      countBranches++; 
+   }
+   
+   
+   
+   
+   if (weSplitCurrentBlock)
+      { add(ifAfterBlock, cg->futureBlocks); }
 }
 
 private void //:writeMatch
@@ -1061,17 +1084,16 @@ openBlock(FutureBlock futureBlock, Node nd, CG) {
 //~   };
 }
 
-private void //:writeToplevelFn
-writeToplevelFn(FunctionId toplevelId, CR, CG) {
+private Fn* //:createFn
+createFn(FunctionId toplevelId, CR, CG) {
    Function eyrFn = cr->functions.c[toplevelId];
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    Int const arity = typeHeader.arity - 1;
    TypeId returnType = typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + arity]);
-   Fn* newToplevel;
    if (arity == 0) {
-      newToplevel = newFnReal(
+      return newFnReal(
          eyrFn.name,
          null,
          cgType(returnType, cg),
@@ -1083,9 +1105,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       FnParam* mainParams[2];
       mainParams[0] = paramFromChars("argc", sloppyInt, cg);
       mainParams[1] = paramFromChars("argv", pointerOf(cg->builtins.cString), cg);
-      newToplevel = newFn(
-         "main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md
-      );
+      return newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
    } else {
       cg->params->len = 0;
       for (Int n = eyrFn.nodeInd + 1; n < eyrFn.nodeInd + 1 + arity; n++) {
@@ -1095,7 +1115,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          );
          add(newParam, cg->params);
       }
-      newToplevel = newFnReal(
+      return newFnReal(
          eyrFn.name,
          cg->params,
          cgType(returnType, cg),
@@ -1103,15 +1123,19 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          cg
       );
    }
+}
+
+private void //:writeToplevelFn
+writeToplevelFn(FunctionId toplevelId, CR, CG) {
+   Fn* newToplevel = createFn(toplevelId, cr, cg);
    cg->functions[toplevelId] = newToplevel;
    CodeBlock* mainBlock = newBlock(newToplevel);
    cg->cbl = (CurrBlock){
       .fn = newToplevel,
       .start = eyrFn.nodeInd,
       .end = calcNodeSentinel(cr->ast.c[eyrFn.nodeInd], eyrFn.nodeInd),
-      .c = { .tp = bloCommon, .c = mainBlock },
-      .nextBlock = (TypedBlock){},
-      .afterBlock = (TypedBlock){}
+      .c = mainBlock,
+      .afterBlock = null
    };
 
    Node nodeFn = cr->ast.c[eyrFn.nodeInd];
@@ -1132,7 +1156,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    }
    mbCloseLoops(cg);
    if (returnType.v == tokMisc)
-      { returnVoid(cg->cbl.c.c); }
+      { returnVoid(cg->cbl.c); }
 }
 
 void temp(CG);
@@ -1177,7 +1201,6 @@ dbgBtLoops(Codegen* cg) {
 
 //}}}
 //{{{ Temp
-
 
 struct B_glb;
 struct A_glb {
@@ -1428,7 +1451,6 @@ main(int argc, char** argv) {
 
 
    cleanup:
-
 
    return 0;
 }

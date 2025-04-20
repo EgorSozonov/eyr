@@ -190,8 +190,8 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 "ifimplimportmatchpubreturntraittruetry"
 
                 // reserved words end here; what follows may have arbitrary order
-                "IntLongDoubleBoolStrVoidFLArrayDRecEnumTuPromiselencapf1f2print"
-                "printErrmath:pimath:eTUlengthaddmain"
+                "IntLongDoubleBoolStrVoidFLArrayDRecEnumTulencapf1f2print"
+                "printErrmath:pimath:eTUlengthaddmainc"
 #ifdef TEST
                 "foobarinner"
 #endif
@@ -213,10 +213,10 @@ standardStringLens[] = {
     // reserved words end here
     3, 4, 6, 4, 3, // Str(ing)
     4, 1, 1, 5, 1, // D(ict)
-    3, 4, 2, 7, 3, // len
+    3, 4, 2, 3,    // len
     3, 2, 2, 5, 8, // printErr
     7, 6, 1, 1, 6, // length
-    3, 4,          // main
+    3, 4, 1,       // main
 #ifdef TEST
     3, 3, 5        // foo, bar, inner
 #endif
@@ -391,63 +391,6 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 
 //}}}
 //}}}
-//{{{ Standard strings :standardStr
-
-#define strAlias     0
-#define strAssert    1
-#define strBreak     2
-#define strCatch     3
-#define strcinue  4
-#define strDo        5
-#define strEach      6
-#define strElseIf    7
-#define strElse      8
-#define strFalse     9
-#define strFor      10
-#define strIf       11
-#define strImpl     12
-#define strImport   13
-#define strMatch    14
-#define strPub      15
-#define strReturn   16
-#define strTrait    17
-#define strTrue     18
-#define strTry      19
-#define strFirstNonReserved 20
-#define strInt      strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
-#define strLong     21
-#define strDouble   22
-#define strBool     23
-#define strString   24
-#define strVoid     25
-#define strF        26 // F(unction type)
-#define strL        27 // L(ist)
-#define strArray    28
-#define strD        29 // D(ictionary)
-#define strRec      30 // Record
-#define strEnum     31 // Enum
-#define strTu       32 // Tu(ple)
-#define strPromise  33 // Promise
-#define strLen      34
-#define strCap      35
-#define strF1       36
-#define strF2       37
-#define strPrint    38
-#define strPrintErr 39
-#define strMathPi   40
-#define strMathE    41
-#define strTypeVarT 42
-#define strTypeVarU 43
-#define strLength   44
-#define strAdd      45
-#define strMain     46
-#ifndef TEST
-#define strSentinel 47
-#else
-#define strSentinel 50
-#endif
-
-//}}}
 //}}}
 //{{{ Forward decls & generics
 
@@ -455,7 +398,6 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // Compiler for parser functions
 private void closeStatement(LX);
-private NameId nameOfStandard(Int a);
 
 defstruct(Expr);
 defstruct(TExpr);
@@ -5939,8 +5881,8 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
       printLInt(cm->expr->exp);
    }
 #endif //}}}
-   if (name == 98) {
-      printName(98, cm);
+   if (!ovFound)  {
+      print("not found ov for fst type %d", tpFstArg.v);
    }
    VALIDATEP(ovFound, errTypeNoMatchingOverload)
    return fnId;

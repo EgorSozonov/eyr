@@ -394,20 +394,20 @@ typedef struct { //:TypeHeader
 #define strRec      30 // Record
 #define strEnum     31 // Enum
 #define strTu       32 // Tu(ple)
-#define strPromise  33 // Promise
-#define strLen      34
-#define strCap      35
-#define strF1       36
-#define strF2       37
-#define strPrint    38
-#define strPrintErr 39
-#define strMathPi   40
-#define strMathE    41
-#define strTypeVarT 42
-#define strTypeVarU 43
-#define strLength   44
-#define strAdd      45
-#define strMain     46
+#define strLen      33
+#define strCap      34
+#define strF1       35
+#define strF2       36
+#define strPrint    37
+#define strPrintErr 38
+#define strMathPi   39
+#define strMathE    40
+#define strTypeVarT 41
+#define strTypeVarU 42
+#define strLength   43
+#define strAdd      44
+#define strMain     45
+#define strContent  46
 #ifndef TEST
 #define strSentinel 47
 #else
@@ -415,6 +415,7 @@ typedef struct { //:TypeHeader
 #endif
 
 void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
+NameId nameOfStandard(Int a);
 
 //}}}
 //}}}
