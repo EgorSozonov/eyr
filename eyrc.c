@@ -98,9 +98,8 @@ typedef struct { //:CurrBlock
 
 typedef struct { //:FutureBlock
    Int start;
-   Byte tp; // the "blo" constants above
+   //Byte tp; // the "blo" constants above
    NULLABLE CodeBlock* c;
-   CodeBlock* adjacentBlock;
    CodeBlock* afterBlock;
 } FutureBlock;
 
@@ -128,7 +127,7 @@ DEFINE_LIST(BtLoop)
 typedef struct { //:Builtins
    Fn* printer; // the "printf" function
    CgType* cString; // the zero-terminated array of chars
-   CgType* sloppyInt; // the sloppy "int" type of C 
+   CgType* sloppyInt; // the sloppy "int" type of C
    RValue* formatInt; // "%d\n"
    RValue* formatDou; // "%f\n"
    RValue* formatStr; // "%s\n"
@@ -544,7 +543,7 @@ registerTypes(CG) {
       .cgType = builtinType(GCC_JIT_TYPE_DOUBLE, cg->md) };
    cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc,
       .cgType = builtinType(GCC_JIT_TYPE_VOID, cg->md) };
-      
+
    Field* stringFields[2];
    stringFields[0] = field(nameOfStandard(strLen), intType(cg), cg);
    stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
@@ -610,7 +609,7 @@ createBuiltins(CG) {
       true,
       cg->md
    );
-   
+
    return (Builtins){
       .printer = printfFn, .cString = constCharPtrTp,
       .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
@@ -641,7 +640,7 @@ createCodegen(CR, Arena* a) {
       .a = a,
       .wasError = false
    };
-   
+
    registerTypes(cg);
    Builtins builtins = createBuiltins(cg);
    cg->builtins = builtins;
@@ -744,7 +743,7 @@ assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
       cg->i++; // CONSUME the nodExpr
       expr(cg->i, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
    }
-   
+
    return null; // TODO
 }
 
@@ -770,7 +769,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
    Int const sentinel = cg->i + nd.pl2;
    if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
       { goto end; } // a function-typed local var - nothing to codegen here
-      
+
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
    Int innerExprInd = rightNodeInd; // for complex expressions
    for (; innerExprInd < sentinel && ast[innerExprInd].tp == nodAssignment; innerExprInd++) {
@@ -780,7 +779,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
    cg->i = innerExprInd;
 
    RValue* rValue = assignmentRight(rightNodeInd, innerExprInd, sentinel, ast, cg);
-   
+
    assignment(lValue, rValue, cg->cbl.c);
    end:
    cg->i = sentinel;
@@ -843,13 +842,23 @@ writeIfClause(Node nd, AST, CG) {
    }
 }
 
+private FutureBlock //:findFutureBlockAt
+findFutureBlockAt(Int j, CG) {
+   for (Int k = cg->futureBlocks.len - 1; k > -1; k--) {
+      if (cg->FutureBlocks.c[k].start == j)
+         { return cg->FutureBlocks.c[k]; }
+   }
+   // unreachable
+   return {};
+}
+
 private void //:writeIf
 writeIf(Node nd, AST, CG) {
    /* - determine the after block for the whole "if"
     - cut the current block into two, if needed
     - create blocks for every else if cond and every branch body
-   */ 
-   
+   */
+
    Int sentinel = calcNodeSentinel(nd, cg->i);
    CodeBlock* ifAfterBlock;
    Bool weSplitCurrentBlock = false;
@@ -860,32 +869,45 @@ writeIf(Node nd, AST, CG) {
    } else {
       ifAfterBlock = cg->cbl.afterBlock;
    }
-   
-   
+
    /* For an "if" expression, we need to create a block for every "else if" condition (but not for
    the "if" condition - it goes into the preceding block) and a block for every branch's body */
-   Int countElseIfs = 0;
-   Int countBranches = 0;
-   for (Int j = cg->i; j < sentinel; j = calcNodeSentinel(nd, cg->i)) {
+   for (Int j = cg->i; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
       Int ifClause = ast[j].pl3;
-      if (ifClause == ifclElseIf) {
+      if (ifClause == ifclElseIf || ifClause == ifclElse) {
+         CodeBlock* block = newBlock(cg->cbl.fn);
          add(
-            (FutureBlock){.start= , .tp = ,
-               .c = , .adjacentBlock = , .afterBlock = 
-               
-            },
+            (FutureBlock){.start = j, .c = block, .afterBlock = ifAfterBlock },
             futureBlocks
          );
       }
-         { countElseIfs++; }
-      countBranches++; 
    }
-   
-   
-   
-   
-   if (weSplitCurrentBlock)
-      { add(ifAfterBlock, cg->futureBlocks); }
+   if (weSplitCurrentBlock) {
+      add((FutureBlock){
+         .start = sentinel, .c = ifAfterBlock, .afterBlock = cg->cbl.afterBlock
+      }, cg->futureBlocks);
+   }
+
+
+   // emit the "if" condition. "cg->i + 1" to skip the nodIfClause
+   Int startIfCond = cg->i + 1;
+   Int sentinelIfCond = calcNodeSentinel(ast[cg->i], cg->i);
+
+   RValue* ifCondition = expr(startIfCond + ..., sentinelIfCond, ast, cg);
+   CodeBlock* ifBody = newBlock(cg->cbl.fn); // the body of the branch directly under "if"
+
+   // if there's an "else if" or "else", then it's this. Otherwise, ifAfterBlock
+   CodeBlock* firstAdjacent = findFutureBlockAt(if);
+   conditional(cg->cbl.c, ifBody, firstAdjacent, ifCondition);
+
+   Int start; // start node ind
+   Int end; // end node ind, exclusive
+   Fn* fn; // the function we are in
+   CodeBlock* c; // non-null during code generation
+   NULLABLE CodeBlock* afterBlock;
+
+   cg->cbl = (CurrBlock){.start = startIfBody, .end = sentinelIfBranch, .c = ifBody};
+   cg->i = startIfBody;
 }
 
 private void //:writeMatch
@@ -1391,7 +1413,7 @@ getCommandParams(int argc, char** argv) {
 Int //:main
 main(int argc, char** argv) {
    Arena* a = createArena();
-   
+
 //{{{ TEMP CODE
 //~   Codegen* cg = allocate(Codegen, a);
 //~   Module* md = gcc_jit_context_acquire();
@@ -1409,7 +1431,7 @@ main(int argc, char** argv) {
 
    CompResult* compResult = tech_sozonov_eyr_compileFile(str("program.eyr"));
    Codegen* cg = generateCode(compResult);
-   
+
    if (cg->wasError) {
       print("Code generation error");
       return 1;
@@ -1420,8 +1442,8 @@ main(int argc, char** argv) {
 
    gcc_jit_result* result = gcc_jit_context_compile(md);
    gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
-   
-   
+
+
 //~   TaskDescription task = getCommandParams(argc, argv);
 //~   if (task.errMsg.len > 0) {
 //~      print("Erroneous task description!");
