@@ -1567,11 +1567,6 @@ struct Scopes { // :Scopes
 #define exfrAccessor   6 // an umbrella for an accessor chain like `a[i][j][k]`
 #define exfrAccessIn   7 // internal accessor like `..[i]`
 
-// Eyr is a simple language, and in it public = immutable, private = mutable
-#define classImm       1
-#define classMutable   2
-#define classPubMut    3
-
 DEFINE_LIST(Var)
 
 DEFINE_LIST(Function)
@@ -1624,9 +1619,12 @@ DEFINE_INTERNAL_LIST_TYPE(Function)
 DEFINE_INTERNAL_LIST_CONSTRUCTOR(Function) //:createInListFunction
 
 DEFINE_INTERNAL_LIST_TYPE(Token) //:InListToken
-DEFINE_INTERNAL_LIST_TYPE(uint32_t)
+DEFINE_INTERNAL_LIST_CONSTRUCTOR(Token) //:createInListToken
+//DEFINE_INTERNAL_LIST_TYPE(uint32_t)
 DEFINE_INTERNAL_LIST_TYPE(Node)
 DEFINE_INTERNAL_LIST_CONSTRUCTOR(Node) //:createInListNode
+DEFINE_INTERNAL_LIST_TYPE(StructField)
+DEFINE_INTERNAL_LIST_CONSTRUCTOR(StructField) //:createInListStructField
 
 
 struct Monomorphization { //:Monomorphization
@@ -1674,6 +1672,7 @@ struct Compiler { // :Compiler
    InListInt overloads;
    InListInt types;
    StringDict* typesDict;
+   InListStructField fields;
    LMonomorphization* monos; // Addresses of monomorphizations of generic functions
 
    // GENERAL STATE
@@ -1691,12 +1690,12 @@ DEFINE_INTERNAL_LIST(numeric, Int, a) //:pushInnumeric
 DEFINE_INTERNAL_LIST(importNames, Int, a) //:pushInimportNames
 DEFINE_INTERNAL_LIST(overloads, Int, a) //:pushInoverloads
 DEFINE_INTERNAL_LIST(types, Int, a) //:pushIntypes
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Token) //:createInListToken
 DEFINE_INTERNAL_LIST(tokens, Token, a) //:pushIntokens
 DEFINE_INTERNAL_LIST(toplevels, Int, a) //:pushIntoplevels
 DEFINE_INTERNAL_LIST(vars, Var, a) //:pushInentities
 DEFINE_INTERNAL_LIST(functions, Function, a) //:pushInfunctions
 DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
+DEFINE_INTERNAL_LIST(fields, StructField, a) //:pushInfields
 
 // see the Type layout chapter in the docs
 #define sorDeclare         1 // Used for definitions of records and sum types, both generic and not
@@ -3045,7 +3044,7 @@ getNodVarForName(NameId name, CM) {
 }
 
 private VarId //:createVar
-createVar(NameId name, Byte class, FunctionId fnId, CM) {
+createVar(NameId name, Byte access, FunctionId fnId, CM) {
 // Validates a new binding (that it is unique), creates a Var for it & adds it to the current scope
 // "fnId" should be -1 for ordinary (non-function) local vars
 // Consumes no nodes
@@ -3058,15 +3057,15 @@ createVar(NameId name, Byte class, FunctionId fnId, CM) {
    VALIDATEP(mbBinding < 0, errAssignmentShadowing)
 
    VarId newVarId = cm->vars.len;
-   pushInvars(((Var){ .name = name, .class = class, .fnId = fnId }), cm);
+   pushInvars(((Var){ .name = name, .access = access, .fnId = fnId }), cm);
    if (name > -1) // nameId == -1 only for the built-in operators
       { addBinding(name, newVarId, cm); }
    return newVarId;
 }
 
 private VarId //:createVarWithType
-createVarWithType(NameId name, TypeId typeId, Byte class, FunctionId fnId, CM) {
-   VarId newVarId = createVar(name, class, fnId, cm);
+createVarWithType(NameId name, TypeId typeId, Byte access, FunctionId fnId, CM) {
+   VarId newVarId = createVar(name, access, fnId, cm);
    cm->vars.c[newVarId].typeId = typeId;
    return newVarId;
 }
@@ -3335,7 +3334,7 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
    NameId varName = leftNameTk.pl1;
    VarId varId = createVarWithType(
       varName, cm->functions.c[fnId].typeId,
-      (leftNameTk.pl2 == 1 ? classMutable : classImm), fnId, cm
+      (leftNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm), fnId, cm
    );
    newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = fnId, .pl3 = assiFnVarDef },
       locOf(leftNameTk), cm);
@@ -3394,7 +3393,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
       cm->i = assignment.sentinel; // CONSUME the whole assignment
    } else {
       VarId varId = createVarWithType(
-         assignment.name, leftType, (firstTok.pl2 == 1 ? classMutable : classImm), -1, cm
+         assignment.name, leftType, (firstTok.pl2 == 1 ? accessPrivMut : accessPrivMut), -1, cm
       );
       newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiVarAssignment },
          locOf(firstTok), cm);
@@ -3438,7 +3437,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
       varId = cm->activeBindings[assignment.name];
       Byte assiSort = assiVarAssignment;
       if (varId > -1) {
-         VALIDATEP(cm->vars.c[varId].class == classMutable, errCannotMutateImmutable)
+         VALIDATEP(cm->vars.c[varId].access == accessPrivMut, errCannotMutateImmutable)
          leftType = cm->vars.c[varId].typeId;
          if (tIsFunction(leftType, cm) > -1) { // reassignment of a function var
             NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
@@ -3449,7 +3448,8 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
          }
          assiSort = assiReassignment;
       } else {
-         varId = createVar(assignment.name, firstTok.pl2 == 1 ? classMutable : classImm, -1, cm);
+         varId =
+            createVar(assignment.name, firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm);
       }
       newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort }, locOf(firstTok), cm);
    } else if (firstTok.tp == tokAccessor) {
@@ -3689,7 +3689,7 @@ an id linked to the new entity */
    LNode* scr = e->scr;  // ((ind in scr) (count of nodes in subexpr))
 
    const VarId newVarId = cm->vars.len;
-   pushInvars(((Var) { .class = classImm, .fnId = -1 }), cm);
+   pushInvars(((Var) { .access = accessPrivImm, .fnId = -1 }), cm);
 
    Int countElements = 0;
    Int countNodes = scr->len - frame.startNode;
@@ -4750,10 +4750,10 @@ importPrelude(CM) {
    //TypeId doubToInt = addConcrFnType(1, (Int[]){ tokDouble, tokInt}, cm);
    Var constImports[2] = {
       (Var){
-         .name = nameOfStandard(strMathPi), .typeId = tokDouble, .class = classImm, .fnId = -1
+         .name = nameOfStandard(strMathPi), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
       },
       (Var){
-         .name = nameOfStandard(strMathE), .typeId = tokDouble, .class = classImm, .fnId = -1
+         .name = nameOfStandard(strMathE), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
       },
    };
    Function fnImports[5] =  {
@@ -4853,6 +4853,8 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->types.c = allocateArray(cm->types.cap, Int, a);
    memcpy(cm->types.c, PROTO.types.c, PROTO.types.len*4);
    cm->types.len = PROTO.types.len;
+
+   cm->fields = createInListStructField(16, a);
 
    cm->typesDict = copyStringDict(PROTO.typesDict, a);
 
@@ -5181,7 +5183,7 @@ pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte ca
       TypeId paramType = typeOf(cm->types.c[j]);
       NameId name = paramNameTk.pl1;
       VarId newVarId = createVarWithType(
-            name, paramType, paramNameTk.pl2 == 1 ? classMutable : classImm, -1, cm
+            name, paramType, paramNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm
       );
       newNode(
             ((Node){.tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = assiFnParam}),

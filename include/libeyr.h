@@ -72,10 +72,15 @@ void* allocateOnArena(size_t, Arena*);
 #define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
-#define VM VirtMachine* restrict vm
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+
+defstruct(SourceLoc);
+defstruct(Var);
+defstruct(Node);
+defstruct(Function);
+defstruct(StructField);
 
 //{{{ List
 
@@ -120,11 +125,6 @@ void* allocateOnArena(size_t, Arena*);
 
 #define last(lst) lst->c[lst->len - 1]
 
-defstruct(SourceLoc);
-defstruct(Var);
-defstruct(Node);
-defstruct(Function);
-
 DEFINE_LIST_HEADER(Int)
 DEFINE_LIST_HEADER(Unt)
 DEFINE_LIST_HEADER(Ulong)
@@ -153,6 +153,7 @@ DEFINE_SLICE_HEADER(Node)
 DEFINE_SLICE_HEADER(SourceLoc)
 DEFINE_SLICE_HEADER(Var)
 DEFINE_SLICE_HEADER(Function)
+DEFINE_SLICE_HEADER(StructField)
 
 //}}}
 //}}}
@@ -227,10 +228,16 @@ typedef struct { //:TypeId
     Int v;
 } TypeId;
 
+#define accessPrivImm   1 // private, which for abstract classes means "protected"
+#define accessPrivMut   2
+#define accessPubImm    3 // public immutable
+#define accessPubMut    4 // public mutable
+#define accessAbstract  5 // abstract methods in an abstract class
+
 struct Var { //:Var Local variable inside function
    TypeId typeId;
    NameId name;  // if negative, then it's a nameless local & refers to @cg.local via (-x - 1)
-   Byte class;   // mutable or immutable, public or private
+   Byte access;   // the "access" constants above
    Int fnId;     // only for aliases to functions, otherwise -1
 };
 
@@ -275,6 +282,11 @@ struct Function { //:Function Parsed or built-in function
    Int nodeInd;    // Index into @ast
    Int genericInd; // index into @monos (get full mono type & code from arg types)
    Emit emit;
+};
+
+struct StructField { //:StructField Struct field names + access are in a separate table,
+   NameId name;      // while their types are in @types (to support various instantiations of a
+   Byte access;      // single generic struct)
 };
 
 #define assiVarAssignment  1 // definition of a var
@@ -452,6 +464,7 @@ typedef struct { //:CompResult
    SliInt publicConsts;
    SliInt types;
    SliUnt names;
+   SliStructField fields;
    CompStats stats;
    Bool wasLexerError;
    Bool wasParserError;
