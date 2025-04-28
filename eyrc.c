@@ -753,7 +753,7 @@ writeVarNode(CR, CG) {
 
 private LValue* //:assignmentLeft
 assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
-// Creates a local variable or returns a pre-existing one for the left side of an assignment 
+// Creates a local variable or returns a pre-existing one for the left side of an assignment
    Node leftNd = ast[cg->i];
    if (leftNd.tp == nodVar) {
       VarId varId = leftNd.pl1;
@@ -876,13 +876,13 @@ ifCreateBlocks(Node nd, AST, CG) {
          );
       }
    }
-   
+
    if (weSplitCurrentBlock) {
       add(((FutureBlock){
          .start = sentinel, .c = ifAfterBlock, .afterBlock = cg->cbl.afterBlock
       }), cg->futureBlocks);
    }
-   
+
    Int const ifBlocksEnd = cg->futureBlocks->len;
    if (ifBlocksEnd > ifBlocksStart) // need to reverse order of newly inserted blocks
       { reverseFutureBlocks(cg->futureBlocks->c + ifBlocksStart, ifBlocksEnd - ifBlocksStart); }
@@ -894,21 +894,21 @@ ifWriteCondition(AST, CG) {
 // At the start we are pointing at the nodIfClause
    Node ifClause = ast[cg->i];
    Int const sentinelIfBranch = calcNodeSentinel(ifClause, cg->i);
-   
+
    cg->i++; // CONSUME the nodIfClause
    Node cond = ast[cg->i];
    Int const startIfCond = cond.tp == nodExpr ? cg->i + 1 : cg->i;
-   Int const startIfBody = calcNodeSentinel(cond, cg->i); 
+   Int const startIfBody = calcNodeSentinel(cond, cg->i);
 
    print("start of if cond %d start of body %d sent %d", startIfCond, startIfBody, sentinelIfBranch);
-   
+
    RValue* ifCondition = expr(startIfCond, startIfBody, ast, cg);
    CodeBlock* ifBody = newBlock(cg->cbl.fn); // the body of the branch directly under "if"
 
    // if there's an "else if" or "else", then it's this. Otherwise, ifAfterBlock
    FutureBlock firstAdjacent = last(cg->futureBlocks);
-   
-   // close the current block with two branches, and enter the first "if" clause 
+
+   // close the current block with two branches, and enter the first "if" clause
    conditional(cg->cbl.c, ifBody, firstAdjacent.c, ifCondition);
    cg->cbl = (CurrBlock){.start = startIfBody, .end = sentinelIfBranch, .c = ifBody};
    cg->i = startIfBody;
@@ -1175,10 +1175,10 @@ createFn(FunctionId toplevelId, CR, CG) {
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
    Function eyrFn = cr->functions.c[toplevelId];
-   
+
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
-   
+
    Fn* newToplevel = createFn(toplevelId, cr, cg);
    cg->functions[toplevelId] = newToplevel;
    CodeBlock* mainBlock = newBlock(newToplevel);
@@ -1207,7 +1207,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       mbCloseLoops(cg);
    }
    mbCloseLoops(cg);
-   
+
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
    if (returnType.v == tokMisc)
       { returnVoid(cg->cbl.c); }
@@ -1423,9 +1423,9 @@ dbgFutureBlocks(CG) {
    printf("FutureBlocks[ ");
    if (cg->futureBlocks->len == 0)
       { goto closing; }
-   print("%d", cg->futureBlocks->c[cg->futureBlocks->len - 1]);   
+   print("%d", cg->futureBlocks->c[cg->futureBlocks->len - 1]);
    for (Int i = cg->futureBlocks->len - 2; i > -1; i--) {
-      printf(" %d", cg->futureBlocks->c[cg->futureBlocks->len - 1]);   
+      printf(" %d", cg->futureBlocks->c[cg->futureBlocks->len - 1]);
       if (i % 8 == 0) {
          printf("\n");
       }

@@ -351,10 +351,10 @@ struct StructField { //:StructField Struct field names + access are in a separat
 #define opBoolOr         35 // ||   logical or
 #define countSignOperators 36 // sentinel of operators spelled using special signs
 
-#define opBoolNot          37 // `not` logical negation
-#define opGetElem          38 // Get list element
-#define opGetElemPtr       39 // Get pointer to list element
-#define countOperators     40 // sentinel
+#define opBoolNot          36 // `not` logical negation
+#define opGetElem          37 // Get list element
+#define opGetElemPtr       38 // Get pointer to list element
+#define countOperators     39 // sentinel
 
 //}}}
 

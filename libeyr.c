@@ -94,7 +94,7 @@ typedef struct { // :Token
 
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
-#define tokWord         6  // pl1 = nameId (index in the string table). pl2 = 1 iff followed by $
+#define tokWord         6  // pl1 = nameId (index in the string table). pl2 = 1 iff followed by '
 #define tokTypeName     7  // pl1 same as tokWord
 #define tokTypeVar      8  // pl1 same as tokWord. The `$A`
 #define tokKwArg        9  // pl2 = same as tokWord. The ":argName"
@@ -195,7 +195,7 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 "foobarinner"
 #endif
              ;
-             
+
 #define standardOperatorsLength 54 // length of the operator part above
 
 // The :standardText prepended to all source code inputs and the hash table to provide a built-in
@@ -262,7 +262,7 @@ typedef struct { // :OpDef
 } OpDef;
 
 private constexpr OpDef //:OPERATORS
-OPERATORS[countSignOperators] = {
+OPERATORS[countSignOperators + 1] = { // +1 for the "not" which is not a sign operator
    { .prec = precUnary, .name = nameLoc(0, 2), .firstSymbol = '!' },  // !.
    { .prec = 5,         .name = nameLoc(4, 2), .firstSymbol = '!' },  // !=
    { .prec = precUnary, .name = nameLoc(6, 1), .firstSymbol = '#',    // #
@@ -318,7 +318,8 @@ OPERATORS[countSignOperators] = {
    { .prec = 2,         .name = nameLoc(51, 3), .firstSymbol = '|',   // ||.
         .assignable = true },
    { .prec = 0,         .name = nameLoc(51, 2), .firstSymbol = '|',   // ||
-        .assignable=true }
+        .assignable=true },
+   { .prec = precUnary,  .name = 0, .firstSymbol = 'n' }             // not
 }; // real operator overloads filled in by "buildOperators"
 
 
@@ -1147,7 +1148,7 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* names, StringDict
       StringValue* firstElem = (StringValue*)newBucket->c;
 
       newIndString = names->len;
-      
+
       add(newName, names);
 
       *firstElem = (StringValue){.hash = hash, .indString = newIndString };
@@ -1167,7 +1168,7 @@ addStringDict(char const* text, Int startBt, Int lenBts, LUnt* names, StringDict
 
       newIndString = names->len;
       add(newName, names);
-      
+
       addValueToBucket(hm->dict + hashOffset, newIndString, hash, hm->a);
    }
    return newIndString;
@@ -2469,7 +2470,7 @@ closeStatement(LX) {
 private void //:wordNormal
 wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          Bool wasCapitalized, SRC, LX) {
-// RealStartBt is the word-initial "$", "." etc, startBt is the first letter of word
+// RealStartBt is the word-initial "$", "." etc if any, startBt is the first letter of the word
    Int lenBts = lx->i - realStartBt;
    Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId,
          .startBt = realStartBt, .lenBts = lenBts };
@@ -2510,7 +2511,7 @@ wordReserved(Unt wordType, Int wordId, Int startBt, Int realStartBt, SRC, LX) {
                lx->lexBtrack);
          pushIntokens((Token) {.tp = tokBreakCont, .pl1 = 1, .startBt = realStartBt }, lx);
       } ei (keywordTp == keywNot) {
-         pushIntokens((Token) {.tp = tokOperator, .pl1 = opBoolNot, .pl2 = precUnary, 
+         pushIntokens((Token) {.tp = tokOperator, .pl1 = opBoolNot, .pl2 = precUnary,
             .startBt = realStartBt, .lenBts = 3 }, lx
          );
       }
@@ -2577,9 +2578,11 @@ private void //:lexDot
 lexDot(SRC, LX) {
 // The dot is a start of a field accessor (if glued to prev token) or a function call.
    VALIDATEL(lx->tokens.len > 0, errUnexpectedToken);
+   Bool isCall = lx->i > 0 && (source[lx->i - 1] == aSpace || source[lx->i - 1] == aNewline);
    lx->i++; // CONSUME the dot
    VALIDATEL(lx->i < lx->stats.inpLength && isLetter(CURR_BT), errPrematureEndOfInput)
-   wordInternal(tokFieldAcc, source, lx);
+
+   wordInternal((isCall ? tokOperator : tokFieldAcc), source, lx);
 }
 
 private void //:lexSemicolon
@@ -3494,18 +3497,15 @@ pAssignment(Token tok, TOKS, CM) {
 
 private void //:preambleFor
 preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int* bodyInd) {
-/*Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
-Every out index is set to either positive or 0 for "not found".
-A "for" syntax form is quadripartite:
-1) var inits (they must all be assignments),
-2) the condition (must be an expression),
-3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
-4) loop body (arbitrary syntax forms).
-Precondition: looking at the tokScope right after tokFor.
-Postcondition: "condInd" & one of "stepInd" and "bodyInd" are guaranteed to be found
-(=> positive).
-*/
-
+// Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
+// Every out index is set to either positive or 0 for "not found".
+// A "for" syntax form is quadripartite:
+// 1) var inits (they must all be assignments),
+// 2) the condition (must be an expression),
+// 3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
+// 4) loop body (arbitrary syntax forms).
+// Precondition: looking at the tokScope right after tokFor.
+// Postcond: "condInd" & one of "stepInd" and "bodyInd" are guaranteed to be found (=> positive)
    Int const scopeSentinel = calcSentinel(toks[cm->i], cm->i);
 
    cm->i++; // CONSUME the tokScope
@@ -3811,19 +3811,22 @@ exprCopyFromScratch(Int startNodeInd, CM) {
 
 Int //:subexSkipFirstThing
 subexSkipFirstThing(Int subSentinel, TOKS, CM) {
-/* Skips a lump of tokens consisting of
- - possibly unary operator calls
- - definitely, an atom or a span
- - possibly, field accessors
-*/
+// Skips a lump of tokens consisting of:
+// - possibly unary operator calls with definitely, an atom or a span
+// - OR
+// - an atom or a span with possibly field accessors.
+// Examples: `$a`, `a.b.c` but NOT `$a.b.c`
    Int j = cm->i;
-   for (; j < subSentinel && toks[j].tp == tokOperator && OPERATORS[toks[j].pl1].prec == precUnary;
+   for (; j < subSentinel && toks[j].tp == tokOperator && toks[j].pl2 == precUnary;
          j++
-   ) {
-   }
-   VALIDATEP(j < subSentinel, errExpressionError);
+   ) {}
+   Bool foundPrefix = j > cm->i;
 
+   VALIDATEP(j < subSentinel, errExpressionError); // expression consisting solely of unary opers
    j = calcSentinel(toks[j], j);
+
+   if (foundPrefix)
+      { return j; }
    for (; j < subSentinel && toks[j].tp == tokFieldAcc; j++) {
    }
    return j;
@@ -3831,34 +3834,28 @@ subexSkipFirstThing(Int subSentinel, TOKS, CM) {
 
 void //:subexCallFirstToken
 subexCallFirstToken(Int subSentinel, Bool isInParens, TOKS, CM) {
-// Pre-parses the start of a complex subexpression. At start there should either be
-// - a word (and then it's a call unless the next token is a non-prefix operator or .fld),
-// - something else (and then the next token must be a non-prefix operator or .fld).
+// Pre-parses the start of a complex subexpression.
+// Iff the second thing is a non-prefix operator or .call, then it is the call. Otherwise, the first
+// token must be a word and *that* is the call.
    Int j = subexSkipFirstThing(subSentinel, toks, cm);
    if (j == subSentinel)
-      { goto finishCloser; }
-   Token tok = toks[cm->i];
-   if (tok.tp == tokWord && j == cm->i + 1) { // initial word that is a call
-      NameId name = tok.pl1;
-      if (toks[j].tp == tokOperator && OPERATORS[toks[j].pl1].prec != precUnary
-         || toks[j].tp == tokFieldAcc)
-         { goto finishCloser; }
+      { return; }
 
+   Token secondThing = toks[j];
+   if (secondThing.tp == tokOperator && secondThing.pl2 != precUnary) {
+      // the `a + b` or `(..) .func b` case
+      return;
+   } else {
+      // the `foo a b c` case
+      Token theCall = toks[cm->i];
+      VALIDATEP(theCall.tp == tokWord, errExpressionFunctionless);
       add(((ExprFrame) {
-            .tp = exfrCall, .name = name, .sentinel = subSentinel, .precedence = precFn,
-            .argCount = 0, .loc = locOf(tok), .isVarCall = cm->activeBindings[name] > -1
+            .tp = exfrCall, .name = theCall.pl1, .sentinel = subSentinel, .precedence = precFn,
+            .argCount = 0, .loc = locOf(theCall), .isVarCall = cm->activeBindings[theCall.pl1] > -1
          }),
          cm->expr->frames
       );
-      if (!isInParens)
-         { cm->i++; } // CONSUME the call at start of expression
-   } else {
-      VALIDATEP(toks[j].tp == tokOperator && OPERATORS[toks[j].pl1].prec != precUnary
-         || toks[j].tp == tokFieldAcc,
-         errExpressionFunctionless);
-   finishCloser:
-      if (isInParens)
-         { cm->i--; } // ROLL BACK to the tokParens
+      cm->i++; // CONSUME the call at start of expression
    }
 }
 
@@ -3997,11 +3994,10 @@ Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's t
 
 private TypeId //:exprUpToWithFrame
 exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
-/* The main "big" expression parser. Parses an expression whether there is a
-token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
-Precondition: we are looking 1 past the tokExpr or tokParens
-CONSUMES the whole expression
-*/
+// The main "big" expression parser. Parses an expression whether there is a
+// token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
+// Precondition: we are looking 1 past the tokExpr or tokParens
+// CONSUMES the whole expression
    if (cm->i + 1 == frame.sentinel) { // the [stmt 1, tokInt] case
       Token singleToken = toks[cm->i];
       if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord
@@ -4247,6 +4243,7 @@ importFns(Arr(Function) impts, Int const countFns, CM) {
    for (int j = 0; j < countFns; j++) {
       Function const fn = impts[j];
       NameId const name = fn.name;
+      print("importing name %d", name);
       Int newFnId = cm->functions.len;
       pushInfunctions(fn, cm);
       addRawOverload(name, fn.typeId, newFnId, cm);
@@ -4541,7 +4538,7 @@ buildStandardStrings(LX) {
    for (Int j = 0; j < countOperators; j++) {
       add(0, lx->names);
    }
-   
+
    for (Int i = 0; i < strSentinel; i++) {
       addStringDict(lx->sourceCode.c, standardOffsets[i], standardStringLens[i],
                  lx->names, lx->stringDict);
@@ -4582,14 +4579,6 @@ buildPreludeTypes(CM) {
    cm->activeBindings[name] = typeIndA;
 }
 
-private void //:buildInfixOperator
-buildInfixOperator(Int operId, TypeId typeId, CM) {
-// Creates an entity, pushes it to [rawOverloads] and activates its name
-   FunctionId newEntityId = cm->functions.len;
-   pushInfunctions((Function){ .typeId = typeId }, cm);
-   addRawOverload(operId, typeId, newEntityId, cm);
-}
-
 private void //:buildOper
 buildOper(Int operId, TypeId typeId, Emit emit, CM) {
 //Creates an entity, pushes it to [rawOverloads] and activates its name
@@ -4626,7 +4615,7 @@ buildOperators(CM) {
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
    TypeId voidOfInt      = addConcrFnType(1, (Int[]){ tokInt, voidType}, cm);
-   
+
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
    buildOper(opNotEqual,     boolOfIntInt, emitNotEq, cm);
@@ -4691,7 +4680,7 @@ buildOperators(CM) {
    buildOper(opBitwiseXor,   intOfIntInt, emitBitXor, cm);
    buildOper(opBitwiseOr,    intOfIntInt, emitBitOr, cm);
    buildOper(opBoolOr,       douOfDou, emitLogicOr, cm);
-   buildOper(opBoolNot,      boolOfBool, emitNegate, cm);
+   buildOper(opBoolNot,      boolOfBool, emitNegate, cm); // not
    buildOper(opGetElem,      douOfDou, emitNotEq, cm); // dummy
    buildOper(opGetElemPtr,   douOfDou, emitNotEq, cm); // dummy
 }
@@ -4855,7 +4844,7 @@ initializeParser(Compiler* lx, Arena* a) {
       .genericSt = createLTypeLoc(16, cm->aTmp),
       .concreteSt = createLTypeLoc(16, cm->aTmp),
    };
-   
+
    cm->entrypoint = -1;
 
    importPrelude(cm);
@@ -4893,8 +4882,10 @@ createNameOverloads(NameId name, CM) {
 // Precondition: @rawOverloads contain twoples of (typeId ref)
 // (typeId = the full type of a function)(ref = entityId or monoId)(yes, "twople" = tuple of two)
 // Postcondition: @overloads will contain a subtable of length(outerTypeIds)(refs)
+
    Arr(Int) raw = cm->rawOverloads->c;
    Int const listId = -cm->activeBindings[name] - 2;
+
    Int const rawStart = listId + 2;
 
 #if defined(SAFETY) || defined(TEST)
@@ -4933,8 +4924,6 @@ createOverloads(CM) {
    // Each overload requires 2x4 = 8 bytes for the pair of (outerType entityId).
    // Plus you need an int per overloaded name to hold the length of the overloads for that name
 
-   print("overloads 0");
-   
    cm->overloads.len = 0;
    for (Int j = 0; j < countOperators; j++) {
       Int newIndex = createNameOverloads(j, cm);
@@ -4955,10 +4944,7 @@ createOverloads(CM) {
    }
    sortLInts(uniqueFnNames);
    removeDuplicatesInList(uniqueFnNames);
-   
-   
-   print("overloads 1");
-   
+
    for (Int j = 0; j < uniqueFnNames->len; j++) {
       NameId name = uniqueFnNames->c[j];
       Int newIndex = createNameOverloads(name, cm);
@@ -5089,7 +5075,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    Int paramsSentinel = calcSentinel(paramListTk, cm->i);
    TypeId newFnType = voidToVoid; // default for nullary functions
    Bool const hasReturnType = fnAssign.rightTokenInd - fnAssign.nameTokenInd > 1;
-   
+
    te->isGeneric = false;
    if (!hasReturnType && paramListTk.pl2 == 0) // A void -> void function
       { goto entityAdding; }
@@ -5100,7 +5086,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
       cm->i = fnAssign.nameTokenInd; // To function name token
       returnType = teClause(te, fnAssign.rightTokenInd, toks, cm);
    }
-   
+
    Int arity = 0;
    if (paramListTk.pl2 == 0)
       { goto returnTypeAdding; }
@@ -5283,8 +5269,8 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      
-      printParser(cm);
+
+      //printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");

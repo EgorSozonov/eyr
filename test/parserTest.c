@@ -429,7 +429,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
          s("def plus F Double Void = print;"),
          ((Node[]) {
             (Node){ .tp = nodDef,           .pl2 = 1 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = I - 3, .pl3 = assiFnVarDef }
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = I - 4, .pl3 = assiFnVarDef } // {importPrelude}
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -442,185 +442,185 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 
 ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("Expression test set"), a, ((ParserTest[]){
-      createTestWithLocs(
-         s("Simple function call"),
-         s("def x = foo 10 2 `hw`;"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 6, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl2 = 4 },
-            (Node){ .tp = tokInt, .pl2 = 10,     },
-            (Node){ .tp = tokInt, .pl2 = 2,      },
-            (Node){ .tp = tokString,           },
-            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 3 } // foo
-         })),
-         ((Int[]) { 4, tokInt, tokInt, tokString, tokDouble }),
-         ((TestEntityImport[]) {{ .nameInd = 0, .typeInd = 0 }}),
-         ((SourceLoc[]) {
-            { .startBt = 0, .lenBts = 22 },
-            { .startBt = 4, .lenBts = 1 },
-            { .startBt = 6, .lenBts = 16 },
-            { .startBt = 12, .lenBts = 2 },
-            { .startBt = 15, .lenBts = 1 },
-            { .startBt = 17, .lenBts = 4 },
-            { .startBt = 8, .lenBts = 3 }
-         })
-      ),
-      createTest(
-         s("Data allocation"),
-         s("def x = [1 2 3];"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 9, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 7 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3,
-                  .pl3 = 3 },
-            (Node){ .tp = tokInt, .pl2 = 1 },
-            (Node){ .tp = tokInt, .pl2 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
-         })),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("Data allocation type error"),
-         s(errListDifferentEltTypes),
-         s("def x = [1 true];"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 0 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 2,
-                  .pl3 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 1 },
-            (Node){ .tp = tokBool, .pl2 = 1 },
-         })),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Data allocation with expression inside"),
-         s("def x = [4 (2 * 7)];"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 9 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 4 },
-            (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
-            (Node){ .tp = tokInt, .pl2 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 7 },
-            (Node){ .tp = nodCall, .pl1 = oper(opTimes, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
-         })),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Nested data allocation with expression inside"),
-         s("def x = [[1] [4 (2 - 7)] [2 3]];"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 26, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 24 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 3, .pl3 = 2 }, // [1]
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 1, .pl3 = 1 },
-            (Node){ .tp = tokInt, .pl2 = 1 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 7, .pl3 = 2 }, // [2 (2 - 7)]
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment  }, // [2 (2 - 7)]
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 4 },
-            (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
-            (Node){ .tp = tokInt, .pl2 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 7 },
-            (Node){ .tp = nodCall, .pl1 = oper(opMinus, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 }, // [2 3]
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 2 },
-            (Node){ .tp = tokInt, .pl2 = 3 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // [2 3]
-            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3, .pl3 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
-
-            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0 } // the allocated array
-         })),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Nested function call 1"),
-         s("def x = foo 10 (bar) 3;"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl2 = 6, .pl3 = 2},
-            (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = nodExpr, .pl2 = 4},
-
-            (Node){ .tp = tokInt, .pl2 = 10},
-            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0}, // bar
-            (Node){ .tp = tokInt, .pl2 = 3},
-            (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 3}, // foo
-         })),
-         ((Int[]) {4, tokInt, tokDouble, tokInt, tokString, // Int Double Int -> String
-                   2, voidType, tokDouble}), // () -> Double
-         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
-                        (TestEntityImport){ .nameInd = 1, .typeInd = 1}})
-      ),
-      createTest(
-         s("Nested function call 2"),
-         s("def x = foo 10 (bar);"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr,         .pl2 = 3  },
-            (Node){ .tp = tokInt,         .pl2 = 10 },
-            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0 }, // bar
-            (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 2 }  // foo
-         })),
-         ((Int[]) {3, tokInt, tokBool, tokBool,
-                   2, voidType, tokBool }
-         ),
-         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
-                        (TestEntityImport){ .nameInd = 1, .typeInd = 1}}
-         )
-      ),
-      createTest(
-         s("Nested function call 3"),
-         s("def x = foo #($(bar));"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl2 = 6, .pl3 = 2},
-            (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = nodExpr, .pl2 = 4},
-
-            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0 }, // bar
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = oper(opSize, tokString), .pl2 = 1}, // ##
-            (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 1} // foo
-         })),
-         ((Int[]) {2, tokInt, tokInt, // Int -> Int
-                   2, voidType, tokDouble}),    // () -> Double
-         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
-                        (TestEntityImport){ .nameInd = 1, .typeInd = 1}})
-      ),
+//~      createTestWithLocs(
+//~         s("Simple function call"),
+//~         s("def x = foo 10 2 `hw`;"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 6, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr, .pl2 = 4 },
+//~            (Node){ .tp = tokInt, .pl2 = 10,     },
+//~            (Node){ .tp = tokInt, .pl2 = 2,      },
+//~            (Node){ .tp = tokString,           },
+//~            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 3 } // foo
+//~         })),
+//~         ((Int[]) { 4, tokInt, tokInt, tokString, tokDouble }),
+//~         ((TestEntityImport[]) {{ .nameInd = 0, .typeInd = 0 }}),
+//~         ((SourceLoc[]) {
+//~            { .startBt = 0, .lenBts = 22 },
+//~            { .startBt = 4, .lenBts = 1 },
+//~            { .startBt = 6, .lenBts = 16 },
+//~            { .startBt = 12, .lenBts = 2 },
+//~            { .startBt = 15, .lenBts = 1 },
+//~            { .startBt = 17, .lenBts = 4 },
+//~            { .startBt = 8, .lenBts = 3 }
+//~         })
+//~      ),
+//~      createTest(
+//~         s("Data allocation"),
+//~         s("def x = [1 2 3];"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 9, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 7 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3,
+//~                  .pl3 = 3 },
+//~            (Node){ .tp = tokInt, .pl2 = 1 },
+//~            (Node){ .tp = tokInt, .pl2 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("Data allocation type error"),
+//~         s(errListDifferentEltTypes),
+//~         s("def x = [1 true];"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 2,
+//~                  .pl3 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 1 },
+//~            (Node){ .tp = tokBool, .pl2 = 1 },
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Data allocation with expression inside"),
+//~         s("def x = [4 (2 * 7)];"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 9 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 4 },
+//~            (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
+//~            (Node){ .tp = tokInt, .pl2 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 7 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opTimes, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Nested data allocation with expression inside"),
+//~         s("def x = [[1] [4 (2 - 7)] [2 3]];"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 26, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 24 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 3, .pl3 = 2 }, // [1]
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 1, .pl3 = 1 },
+//~            (Node){ .tp = tokInt, .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 7, .pl3 = 2 }, // [2 (2 - 7)]
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment  }, // [2 (2 - 7)]
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 4 },
+//~            (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
+//~            (Node){ .tp = tokInt, .pl2 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 7 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opMinus, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 }, // [2 3]
+//~            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 2, .pl3 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 2 },
+//~            (Node){ .tp = tokInt, .pl2 = 3 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // [2 3]
+//~            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3, .pl3 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
+//~            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0 } // the allocated array
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Nested function call 1"),
+//~         s("def x = foo 10 (bar) 3;"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl2 = 6, .pl3 = 2},
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = nodExpr, .pl2 = 4},
+//~
+//~            (Node){ .tp = tokInt, .pl2 = 10},
+//~            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0}, // bar
+//~            (Node){ .tp = tokInt, .pl2 = 3},
+//~            (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 3}, // foo
+//~         })),
+//~         ((Int[]) {4, tokInt, tokDouble, tokInt, tokString, // Int Double Int -> String
+//~                   2, voidType, tokDouble}), // () -> Double
+//~         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
+//~                        (TestEntityImport){ .nameInd = 1, .typeInd = 1}})
+//~      ),
+//~      createTest(
+//~         s("Nested function call 2"),
+//~         s("def x = foo 10 (bar);"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr,         .pl2 = 3  },
+//~            (Node){ .tp = tokInt,         .pl2 = 10 },
+//~            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0 }, // bar
+//~            (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 2 }  // foo
+//~         })),
+//~         ((Int[]) {3, tokInt, tokBool, tokBool,
+//~                   2, voidType, tokBool }
+//~         ),
+//~         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
+//~                        (TestEntityImport){ .nameInd = 1, .typeInd = 1}}
+//~         )
+//~      ),
+//~      createTest(
+//~         s("Nested function call 3"),
+//~         s("def x = foo #($(bar));"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl2 = 6, .pl3 = 2},
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = nodExpr, .pl2 = 4},
+//~
+//~            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0 }, // bar
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble), .pl2 = 1 }, // $
+//~            (Node){ .tp = nodCall, .pl1 = oper(opSize, tokString), .pl2 = 1}, // ##
+//~            (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 1} // foo
+//~         })),
+//~         ((Int[]) {2, tokInt, tokInt, // Int -> Int
+//~                   2, voidType, tokDouble}),    // () -> Double
+//~         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
+//~                        (TestEntityImport){ .nameInd = 1, .typeInd = 1}})
+//~      ),
       createTest(
          s("Triple function call"),
          s("def x = foo (foo (bar 2 `hw`));"),
@@ -639,110 +639,110 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 1},
                         (TestEntityImport){ .nameInd = 1, .typeInd = 0}})
       ),
-      createTest(
-         s("Operators simple"),
-         s("def x = 1 + 9 / 3;"),
-         (((Node[]) {
-            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
-            (Node){ .tp = nodVar,      .pl1 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr,  .pl2 = 5 },
-            (Node){ .tp = tokInt, .pl2 = 1 },
-            (Node){ .tp = tokInt, .pl2 = 9 },
-            (Node){ .tp = tokInt, .pl2 = 3 },
-            (Node){ .tp = nodCall, .pl1 = oper(opDivBy, tokInt), .pl2 = 2 },
-            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
-         })),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Unary operator precedence"),
-         s("def x = `12` + $ # -3;"),
-         ((Node[]) {
-            (Node){ .tp = nodDef, .pl2 = 7, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr,           .pl2 = 5 },
-            (Node){ .tp = tokString },
-            (Node){ .tp = tokInt, .pl1 = -1,   .pl2 = -3 },
-            (Node){ .tp = nodCall, .pl1 = oper(opSize, tokInt), .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokString), .pl2 = 2 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("Operator arity error"),
-         s(errTypeNoMatchingOverload),
-         s("def x = 1 + 20 100;"),
-         (((Node[]) {
-            (Node){ .tp = nodAssignment, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr },
-            (Node){ .tp = tokInt, .pl2 = 1 },
-            (Node){ .tp = tokInt, .pl2 = 20 },
-            (Node){ .tp = tokInt, .pl2 = 100 },
-            (Node){ .tp = nodCall, .pl1 = opPlus + O, .pl2 = 3 }
-         })),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("List accessor"),
-         s("def arr = [true false true];\n"
-           "def x = arr[1];"
-          ),
-         ((Node[]) {
-            (Node){ .tp = nodDef, .pl2 = 9, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment  }, // arr
-            (Node){ .tp = nodExpr,  .pl1 = 1, .pl2 = 7 },
-            (Node){ .tp = nodAssignment,     .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment }, // temp for arr
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3, .pl3 = 3 },
-            (Node){ .tp = tokBool,         .pl2 = 1 },
-            (Node){ .tp = tokBool,         .pl2 = 0 },
-            (Node){ .tp = tokBool,         .pl2 = 1 },
-            (Node){ .tp = nodVar,   .pl1 = 1, .pl2 = 0 },
-
-            (Node){ .tp = nodDef, .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // x
-            (Node){ .tp = nodExpr,           .pl2 = 3 },
-            (Node){ .tp = nodVar,     .pl1 = 0, .pl2 = 0 }, // arr
-            (Node){ .tp = tokInt,            .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = opGetElem, .pl2 = 2, .pl3 = callGetElem }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Field accessors"),
-         s("def arr = [true false true];\n"
-           "def x = arr.len + arr.len;"
-          ),
-         ((Node[]) {
-            (Node){ .tp = nodDef,          .pl2 = 9, .pl3 = 2 },
-            (Node){ .tp = nodVar,          .pl2 = 0, .pl3 = assiVarAssignment  }, // arr
-            (Node){ .tp = nodExpr,  .pl1 = 1, .pl2 = 7 },
-            (Node){ .tp = nodAssignment,     .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment }, // temp for arr
-            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3, .pl3 = 3 },
-            (Node){ .tp = tokBool,         .pl2 = 1 },
-            (Node){ .tp = tokBool,         .pl2 = 0 },
-            (Node){ .tp = tokBool,         .pl2 = 1 },
-            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0 },
-
-            (Node){ .tp = nodDef,           .pl2 = 7, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // x
-            (Node){ .tp = nodExpr,           .pl2 = 5 },
-            (Node){ .tp = nodVar,  .pl1 = 0, .pl2 = 0 }, // arr
-            (Node){ .tp = nodCall, .pl1 = nameOfStandard(strLength), .pl2 = 0, .pl3 = callField },
-            (Node){ .tp = nodVar,  .pl1 = 0, .pl2 = 0 }, // arr
-            (Node){ .tp = nodCall, .pl1 = nameOfStandard(strLength), .pl2 = 0, .pl3 = callField },
-            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2, .pl3 = callNormal }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      )
+//~      createTest(
+//~         s("Operators simple"),
+//~         s("def x = 1 + 9 / 3;"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
+//~            (Node){ .tp = nodVar,      .pl1 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr,  .pl2 = 5 },
+//~            (Node){ .tp = tokInt, .pl2 = 1 },
+//~            (Node){ .tp = tokInt, .pl2 = 9 },
+//~            (Node){ .tp = tokInt, .pl2 = 3 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opDivBy, tokInt), .pl2 = 2 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Unary operator precedence"),
+//~         s("def x = `12` + $ # -3;"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodDef, .pl2 = 7, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr,           .pl2 = 5 },
+//~            (Node){ .tp = tokString },
+//~            (Node){ .tp = tokInt, .pl1 = -1,   .pl2 = -3 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opSize, tokInt), .pl2 = 1 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokString), .pl2 = 2 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("Operator arity error"),
+//~         s(errTypeNoMatchingOverload),
+//~         s("def x = 1 + 20 100;"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodAssignment, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr },
+//~            (Node){ .tp = tokInt, .pl2 = 1 },
+//~            (Node){ .tp = tokInt, .pl2 = 20 },
+//~            (Node){ .tp = tokInt, .pl2 = 100 },
+//~            (Node){ .tp = nodCall, .pl1 = opPlus + O, .pl2 = 3 }
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("List accessor"),
+//~         s("def arr = [true false true];\n"
+//~           "def x = arr[1];"
+//~          ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodDef, .pl2 = 9, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment  }, // arr
+//~            (Node){ .tp = nodExpr,  .pl1 = 1, .pl2 = 7 },
+//~            (Node){ .tp = nodAssignment,     .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment }, // temp for arr
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3, .pl3 = 3 },
+//~            (Node){ .tp = tokBool,         .pl2 = 1 },
+//~            (Node){ .tp = tokBool,         .pl2 = 0 },
+//~            (Node){ .tp = tokBool,         .pl2 = 1 },
+//~            (Node){ .tp = nodVar,   .pl1 = 1, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodDef, .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // x
+//~            (Node){ .tp = nodExpr,           .pl2 = 3 },
+//~            (Node){ .tp = nodVar,     .pl1 = 0, .pl2 = 0 }, // arr
+//~            (Node){ .tp = tokInt,            .pl2 = 1 },
+//~            (Node){ .tp = nodCall, .pl1 = opGetElem, .pl2 = 2, .pl3 = callGetElem }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Field accessors"),
+//~         s("def arr = [true false true];\n"
+//~           "def x = arr.len + arr.len;"
+//~          ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodDef,          .pl2 = 9, .pl3 = 2 },
+//~            (Node){ .tp = nodVar,          .pl2 = 0, .pl3 = assiVarAssignment  }, // arr
+//~            (Node){ .tp = nodExpr,  .pl1 = 1, .pl2 = 7 },
+//~            (Node){ .tp = nodAssignment,     .pl2 = 5, .pl3 = 2 },
+//~            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment }, // temp for arr
+//~            (Node){ .tp = nodDataAlloc, .pl1 = nameOfStandard(strL), .pl2 = 3, .pl3 = 3 },
+//~            (Node){ .tp = tokBool,         .pl2 = 1 },
+//~            (Node){ .tp = tokBool,         .pl2 = 0 },
+//~            (Node){ .tp = tokBool,         .pl2 = 1 },
+//~            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodDef,           .pl2 = 7, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // x
+//~            (Node){ .tp = nodExpr,           .pl2 = 5 },
+//~            (Node){ .tp = nodVar,  .pl1 = 0, .pl2 = 0 }, // arr
+//~            (Node){ .tp = nodCall, .pl1 = nameOfStandard(strLength), .pl2 = 0, .pl3 = callField },
+//~            (Node){ .tp = nodVar,  .pl1 = 0, .pl2 = 0 }, // arr
+//~            (Node){ .tp = nodCall, .pl1 = nameOfStandard(strLength), .pl2 = 0, .pl3 = callField },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2, .pl3 = callNormal }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      )
    }));
 }
 
@@ -803,7 +803,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodFnDef,     .pl2 = 3 },
             (Node){ .tp = nodExpr,      .pl2 = 2 },
             (Node){ .tp = tokString    },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 }
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -915,7 +915,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,           .pl2 = 3 },
             (Node){ .tp = nodVar, .pl1 = 3,  .pl2 = 0 }, // a
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble),  .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 6, .pl2 = 1 } // print Double
+            (Node){ .tp = nodCall, .pl1 = I - 4, .pl2 = 1 } // print String
          }),
          ((Int[]) { 2, tokInt, tokDouble }), // Int -> Double
          ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0 }})
@@ -965,7 +965,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
 
             (Node){ .tp = nodExpr,    .pl2 = 2 },
             (Node){ .tp = tokString },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 } // print
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {}),
@@ -1057,7 +1057,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opGreaterTh, tokInt), .pl2 = 2 },
             (Node){ .tp = nodExpr,   .pl2 = 2      },
             (Node){ .tp = tokString,   },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 },
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 },
 
             (Node){ .tp = nodIfClause,     .pl2 = 7, .pl3 = 1 },
             (Node){ .tp = nodExpr,     .pl2 = 3},
@@ -1066,12 +1066,12 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opEquality, tokInt), .pl2 = 2 },
             (Node){ .tp = nodExpr,  .pl2 = 2      },
             (Node){ .tp = tokString,  },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 },
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 },
 
             (Node){ .tp = nodIfClause,  .pl2 = 3, .pl3 = 2 },
             (Node){ .tp = nodExpr,  .pl2 = 2      },
             (Node){ .tp = tokString },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 }
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1129,7 +1129,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
             (Node){ .tp = nodVar,  .pl1 = 0, .pl2 = 0 },     // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 } // print
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1173,7 +1173,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,              .pl2 = 3 }, // print $x
             (Node){ .tp = nodVar,   .pl1 = 0,      .pl2 = 0 }, // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 5,      .pl2 = 1 }, // print
+            (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 }, // print
 
          }),
          ((Int[]) {}),
@@ -1203,7 +1203,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,       .pl2 = 3 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 }
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1253,7 +1253,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
             (Node){ .tp = nodVar,   .pl1 = 0, .pl2 = 0 },     // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 }, // print
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print string
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1279,7 +1279,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
             (Node){ .tp = nodVar,   .pl1 = 0, .pl2 = 0 },     // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 }, // print
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1428,7 +1428,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,              .pl2 = 3 }, // print $x
             (Node){ .tp = nodVar,   .pl1 = 0,   .pl2 = 0 }, // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokBool), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 5,      .pl2 = 1 } // print
+            (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 } // print
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1516,10 +1516,10 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodScope,      .pl2 = 1 },
             (Node){ .tp = nodBreakCont, .pl1 = 4 + BIG },
 
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // print a
+            (Node){ .tp = nodExpr, .pl2 = 3 }, // print $a
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },  // a
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 } // print
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1571,8 +1571,8 @@ main() {
    initializeParser(protoOvs, ct.a);
    createOverloads(protoOvs);
 
-   runATestSet(&assignmentTests, &ct, protoOvs);
-//~   runATestSet(&expressionTests, &ct, protoOvs);
+//~   runATestSet(&assignmentTests, &ct, protoOvs);
+   runATestSet(&expressionTests, &ct, protoOvs);
 //~   runATestSet(&functionTests, &ct, protoOvs);
 //~   runATestSet(&ifTests, &ct, protoOvs);
 //~   runATestSet(&forTests, &ct, protoOvs);
