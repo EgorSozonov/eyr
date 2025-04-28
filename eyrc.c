@@ -136,7 +136,7 @@ typedef struct { //:Builtins
 typedef struct { //:Codegen
    Int i; // current node index
    CurrBlock cbl; // no relation to Carbon-Based Lifeforms
-   LFutureBlock* futureBlocks;
+   LFutureBlock* futureBlocks; // future block at lowest AST index is at the top
    LBtLoop* bt;// backtrack of loop conditions, used for "continue" block linking
 
    Module* md;
@@ -473,14 +473,14 @@ typedef void (*CgFunc)(Node, Arr(Node const) const restrict, Codegen* restrict);
 #define hostAbs      10
 
 
-CG_FUN(writeScope); CG_FUN(writeExpr); CG_FUN(writeAssignment); CG_FUN(writeDataAlloc);
+CG_FUN(writeNop); CG_FUN(writeExpr); CG_FUN(writeAssignment); CG_FUN(writeDataAlloc);
 CG_FUN(writeAssert); CG_FUN(writeBreakCont); CG_FUN(writeTry); CG_FUN(writeCatch);
 CG_FUN(writeFnDef); CG_FUN(writeDef);
 CG_FUN(writeTrait); CG_FUN(writeImpl); CG_FUN(writeReturn);
-CG_FUN(writeFor); CG_FUN(writeIf); CG_FUN(writeIfClause); CG_FUN(writeMatch);
+CG_FUN(writeFor); CG_FUN(writeIf); CG_FUN(writeMatch);
 
 private CgFunc const CODEGEN_TABLE[countSpanForms] = {
-   [0]                        = &writeScope,
+   [0]                        = &writeNop, // scopes do not affect codegen!
    [nodExpr       - nodScope] = &writeExpr,
    [nodAssignment - nodScope] = &writeAssignment,
    [nodDataAlloc  - nodScope] = &writeDataAlloc,
@@ -495,20 +495,17 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [nodReturn     - nodScope] = &writeReturn,
    [nodFor        - nodScope] = &writeFor,
    [nodIf         - nodScope] = &writeIf,
-/* [nodIfClause   - nodScope] = &writeIfClause, not needed because will be handled by {openBlock} */
+   [nodIfClause   - nodScope] = &writeNop, // not needed because will be handled by {openBlock}
    [nodMatch      - nodScope] = &writeMatch
 };
 
 //{{{ Host text
 
 // Host strings for codegen. Must agree in order with the "host" constants below :hostText
-constexpr char hostText[] = "functionelseconstletlonewArrayconsole.logpushlengthMath.abs"
-                            "";
+constexpr char hostText[] = "mallocfree";
 constexpr Byte
 hostStringLens[] = {
-    8, 4, 5, 3, 2,  // lo
-    3, 5, 11, 4, 6, // length
-    8
+    6, 4
 };
 
 private Int
@@ -572,6 +569,12 @@ doubleType(CG) {
    return cg->typeRefs[tokDouble].cgType;
 }
 
+private TypeId //:tFunctionReturnType
+tFunctionReturnType(TypeId funcTypeId, CR) {
+   TypeHeader hdr = tech_sozonov_eyr_readTypeHeader(funcTypeId, cr->types.c);
+   return typeOf(cr->types.c[funcTypeId.v + TYPE_PREFIX_LEN + hdr.arity - 1]);
+}
+
 //}}}
 //{{{ Code generator
 //{{{ Codegen utils
@@ -592,6 +595,25 @@ prepareName(NameId nameId, CG) {
    memcpy(&(cg->buffer), cg->compResult.sourceCode.c + (name & LOWER24BITS), name >> 24);
    cg->bufferLen = (name & LOWER24BITS) + 1;
    cg->buffer[name >> 24] = '\0';
+}
+
+private void //:reverseFutureBlocks
+reverseFutureBlocks(FutureBlock* bl, Int count) {
+   for (Int i = 0, j = count - 1; i < j; i++, j--) {
+      FutureBlock tmp = bl[i];
+      bl[i] = bl[j];
+      bl[j] = tmp;
+   }
+}
+
+private FutureBlock //:findFutureBlockAt
+findFutureBlockAt(Int j, CG) {
+   for (Int k = cg->futureBlocks->len - 1; k > -1; k--) {
+      if (cg->futureBlocks->c[k].start == j)
+         { return cg->futureBlocks->c[k]; }
+   }
+   // unreachable
+   return (FutureBlock){};
 }
 
 //}}}
@@ -679,9 +701,10 @@ init() {
 
 private RValue* //:expr
 expr(Int start, Int sentinel, AST, CG) {
+// Converts an Eyr expression into a Libgccjit one. Consumes no nodes. Returns the result of expr.
+// Does NOT handle complex expressions or void-returning functions
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
-// Consumes no nodes. Does NOT handle complex expressions or void-returning functions
-// Precondition: we are looking 1 past the nodExpr/singular node. Consumes all nodes of the expr
+// Precondition: we are looking 1 past the nodExpr/singular node.
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
    for (Int j = start; j < sentinel; j++) {
@@ -705,7 +728,7 @@ expr(Int start, Int sentinel, AST, CG) {
          }
       }
    }
-   return exp->c[0];
+   return exp->c[0]; // the type checker guarantees that there is only one element at this point
 }
 
 private void //:writeExpr
@@ -730,7 +753,7 @@ writeVarNode(CR, CG) {
 
 private LValue* //:assignmentLeft
 assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
-// Writes the left side & equals sign
+// Creates a local variable or returns a pre-existing one for the left side of an assignment 
    Node leftNd = ast[cg->i];
    if (leftNd.tp == nodVar) {
       VarId varId = leftNd.pl1;
@@ -749,6 +772,7 @@ assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
 
 private RValue* //:assignmentRight
 assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
+// Evaluates the right side of an expression
 // the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
 // assignments have been skipped).
    if (innerExprInd > rightNodeInd) {
@@ -814,51 +838,21 @@ writeReturn(Node fr, AST, CG) {
 
    Node rightSide = ast[cg->i];
    if (rightSide.tp == nodExpr)
-      { cg->i++; }// CONSUME the expr node
+      { cg->i++; } // CONSUME the expr node
 
    RValue* returnValue = expr(cg->i, sentinel, ast, cg);
    returnFromFn(returnValue, cg->cbl.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
 
-private void //:writeScope
-writeScope(Node nd, AST, CG) {
-}
-
 private void //:writeIfClause
-writeIfClause(Node nd, AST, CG) {
-   openFrame(nd, cg);
-
-   if (nd.pl3 == ifclElse) {
-   } else {
-      if (nd.pl3 == ifclElseIf) {
-      }
-
-      Node expression = ast[cg->i];
-      Int exprSentinel = calcNodeSentinel(expression, cg->i);
-      cg->i++; // CONSUME the nodExpr
-      expr(cg->i, calcNodeSentinel(expression, cg->i - 1), ast, cg);
-      cg->i = exprSentinel; // CONSUME the if of "else if" condition
-   }
+writeNop(Node nd, AST, CG) {
 }
 
-private FutureBlock //:findFutureBlockAt
-findFutureBlockAt(Int j, CG) {
-   for (Int k = cg->futureBlocks.len - 1; k > -1; k--) {
-      if (cg->FutureBlocks.c[k].start == j)
-         { return cg->FutureBlocks.c[k]; }
-   }
-   // unreachable
-   return {};
-}
 
-private void //:writeIf
-writeIf(Node nd, AST, CG) {
-   /* - determine the after block for the whole "if"
-    - cut the current block into two, if needed
-    - create blocks for every else if cond and every branch body
-   */
-
+private void //:ifCreateBlocks
+ifCreateBlocks(Node nd, AST, CG) {
+// Create blocks for all the clauses and add them to @futureBlocks
    Int sentinel = calcNodeSentinel(nd, cg->i);
    CodeBlock* ifAfterBlock;
    Bool weSplitCurrentBlock = false;
@@ -870,44 +864,62 @@ writeIf(Node nd, AST, CG) {
       ifAfterBlock = cg->cbl.afterBlock;
    }
 
-   /* For an "if" expression, we need to create a block for every "else if" condition (but not for
-   the "if" condition - it goes into the preceding block) and a block for every branch's body */
+   // For an "if" expression, we need to create a block for every "else if" condition (but not for
+   // the "if" condition - it goes into the preceding block) and a block for every branch's body
+   Int const ifBlocksStart = cg->futureBlocks->len;
    for (Int j = cg->i; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
       Int ifClause = ast[j].pl3;
       if (ifClause == ifclElseIf || ifClause == ifclElse) {
          CodeBlock* block = newBlock(cg->cbl.fn);
          add(
-            (FutureBlock){.start = j, .c = block, .afterBlock = ifAfterBlock },
-            futureBlocks
+            ((FutureBlock){.start = j, .c = block, .afterBlock = ifAfterBlock }), cg->futureBlocks
          );
       }
    }
+   
    if (weSplitCurrentBlock) {
-      add((FutureBlock){
+      add(((FutureBlock){
          .start = sentinel, .c = ifAfterBlock, .afterBlock = cg->cbl.afterBlock
-      }, cg->futureBlocks);
+      }), cg->futureBlocks);
    }
+   
+   Int const ifBlocksEnd = cg->futureBlocks->len;
+   if (ifBlocksEnd > ifBlocksStart) // need to reverse order of newly inserted blocks
+      { reverseFutureBlocks(cg->futureBlocks->c + ifBlocksStart, ifBlocksEnd - ifBlocksStart); }
+}
 
+void //:ifWriteCondition
+ifWriteCondition(AST, CG) {
+// emit the "if" condition. Consumes nodes.
+// At the start we are pointing at the nodIfClause
+   Node ifClause = ast[cg->i];
+   Int const sentinelIfBranch = calcNodeSentinel(ifClause, cg->i);
+   
+   cg->i++; // CONSUME the nodIfClause
+   Node cond = ast[cg->i];
+   Int const startIfCond = cond.tp == nodExpr ? cg->i + 1 : cg->i;
+   Int const startIfBody = calcNodeSentinel(cond, cg->i); 
 
-   // emit the "if" condition. "cg->i + 1" to skip the nodIfClause
-   Int startIfCond = cg->i + 1;
-   Int sentinelIfCond = calcNodeSentinel(ast[cg->i], cg->i);
-
-   RValue* ifCondition = expr(startIfCond + ..., sentinelIfCond, ast, cg);
+   print("start of if cond %d start of body %d sent %d", startIfCond, startIfBody, sentinelIfBranch);
+   
+   RValue* ifCondition = expr(startIfCond, startIfBody, ast, cg);
    CodeBlock* ifBody = newBlock(cg->cbl.fn); // the body of the branch directly under "if"
 
    // if there's an "else if" or "else", then it's this. Otherwise, ifAfterBlock
-   CodeBlock* firstAdjacent = findFutureBlockAt(if);
-   conditional(cg->cbl.c, ifBody, firstAdjacent, ifCondition);
-
-   Int start; // start node ind
-   Int end; // end node ind, exclusive
-   Fn* fn; // the function we are in
-   CodeBlock* c; // non-null during code generation
-   NULLABLE CodeBlock* afterBlock;
-
+   FutureBlock firstAdjacent = last(cg->futureBlocks);
+   
+   // close the current block with two branches, and enter the first "if" clause 
+   conditional(cg->cbl.c, ifBody, firstAdjacent.c, ifCondition);
    cg->cbl = (CurrBlock){.start = startIfBody, .end = sentinelIfBranch, .c = ifBody};
    cg->i = startIfBody;
+}
+
+private void //:writeIf
+writeIf(Node nd, AST, CG) {
+// Consumes the first clause of an "if"
+   ifCreateBlocks(nd, ast, cg);
+   ifWriteCondition(ast, cg);
+   print("after if, i = %d", cg->i);
 }
 
 private void //:writeMatch
@@ -944,53 +956,53 @@ preambleFor(
 
 private void //:writeFor
 writeFor(Node nd, AST, CG) {
-   Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
-   Int initCount = 0;
-   Int condInd = 0;
-   Int stepCount = 0;
-   Int stepInd = 0;
-   Int bodyInd = 0;
-   preambleFor(sentinel, nd.pl3, ast, cg,
-                 OUT &initCount, OUT &condInd, OUT &stepCount, OUT &stepInd, OUT &bodyInd);
-   if (initCount > 1) { // create a special scope that the loop will be nested in
-      openFrameWithSentinel(((Node){.tp = nodScope, .pl2 = nd.pl2 - 1}), sentinel, cg);
-
-      for (; cg->i < condInd;) {
-         Node initNd = ast[cg->i];
-         cg->i++; // CONSUME the nodAssignment
-         assignmentWorker(initNd, ast, cg);
-      }
-   }
-
-   openFrameWithSentinel(nd, sentinel, cg);
-   if (initCount == 1) {
-      Node initNd = ast[cg->i];
-      cg->i++; // CONSUME the nodAssignment
-      assignmentWorker(initNd, ast, cg);
-   }
-   cg->i = condInd + 1;
-
-   // loop condition
-   Node exprNd = ast[condInd];
-   expr(condInd + 1, calcNodeSentinel(exprNd, condInd), ast, cg);
-
-   // loop steps
-   if (stepCount > 0) {
-      for ( cg->i = stepInd + 1; cg->i < bodyInd; ) {
-         Node currNd = ast[cg->i - 1];
-         if (currNd.tp == nodAssignment) {
-            assignmentWorker(currNd, ast, cg);
-         } ei (currNd.tp == nodExpr)  {
-            Int exprSentinel = calcNodeSentinel(currNd, cg->i - 1);
-            expr(cg->i, exprSentinel, ast, cg);
-            cg->i = exprSentinel;
-         } else { // TODO assert
-            cg->i = calcNodeSentinel(currNd, cg->i - 1) + 1;
-         }
-         stepCount--;
-      }
-   }
-   cg->i = MIN(bodyInd + 1, sentinel); // CONSUME everything till the body, and the opening scope
+//~   Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
+//~   Int initCount = 0;
+//~   Int condInd = 0;
+//~   Int stepCount = 0;
+//~   Int stepInd = 0;
+//~   Int bodyInd = 0;
+//~   preambleFor(sentinel, nd.pl3, ast, cg,
+//~                 OUT &initCount, OUT &condInd, OUT &stepCount, OUT &stepInd, OUT &bodyInd);
+//~   if (initCount > 1) { // create a special scope that the loop will be nested in
+//~      openFrameWithSentinel(((Node){.tp = nodScope, .pl2 = nd.pl2 - 1}), sentinel, cg);
+//~
+//~      for (; cg->i < condInd;) {
+//~         Node initNd = ast[cg->i];
+//~         cg->i++; // CONSUME the nodAssignment
+//~         assignmentWorker(initNd, ast, cg);
+//~      }
+//~   }
+//~
+//~   openFrameWithSentinel(nd, sentinel, cg);
+//~   if (initCount == 1) {
+//~      Node initNd = ast[cg->i];
+//~      cg->i++; // CONSUME the nodAssignment
+//~      assignmentWorker(initNd, ast, cg);
+//~   }
+//~   cg->i = condInd + 1;
+//~
+//~   // loop condition
+//~   Node exprNd = ast[condInd];
+//~   expr(condInd + 1, calcNodeSentinel(exprNd, condInd), ast, cg);
+//~
+//~   // loop steps
+//~   if (stepCount > 0) {
+//~      for ( cg->i = stepInd + 1; cg->i < bodyInd; ) {
+//~         Node currNd = ast[cg->i - 1];
+//~         if (currNd.tp == nodAssignment) {
+//~            assignmentWorker(currNd, ast, cg);
+//~         } ei (currNd.tp == nodExpr)  {
+//~            Int exprSentinel = calcNodeSentinel(currNd, cg->i - 1);
+//~            expr(cg->i, exprSentinel, ast, cg);
+//~            cg->i = exprSentinel;
+//~         } else { // TODO assert
+//~            cg->i = calcNodeSentinel(currNd, cg->i - 1) + 1;
+//~         }
+//~         stepCount--;
+//~      }
+//~   }
+//~   cg->i = MIN(bodyInd + 1, sentinel); // CONSUME everything till the body, and the opening scope
 }
 
 private void //:writeBreakCont
@@ -1075,7 +1087,7 @@ mbCloseLoops(CG) {
 }
 
 private void //:openBlock
-openBlock(FutureBlock futureBlock, Node nd, CG) {
+openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
 //~   Int newEnd = calcNodeSentinel(nd, cg->i);
 //~   CodeBlock* afterBlock;
 //~   if (newEnd < cg->cbl.end) {
@@ -1104,16 +1116,29 @@ openBlock(FutureBlock futureBlock, Node nd, CG) {
 //~   cg->cbl = (CurrBlock){.start = newBlock.start, .end = calcNodeSentinel(nd, cg->i),
 //~      .c = newBlock.c, .nextBlock = futureBlock.c.c, .afterBlock = futureBlock.c.c
 //~   };
+
+
+   if (nd.pl3 == ifclElse) {
+   } else {
+      if (nd.pl3 == ifclElseIf) {
+      }
+
+      Node expression = ast[cg->i];
+      Int exprSentinel = calcNodeSentinel(expression, cg->i);
+      cg->i++; // CONSUME the nodExpr
+      expr(cg->i, calcNodeSentinel(expression, cg->i - 1), ast, cg);
+      cg->i = exprSentinel; // CONSUME the if of "else if" condition
+   }
+
 }
 
 private Fn* //:createFn
 createFn(FunctionId toplevelId, CR, CG) {
+// Precondition: the function is neither imported nor generic
    Function eyrFn = cr->functions.c[toplevelId];
-   if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
-      { return; }
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    Int const arity = typeHeader.arity - 1;
-   TypeId returnType = typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + arity]);
+   TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
    if (arity == 0) {
       return newFnReal(
          eyrFn.name,
@@ -1149,6 +1174,11 @@ createFn(FunctionId toplevelId, CR, CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
+   Function eyrFn = cr->functions.c[toplevelId];
+   
+   if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
+      { return; }
+   
    Fn* newToplevel = createFn(toplevelId, cr, cg);
    cg->functions[toplevelId] = newToplevel;
    CodeBlock* mainBlock = newBlock(newToplevel);
@@ -1168,7 +1198,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       Node nd = cr->ast.c[cg->i];
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
          FutureBlock newBlock = removeLast(cg->futureBlocks);
-         openBlock(newBlock, nd, cg);
+         openBlock(newBlock, nd, cr->ast.c, cg);
          cg->i++; // CONSUME the span node
       } else {
          cg->i++; // CONSUME the span node
@@ -1177,6 +1207,8 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       mbCloseLoops(cg);
    }
    mbCloseLoops(cg);
+   
+   TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
    if (returnType.v == tokMisc)
       { returnVoid(cg->cbl.c); }
 }
@@ -1382,6 +1414,29 @@ temp2(CG) {
 //~}
 
 //}}}
+//{{{ Utils for tests & debugging
+
+#if defined(DEBUG) || defined(TEST)
+
+void //:dbgTypeOuter
+dbgFutureBlocks(CG) {
+   printf("FutureBlocks[ ");
+   if (cg->futureBlocks->len == 0)
+      { goto closing; }
+   print("%d", cg->futureBlocks->c[cg->futureBlocks->len - 1]);   
+   for (Int i = cg->futureBlocks->len - 2; i > -1; i--) {
+      printf(" %d", cg->futureBlocks->c[cg->futureBlocks->len - 1]);   
+      if (i % 8 == 0) {
+         printf("\n");
+      }
+   }
+   closing:
+   print("]");
+}
+
+#endif
+
+//}}}
 //{{{ Main
 
 private void
@@ -1412,8 +1467,6 @@ getCommandParams(int argc, char** argv) {
 
 Int //:main
 main(int argc, char** argv) {
-   Arena* a = createArena();
-
 //{{{ TEMP CODE
 //~   Codegen* cg = allocate(Codegen, a);
 //~   Module* md = gcc_jit_context_acquire();

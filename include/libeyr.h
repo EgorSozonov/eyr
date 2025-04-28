@@ -478,9 +478,7 @@ Int calcNodeSentinel(Node nd, Int nodeInd);
 Compiler* lexicallyAnalyzeFromFile(String sourceCode, Arena* a);
 String readSourceFile(String fName, Arena* a);
 CompResult* getCompResult(CM);
-
 TypeHeader tech_sozonov_eyr_readTypeHeader(TypeId t, Arr(Int) types);
-
 CompResult* tech_sozonov_eyr_compileFile(String filename);
 CompResult* tech_sozonov_eyr_compile(String sourceCode);
 

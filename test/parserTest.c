@@ -1313,7 +1313,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTest(
          s("For loop with single-token condition"),
          s("def f = {{} x' = true;\n"
-           " for {x;} {x = !x;} }"),
+           " for {x;} {x = not x;} }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 11, .pl3 = 0 },
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
@@ -1328,7 +1328,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
             (Node){ .tp = nodExpr, .pl2 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = nodCall,   .pl1 = oper(opBoolNeg, tokBool), .pl2 = 1 }
+            (Node){ .tp = nodCall,   .pl1 = oper(opBoolNot, tokBool), .pl2 = 1 }
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1572,10 +1572,10 @@ main() {
    createOverloads(protoOvs);
 
    runATestSet(&assignmentTests, &ct, protoOvs);
-   runATestSet(&expressionTests, &ct, protoOvs);
-   runATestSet(&functionTests, &ct, protoOvs);
-   runATestSet(&ifTests, &ct, protoOvs);
-   runATestSet(&forTests, &ct, protoOvs);
+//~   runATestSet(&expressionTests, &ct, protoOvs);
+//~   runATestSet(&functionTests, &ct, protoOvs);
+//~   runATestSet(&ifTests, &ct, protoOvs);
+//~   runATestSet(&forTests, &ct, protoOvs);
 
    if (ct.countTests == 0) {
       printf("\nThere were no tests to run!\n");

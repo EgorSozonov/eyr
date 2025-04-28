@@ -410,13 +410,13 @@ private void typeAddHeader(TypeHeader hdr, CM);
 private TypeHeader typeReadHeader(TypeId typeId, CM);
 private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
 private TypeId getFirstParamType(TypeId funcTypeId, CM);
-private TypeId tFunctionReturnType(TypeId funcTypeId, CM);
 private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
 private Int typeGetTyrity(TypeId typeId, CM);
 private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
 private TypeId typecheckList(Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM);
+private TypeId tFunctionReturnType(TypeId t, CM);
 private NameLoc nameOfHost(Int strId);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
@@ -4933,6 +4933,8 @@ createOverloads(CM) {
    // Each overload requires 2x4 = 8 bytes for the pair of (outerType entityId).
    // Plus you need an int per overloaded name to hold the length of the overloads for that name
 
+   print("overloads 0");
+   
    cm->overloads.len = 0;
    for (Int j = 0; j < countOperators; j++) {
       Int newIndex = createNameOverloads(j, cm);
@@ -4953,6 +4955,10 @@ createOverloads(CM) {
    }
    sortLInts(uniqueFnNames);
    removeDuplicatesInList(uniqueFnNames);
+   
+   
+   print("overloads 1");
+   
    for (Int j = 0; j < uniqueFnNames->len; j++) {
       NameId name = uniqueFnNames->c[j];
       Int newIndex = createNameOverloads(name, cm);
@@ -5084,7 +5090,6 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    TypeId newFnType = voidToVoid; // default for nullary functions
    Bool const hasReturnType = fnAssign.rightTokenInd - fnAssign.nameTokenInd > 1;
    
-
    te->isGeneric = false;
    if (!hasReturnType && paramListTk.pl2 == 0) // A void -> void function
       { goto entityAdding; }
@@ -5794,6 +5799,7 @@ tFunctionReturnType(TypeId funcTypeId, CM) {
    TypeHeader hdr = typeReadHeader(funcTypeId, cm);
    return typeOf(cm->types.c[funcTypeId.v + TYPE_PREFIX_LEN + hdr.arity - 1]);
 }
+
 
 private Bool //:tFindOverload
 tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
@@ -6782,8 +6788,8 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 }
 
 //}}}
-
 #endif
+
 //{{{ Tests only
 
 #ifdef TEST
