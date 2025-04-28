@@ -153,18 +153,17 @@ constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define slUnbraced     5 // A scope that hasn't met its first brace, like an "if" before its "{"
 #define slSingleBraced 6 // A "for" scope that has met exactly 1 curly brace
 
-
 // List of keywords that don't correspond directly to a token.
-// All these numbers must be below firstKeywordToken to avoid any clashes
+// Must all be below "firstSpanTokenType"
 #define keywTrue       1
 #define keywFalse      2
 #define keywBreak      3
 #define keywContinue   4
+#define keywNot        5
 
 #define miscPub        0    // pub. It must be 0 because it's the only one denoted by a keyword
 #define miscUnderscore 1    // _
 #define miscArrow      2    // ->
-
 
 //}}}
 
@@ -187,17 +186,16 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 
                 // reserved words: must be sorted alphabetically!
                 "aliasassertbreakcatchcontinuedefeacheifelsefalsefor"
-                "ifimplimportmatchpubreturntraittruetry"
+                "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
                 "IntLongDoubleBoolStrVoidFLArrayDRecEnumTulencapf1f2print"
-                "printErrmath:pimath:eTUlengthaddmainc"
+                "printErrmath:pimath:eTUlengthaddmaincont"
 #ifdef TEST
                 "foobarinner"
 #endif
              ;
-
-
+             
 #define standardOperatorsLength 54 // length of the operator part above
 
 // The :standardText prepended to all source code inputs and the hash table to provide a built-in
@@ -210,13 +208,14 @@ standardStringLens[] = {
     3, 4, 3, 4, 5,
     3, 2, 4, 6, 5,
     3, 6, 5, 4, 3,
+    3,
     // reserved words end here
     3, 4, 6, 4, 3, // Str(ing)
     4, 1, 1, 5, 1, // D(ict)
     3, 4, 2, 3,    // len
     3, 2, 2, 5, 8, // printErr
     7, 6, 1, 1, 6, // length
-    3, 4, 1,       // main
+    3, 4, 4,       // cont
 #ifdef TEST
     3, 3, 5        // foo, bar, inner
 #endif
@@ -230,13 +229,12 @@ standardKeywords[] = {
    tokAlias,    tokAssert,  keywBreak,  tokCatch,   keywContinue,
    tokDef,      tokEach,    tokElseIf,  tokElse,    keywFalse,
    tokFor,      tokIf,      tokImpl,    tokImport,  tokMatch,
-   tokMisc,     tokReturn,  tokTrait,   keywTrue,   tokTry
+   tokMisc,     tokReturn,  tokTrait,   keywTrue,   tokTry,
+   keywNot
 };
 
 //}}}
 //{{{ Operators definitions
-
-//constexpr Int countRealOperators = countOperators - 2; // The "unreal" ones are `a[..]`
 
 #define nameLoc(start, len) ((len << 24) + start)
 #define precUnary 100   // The highest precedence for operators (implies arity = 1)
@@ -264,10 +262,9 @@ typedef struct { // :OpDef
 } OpDef;
 
 private constexpr OpDef //:OPERATORS
-OPERATORS[countOperators] = {
+OPERATORS[countSignOperators] = {
    { .prec = precUnary, .name = nameLoc(0, 2), .firstSymbol = '!' },  // !.
    { .prec = 5,         .name = nameLoc(4, 2), .firstSymbol = '!' },  // !=
-   { .prec = precUnary, .name = nameLoc(0, 1), .firstSymbol = '!' },  // !
    { .prec = precUnary, .name = nameLoc(6, 1), .firstSymbol = '#',    // #
         .overloadable=true },
    { .prec = precUnary, .name = nameLoc(8, 1),  .firstSymbol = '$'  }, // $
@@ -604,18 +601,16 @@ clearArena(Arena* a) { //:clearArena
 //}}}
 //{{{ Internal lists
 
-#define DEFINE_INTERNAL_LIST_TYPE(T)\
+#define DEFINE_INTERNAL_LIST_HEADER(T)\
 typedef struct {\
    Arr(T) c;\
    Int len;\
    Int cap;\
-} InList##T;
-
-#define DEFINE_INTERNAL_LIST_CONSTRUCTOR(T)             \
+} InList##T;\
 private InList##T createInList##T(Int initCap, Arena* a) { \
    return (InList##T){                            \
       .c = allocateArray(initCap, T, a),   \
-      .len = 0, .cap = initCap };             \
+      .len = 0, .cap = initCap };\
 }
 
 #define DEFINE_INTERNAL_LIST(fieldName, T, aName)         \
@@ -802,11 +797,9 @@ copyMultiAssocList(MultiAssocList* ml, Arena* a) {
 //}}}
 //{{{ Datatypes a la carte
 
-DEFINE_INTERNAL_LIST_TYPE(Int)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Int) //:createInListInt
+DEFINE_INTERNAL_LIST_HEADER(Int)
 
-DEFINE_INTERNAL_LIST_TYPE(Ulong)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Ulong) //:createInListUlong
+DEFINE_INTERNAL_LIST_HEADER(Ulong)
 
 //}}}
 //{{{ Strings
@@ -1610,21 +1603,12 @@ typedef struct { //:GenericCall
    Int tokenInd;
 } GenericCall;
 
-DEFINE_INTERNAL_LIST_TYPE(Assignment)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Assignment)  //:createInListToplevel
-
-DEFINE_INTERNAL_LIST_TYPE(Var)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Var) //:createInListVar
-DEFINE_INTERNAL_LIST_TYPE(Function)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Function) //:createInListFunction
-
-DEFINE_INTERNAL_LIST_TYPE(Token) //:InListToken
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Token) //:createInListToken
-//DEFINE_INTERNAL_LIST_TYPE(uint32_t)
-DEFINE_INTERNAL_LIST_TYPE(Node)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(Node) //:createInListNode
-DEFINE_INTERNAL_LIST_TYPE(StructField)
-DEFINE_INTERNAL_LIST_CONSTRUCTOR(StructField) //:createInListStructField
+DEFINE_INTERNAL_LIST_HEADER(Assignment)
+DEFINE_INTERNAL_LIST_HEADER(Var)
+DEFINE_INTERNAL_LIST_HEADER(Function)
+DEFINE_INTERNAL_LIST_HEADER(Token) //:InListToken
+DEFINE_INTERNAL_LIST_HEADER(Node)
+DEFINE_INTERNAL_LIST_HEADER(StructField)
 
 
 struct Monomorphization { //:Monomorphization
@@ -1996,8 +1980,7 @@ prepareInput(char const* content, Arena* a) {
 
 NameId //:nameOfStandard
 nameOfStandard(Int strId) {
-/* Converts a standard string to its nameId. Doesn't work for reserved words, obviously. So the
-   argument must be >= "strFirstNonreserved" */
+// Converts a standard string to its nameId.
    return (NameId)((Unt)(strId + countOperators));
 }
 
@@ -2005,9 +1988,8 @@ private void //:skipSpaces
 skipSpaces(Arr(char const) source, LX) {
    while (lx->i < lx->stats.inpLength) {
       Byte currBt = CURR_BT;
-      if (!isSpace(currBt)) {
-         return;
-      }
+      if (!isSpace(currBt))
+         { return; }
       lx->i++;
    }
 }
@@ -2527,6 +2509,10 @@ wordReserved(Unt wordType, Int wordId, Int startBt, Int realStartBt, SRC, LX) {
          add(((BtToken){ .tp = tokBreakCont, .tokenInd = lx->tokens.len, .spanLevel = slStmt}),
                lx->lexBtrack);
          pushIntokens((Token) {.tp = tokBreakCont, .pl1 = 1, .startBt = realStartBt }, lx);
+      } ei (keywordTp == keywNot) {
+         pushIntokens((Token) {.tp = tokOperator, .pl1 = opBoolNot, .pl2 = precUnary, 
+            .startBt = realStartBt, .lenBts = 3 }, lx
+         );
       }
    } else {
       lexProcessSyntaxForm(keywordTp, realStartBt, source, lx);
@@ -2654,10 +2640,10 @@ lexOperator(SRC, LX) { //:lexOperator
    Byte thirdSymbol = (lx->stats.inpLength > lx->i + 2) ? source[lx->i + 2] : 0;
    Int k = 0;
    Int opType = -1; // corresponds to the op... operator types
-   while (k < countOperators && OPERATORS[k].firstSymbol < firstSymbol) {
+   while (k < countSignOperators && OPERATORS[k].firstSymbol < firstSymbol) {
       k++;
    }
-   while (k < countOperators && OPERATORS[k].firstSymbol == firstSymbol) {
+   while (k < countSignOperators && OPERATORS[k].firstSymbol == firstSymbol) {
       NameLoc opName = OPERATORS[k].name;
       char const* opByte = source + (opName & LOWER24BITS) + 1;
       char const* sentinel = opByte + (opName >> 24) - 1;
@@ -4555,16 +4541,11 @@ buildStandardStrings(LX) {
    for (Int j = 0; j < countOperators; j++) {
       add(0, lx->names);
    }
+   
    for (Int i = 0; i < strSentinel; i++) {
       addStringDict(lx->sourceCode.c, standardOffsets[i], standardStringLens[i],
                  lx->names, lx->stringDict);
    }
-}
-
-private NameId //:stToFullName
-stToFullName(Int sta, CM) {
-// Converts a standard string to its nameId. Doesn't work for reserved words, obviously
-   return cm->names->c[sta + countOperators];
 }
 
 private void //:buildPreludeTypes
@@ -4645,12 +4626,12 @@ buildOperators(CM) {
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
    TypeId voidOfInt      = addConcrFnType(1, (Int[]){ tokInt, voidType}, cm);
+   
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
    buildOper(opNotEqual,     boolOfIntInt, emitNotEq, cm);
    buildOper(opNotEqual,     boolOfDoubDoub, emitNotEq, cm);
    buildOper(opNotEqual,     boolOfStrStr, emitNotEq, cm); //TODO
-   buildOper(opBoolNeg,      boolOfBool, emitNegate, cm);
    buildOper(opSize,         intOfStr, emitNotEq, cm); // #
    buildOper(opSize,         intOfInt, emitNotEq, cm);
    buildOper(opToString,     strOfInt, emitNotEq, cm); // $
@@ -4710,6 +4691,7 @@ buildOperators(CM) {
    buildOper(opBitwiseXor,   intOfIntInt, emitBitXor, cm);
    buildOper(opBitwiseOr,    intOfIntInt, emitBitOr, cm);
    buildOper(opBoolOr,       douOfDou, emitLogicOr, cm);
+   buildOper(opBoolNot,      boolOfBool, emitNegate, cm);
    buildOper(opGetElem,      douOfDou, emitNotEq, cm); // dummy
    buildOper(opGetElemPtr,   douOfDou, emitNotEq, cm); // dummy
 }

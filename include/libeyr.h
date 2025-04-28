@@ -315,45 +315,46 @@ struct StructField { //:StructField Struct field names + access are in a separat
 // The order is defined by ASCII. Operator is bitwise <=> it ends with dot
 #define opBitwiseNeg      0 // !. bitwise negation
 #define opNotEqual        1 // !=
-#define opBoolNeg         2 // !
-#define opSize            3 // #
-#define opToString        4 // $
-#define opRemainder       5 // %
-#define opBitwiseAnd      6 // &&. bitwise "and"
-#define opBoolAnd         7 // &&  logical "and"
-#define opRef             8 // '  References
-#define opTimesExt        9 // *:
-#define opTimes          10 // * Multiplication and nullable pointers
-#define opIncrement      11 // ++
-#define opPlusExt        12 // +:
-#define opPlus           13 // +
-#define opDecrement      14 // --
-#define opMinusExt       15 // -:
-#define opMinus          16 // -
-#define opNegate         17 // -
-#define opDivByExt       18 // /:
-#define opIntersect      19 // /\   type-level trait intersection ?
-#define opDivBy          20 // /
-#define opBitShiftL      21 // <<.
-#define opComparator     22 // <=>
-#define opLTZero         23 // <0   less than zero
-#define opLTEQ           24 // <=
-#define opLessTh         25 // <
-#define opRefEquality    26 // ===
-#define opEquality       27 // ==
-#define opBitShiftR      28 // >>.  unsigned right bit shift
-#define opGTZero         29 // >0   greater than zero
-#define opGTEQ           30 // >=
-#define opGreaterTh      31 // >
-#define opNullCoalesce   32 // ?:   null coalescing operator
-#define opQuestionMark   33 // ?   Initially nullable pointers
-#define opBitwiseXor     34 // ^.   bitwise XOR
-#define opBitwiseOr      35 // ||.  bitwise or
-#define opBoolOr         36 // ||   logical or
-#define opGetElem        37 // Get list element
-#define opGetElemPtr     38 // Get pointer to list element
-#define countOperators   39 // sentinel
+#define opSize            2 // #
+#define opToString        3 // $
+#define opRemainder       4 // %
+#define opBitwiseAnd      5 // &&. bitwise "and"
+#define opBoolAnd         6 // &&  logical "and"
+#define opRef             7 // '  References
+#define opTimesExt        8 // *:
+#define opTimes           9 // * Multiplication and nullable pointers
+#define opIncrement      10 // ++
+#define opPlusExt        11 // +:
+#define opPlus           12 // +
+#define opDecrement      13 // --
+#define opMinusExt       14 // -:
+#define opMinus          15 // -
+#define opNegate         16 // -
+#define opDivByExt       17 // /:
+#define opIntersect      18 // /\   type-level trait intersection ?
+#define opDivBy          19 // /
+#define opBitShiftL      20 // <<.
+#define opComparator     21 // <=>
+#define opLTZero         22 // <0   less than zero
+#define opLTEQ           23 // <=
+#define opLessTh         24 // <
+#define opRefEquality    25 // ===
+#define opEquality       26 // ==
+#define opBitShiftR      27 // >>.  unsigned right bit shift
+#define opGTZero         28 // >0   greater than zero
+#define opGTEQ           29 // >=
+#define opGreaterTh      30 // >
+#define opNullCoalesce   31 // ?:   null coalescing operator
+#define opQuestionMark   32 // ?   Initially nullable pointers
+#define opBitwiseXor     33 // ^.   bitwise XOR
+#define opBitwiseOr      34 // ||.  bitwise or
+#define opBoolOr         35 // ||   logical or
+#define countSignOperators 36 // sentinel of operators spelled using special signs
 
+#define opBoolNot          37 // `not` logical negation
+#define opGetElem          38 // Get list element
+#define opGetElemPtr       39 // Get pointer to list element
+#define countOperators     40 // sentinel
 
 //}}}
 
@@ -377,7 +378,7 @@ typedef struct { //:TypeHeader
 #define strBreak     2
 #define strCatch     3
 #define strContinue  4
-#define strDo        5
+#define strDef       5
 #define strEach      6
 #define strElseIf    7
 #define strElse      8
@@ -392,38 +393,39 @@ typedef struct { //:TypeHeader
 #define strTrait    17
 #define strTrue     18
 #define strTry      19
-#define strFirstNonReserved 20
+#define strNot      20
+#define strFirstNonReserved 21
 #define strInt      strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
-#define strLong     21
-#define strDouble   22
-#define strBool     23
-#define strString   24
-#define strVoid     25
-#define strF        26 // F(unction type)
-#define strL        27 // L(ist)
-#define strArray    28
-#define strD        29 // D(ictionary)
-#define strRec      30 // Record
-#define strEnum     31 // Enum
-#define strTu       32 // Tu(ple)
-#define strLen      33
-#define strCap      34
-#define strF1       35
-#define strF2       36
-#define strPrint    37
-#define strPrintErr 38
-#define strMathPi   39
-#define strMathE    40
-#define strTypeVarT 41
-#define strTypeVarU 42
-#define strLength   43
-#define strAdd      44
-#define strMain     45
-#define strContent  46
+#define strLong     22
+#define strDouble   23
+#define strBool     24
+#define strString   25
+#define strVoid     26
+#define strF        27 // F(unction type)
+#define strL        28 // L(ist)
+#define strArray    29
+#define strD        30 // D(ictionary)
+#define strRec      31 // Record
+#define strEnum     32 // Enum
+#define strTu       33 // Tu(ple)
+#define strLen      34
+#define strCap      35
+#define strF1       36
+#define strF2       37
+#define strPrint    38
+#define strPrintErr 39
+#define strMathPi   40
+#define strMathE    41
+#define strTypeVarT 42
+#define strTypeVarU 43
+#define strLength   44
+#define strAdd      45
+#define strMain     46
+#define strContent  47
 #ifndef TEST
-#define strSentinel 47
+#define strSentinel 48
 #else
-#define strSentinel 50
+#define strSentinel 51
 #endif
 
 void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
