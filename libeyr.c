@@ -5273,7 +5273,7 @@ parseMain(CM, Arena* a) {
       generateMonomorphizations(toks, cm);
       updateStats(cm);
 
-      //printParser(cm);
+      printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");

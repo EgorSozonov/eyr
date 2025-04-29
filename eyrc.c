@@ -91,7 +91,6 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
 typedef struct { //:CurrBlock
    Int start; // start node ind
    Int end; // end node ind, exclusive
-   Fn* fn; // the function we are in
    CodeBlock* c; // non-null during code generation
    NULLABLE CodeBlock* afterBlock;
 } CurrBlock;
@@ -136,6 +135,7 @@ typedef struct { //:Builtins
 typedef struct { //:Codegen
    Int i; // current node index
    CurrBlock cbl; // no relation to Carbon-Based Lifeforms
+   Fn* currFn; // the function we are in
    LFutureBlock* futureBlocks; // future block at lowest AST index is at the top
    LBtLoop* bt;// backtrack of loop conditions, used for "continue" block linking
 
@@ -314,7 +314,7 @@ ptrCast(RValue* v, CgType* tp, Module* md) {
 private LValue* //:localVar
 localVar(NameId name, TypeId tp, CG) {
    prepareName(name, cg);
-   return gcc_jit_function_new_local(cg->cbl.fn, NULL, cgType(tp, cg), cg->buffer);
+   return gcc_jit_function_new_local(cg->currFn, NULL, cgType(tp, cg), cg->buffer);
 }
 
 private FnParam* //:param
@@ -647,8 +647,9 @@ createCodegen(CR, Arena* a) {
    (*cg) = (Codegen) {
       .i = 0,
       .cbl = (CurrBlock){
-         .start = 0, .end = 0, .c = null, .fn = null, .afterBlock = null
+         .start = 0, .end = 0, .c = null, .afterBlock = null
       },
+      .currFn = null,
       .futureBlocks = createLFutureBlock(16, a),
       .bt = createLBtLoop(16, a),
       .bufferLen = 0,
@@ -733,6 +734,7 @@ expr(Int start, Int sentinel, AST, CG) {
 
 private void //:writeExpr
 writeExpr(Node nd, AST, CG) {
+   print("writing expr @%d", cg->i)
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    RValue* exprResult = expr(cg->i, sentinel, ast, cg);
    evalExpr(exprResult, cg->cbl.c);
@@ -812,6 +814,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
 private void //:writeAssignment
 writeAssignment(Node nd, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
+   print("writing assignment @%d", cg->i);
    assignmentWorker(nd, ast, cg);
 }
 
@@ -850,7 +853,7 @@ writeNop(Node nd, AST, CG) {
 }
 
 
-private void //:ifCreateBlocks
+private CodeBlock* //:ifCreateBlocks
 ifCreateBlocks(Node nd, AST, CG) {
 // Create blocks for all the clauses and add them to @futureBlocks
    Int sentinel = calcNodeSentinel(nd, cg->i);
@@ -858,7 +861,7 @@ ifCreateBlocks(Node nd, AST, CG) {
    Bool weSplitCurrentBlock = false;
    if (sentinel < cg->cbl.end) {
       // if the new block splits the current one into two, we need to create the tail
-      ifAfterBlock = newBlock(cg->cbl.fn);
+      ifAfterBlock = newBlock(cg->currFn);
       weSplitCurrentBlock = true;
    } else {
       ifAfterBlock = cg->cbl.afterBlock;
@@ -870,7 +873,7 @@ ifCreateBlocks(Node nd, AST, CG) {
    for (Int j = cg->i; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
       Int ifClause = ast[j].pl3;
       if (ifClause == ifclElseIf || ifClause == ifclElse) {
-         CodeBlock* block = newBlock(cg->cbl.fn);
+         CodeBlock* block = newBlock(cg->currFn);
          add(
             ((FutureBlock){.start = j, .c = block, .afterBlock = ifAfterBlock }), cg->futureBlocks
          );
@@ -886,10 +889,11 @@ ifCreateBlocks(Node nd, AST, CG) {
    Int const ifBlocksEnd = cg->futureBlocks->len;
    if (ifBlocksEnd > ifBlocksStart) // need to reverse order of newly inserted blocks
       { reverseFutureBlocks(cg->futureBlocks->c + ifBlocksStart, ifBlocksEnd - ifBlocksStart); }
+   return ifAfterBlock;
 }
 
 void //:ifWriteCondition
-ifWriteCondition(AST, CG) {
+ifWriteCondition(CodeBlock* ifAfterBlock, AST, CG) {
 // emit the "if" condition. Consumes nodes.
 // At the start we are pointing at the nodIfClause
    Node ifClause = ast[cg->i];
@@ -903,22 +907,24 @@ ifWriteCondition(AST, CG) {
    print("start of if cond %d start of body %d sent %d", startIfCond, startIfBody, sentinelIfBranch);
 
    RValue* ifCondition = expr(startIfCond, startIfBody, ast, cg);
-   CodeBlock* ifBody = newBlock(cg->cbl.fn); // the body of the branch directly under "if"
+   CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
 
    // if there's an "else if" or "else", then it's this. Otherwise, ifAfterBlock
    FutureBlock firstAdjacent = last(cg->futureBlocks);
 
    // close the current block with two branches, and enter the first "if" clause
    conditional(cg->cbl.c, ifBody, firstAdjacent.c, ifCondition);
-   cg->cbl = (CurrBlock){.start = startIfBody, .end = sentinelIfBranch, .c = ifBody};
+   cg->cbl = (CurrBlock) {
+      .start = startIfBody, .end = sentinelIfBranch, .c = ifBody, .afterBlock = ifAfterBlock
+   };
    cg->i = startIfBody;
 }
 
 private void //:writeIf
 writeIf(Node nd, AST, CG) {
 // Consumes the first clause of an "if"
-   ifCreateBlocks(nd, ast, cg);
-   ifWriteCondition(ast, cg);
+   CodeBlock* ifAfterBlock = ifCreateBlocks(nd, ast, cg);
+   ifWriteCondition(ifAfterBlock, ast, cg);
    print("after if, i = %d", cg->i);
 }
 
@@ -1086,6 +1092,30 @@ mbCloseLoops(CG) {
    }
 }
 
+private void
+openIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
+   if (nd.pl3 == ifclElse) {
+      print("encountered an Else clause @%d", cg->i);
+      jump(cg->cbl.c, cg->cbl.afterBlock);
+      Int sentinel = calcNodeSentinel(nd, cg->i);
+      cg->cbl = (CurrBlock) {
+         .c = futureBlock.c, .afterBlock = futureBlock.afterBlock, .start = cg->i, .end = sentinel
+      };
+      print("created the else block from %d to %d", cg->i, sentinel);
+   } else {
+      print("encountered an Elseif clause");
+      if (nd.pl3 == ifclElseIf) {
+      }
+
+      Node expression = ast[cg->i];
+      Int exprSentinel = calcNodeSentinel(expression, cg->i);
+      cg->i++; // CONSUME the nodExpr
+      expr(cg->i, calcNodeSentinel(expression, cg->i - 1), ast, cg);
+      cg->i = exprSentinel; // CONSUME the if of "else if" condition
+   }
+
+}
+
 private void //:openBlock
 openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
 //~   Int newEnd = calcNodeSentinel(nd, cg->i);
@@ -1117,19 +1147,9 @@ openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
 //~      .c = newBlock.c, .nextBlock = futureBlock.c.c, .afterBlock = futureBlock.c.c
 //~   };
 
-
-   if (nd.pl3 == ifclElse) {
-   } else {
-      if (nd.pl3 == ifclElseIf) {
-      }
-
-      Node expression = ast[cg->i];
-      Int exprSentinel = calcNodeSentinel(expression, cg->i);
-      cg->i++; // CONSUME the nodExpr
-      expr(cg->i, calcNodeSentinel(expression, cg->i - 1), ast, cg);
-      cg->i = exprSentinel; // CONSUME the if of "else if" condition
+   if (nd.tp == nodIfClause) {
+      openIfClause(futureBlock, nd, ast, cg);
    }
-
 }
 
 private Fn* //:createFn
@@ -1180,10 +1200,10 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       { return; }
 
    Fn* newToplevel = createFn(toplevelId, cr, cg);
+   cg->currFn = newToplevel;
    cg->functions[toplevelId] = newToplevel;
    CodeBlock* mainBlock = newBlock(newToplevel);
    cg->cbl = (CurrBlock){
-      .fn = newToplevel,
       .start = eyrFn.nodeInd,
       .end = calcNodeSentinel(cr->ast.c[eyrFn.nodeInd], eyrFn.nodeInd),
       .c = mainBlock,
