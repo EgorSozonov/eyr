@@ -109,7 +109,7 @@ typedef struct { // :Token
 #define tokTypeCall    16  // `(Tu Int Str)`
 #define tokData        17  // []
 #define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
-#define tokAccessIn    19  // The internal `[]` block inside an accessor
+#define tokAccessorIn  19  // The internal `[]` block inside an accessor
 #define tokAssignment  20
 #define tokAssignRight 21  // Right-hand side of assignment
 #define tokAlias       22
@@ -2480,7 +2480,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
       if (CURR_BT == aBracketLeft && wordType == tokWord) {
          openPunctuation(tokAccessor, slSubexpr, realStartBt, lx);
          pushIntokens(newToken, lx);
-         openPunctuation(tokAccessIn, slSubexpr, lx->i, lx);
+         openPunctuation(tokAccessorIn, slSubexpr, lx->i, lx);
          lx->i++; // CONSUME the `[`
          return;
       } ei (CURR_BT == aApostrophe) {
@@ -2885,12 +2885,12 @@ lexBracketRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
-   VALIDATEL(top.tp == tokData || top.tp == tokAccessIn, errPunctuationUnmatched)
+   VALIDATEL(top.tp == tokData || top.tp == tokAccessorIn, errPunctuationUnmatched)
 
    setSpanLengthLexer(top.tokenInd, lx);
 
    if (lx->i + 1 < lx->stats.inpLength && NEXT_BT == aBracketLeft) { // `a[i][j]`
-      openPunctuation(tokAccessIn, slSubexpr, lx->i + 1, lx);
+      openPunctuation(tokAccessorIn, slSubexpr, lx->i + 1, lx);
       lx->i++; // CONSUME the `]` so the `[` will be consumed in this fn
    } else if (bt->len > 0 && last(bt).tp == tokAccessor) {
       top = removeLast(bt);
@@ -3019,10 +3019,14 @@ throwExcParser0(char const errMsg[], Int lineNumber, CM) {
 private SourceLoc
 locOf(Token tk) { return (SourceLoc){.startBt = tk.startBt, .lenBts = tk.lenBts}; }
 
-private Node //:getNodVarForName
-getNodVarForName(NameId name, CM) {
+private Node //:createNodVarForName
+createNodVarForName(NameId name, CM) {
 // Resolves an active binding, throws if it's not active
    Int rawValue = cm->activeBindings[name];
+   if (rawValue == -187) {
+      print("for name %d unknown binding", name);
+      printName(name, cm);
+   }
    VALIDATEP(rawValue > -1 && rawValue < BIG, errUnknownBinding)
    Var v = cm->vars.c[rawValue];
    if (v.fnId == -1) {
@@ -3343,7 +3347,7 @@ pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
    VALIDATEP(toks[cm->i + 1].tp == tokWord, errAssignmentLeftSide)
    for (Int j = cm->i + 2; j < sentinel; ){
       Token accessorTk = toks[j];
-      VALIDATEP(accessorTk.tp == tokAccessIn, errAssignmentLeftSide)
+      VALIDATEP(accessorTk.tp == tokAccessorIn, errAssignmentLeftSide)
       j = calcSentinel(accessorTk, j);
       add(j, sc);
    }
@@ -3646,7 +3650,7 @@ exprSingleItem(Token tk, CM) {
 // Returns the type of the single item
    TypeId typeId = ZERO_ARITY_TYPE;
    if (tk.tp == tokWord) {
-      Node node = getNodVarForName(tk.pl1, cm);
+      Node node = createNodVarForName(tk.pl1, cm);
       typeId = cm->vars.c[node.pl1].typeId;
       newNode(node, locOf(tk), cm);
    } ei (tk.tp == tokOperator) {
@@ -3810,17 +3814,17 @@ exprCopyFromScratch(Int startNodeInd, CM) {
 }
 
 Int //:subexSkipFirstThing
-subexSkipFirstThing(Int subSentinel, TOKS, CM) {
+subexSkipFirstThing(Int const start, Int const subSentinel, TOKS, CM) {
 // Skips a lump of tokens consisting of:
 // - possibly unary operator calls with definitely, an atom or a span
 // - OR
 // - an atom or a span with possibly field accessors.
 // Examples: `$a`, `a.b.c` but NOT `$a.b.c`
-   Int j = cm->i;
+   Int j = start;
    for (; j < subSentinel && toks[j].tp == tokOperator && toks[j].pl2 == precUnary;
          j++
    ) {}
-   Bool foundPrefix = j > cm->i;
+   Bool foundPrefix = j > start;
 
    VALIDATEP(j < subSentinel, errExpressionError); // expression consisting solely of unary opers
    j = calcSentinel(toks[j], j);
@@ -3832,14 +3836,14 @@ subexSkipFirstThing(Int subSentinel, TOKS, CM) {
    return j;
 }
 
-void //:subexCallFirstToken
-subexCallFirstToken(Int subSentinel, Bool isInParens, TOKS, CM) {
-// Pre-parses the start of a complex subexpression.
-// Iff the second thing is a non-prefix operator or .call, then it is the call. Otherwise, the first
-// token must be a word and *that* is the call.
-   Int j = subexSkipFirstThing(subSentinel, toks, cm);
+void //:subexProcessFirstTokenIfItsACall
+subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKS, CM) {
+// Pre-parses the start of a complex subexpression. Consumes 0 or 1 tokens.
+// Iff the second thing is a non-prefix operator or .call, returns false; otherwise the first
+// token must be a word and is processed.
+   Int j = subexSkipFirstThing(start, subSentinel, toks, cm);
    if (j == subSentinel)
-      { return; }
+      { return; } // the `(call)` case
 
    Token secondThing = toks[j];
    if (secondThing.tp == tokOperator && secondThing.pl2 != precUnary) {
@@ -3847,15 +3851,16 @@ subexCallFirstToken(Int subSentinel, Bool isInParens, TOKS, CM) {
       return;
    } else {
       // the `foo a b c` case
-      Token theCall = toks[cm->i];
+      Token theCall = toks[start];
       VALIDATEP(theCall.tp == tokWord, errExpressionFunctionless);
-      add(((ExprFrame) {
+      add(
+         ((ExprFrame) {
             .tp = exfrCall, .name = theCall.pl1, .sentinel = subSentinel, .precedence = precFn,
             .argCount = 0, .loc = locOf(theCall), .isVarCall = cm->activeBindings[theCall.pl1] > -1
          }),
          cm->expr->frames
       );
-      cm->i++; // CONSUME the call at start of expression
+      cm->i++; // CONSUME the first token because it's a call and had been processed
    }
 }
 
@@ -3890,8 +3895,7 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKS, CM) {
       add(((ExprFrame){
             .tp = tp, .startNode = e->scr->len, .sentinel = parensSentinel,
             .argCount = 0, .loc = loc }), e->frames);
-      cm->i++; // CONSUME the tokParens. Will roll back if necessary
-      subexCallFirstToken(parensSentinel, true, toks, cm);
+      subexProcessFirstTokenIfItsACall(cm->i + 1, parensSentinel, toks, cm);
    }
 }
 
@@ -3923,11 +3927,11 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
       cm->i++; // CONSUME the tokAccessor
       Token varTk = toks[cm->i];
       VALIDATEP(varTk.tp == tokWord, errExpressionError);
-      Node node = getNodVarForName(varTk.pl1, cm);
+      Node node = createNodVarForName(varTk.pl1, cm);
       add(node, e->scr);
       add(locOf(varTk), e->locsScr);
       break;
-   case tokAccessIn:
+   case tokAccessorIn:
       add(((ExprFrame) {
             .tp = exfrAccessIn, .name = opGetElem, .sentinel = calcSentinel(cTk, cm->i), .loc = loc
          }),
@@ -3943,7 +3947,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
       //-fallthrough
    case tokWord:
       if (tokType == tokWord)
-         { add(getNodVarForName(name, cm), e->scr); }
+         { add(createNodVarForName(name, cm), e->scr); }
       add(loc, e->locsScr);
       eWriteUnaryCalls(e);
       eBumpArgCount(e->frames);
@@ -3984,7 +3988,7 @@ Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's t
    if (toks[cm->i].tp != tokParens || calcSentinel(toks[cm->i], cm->i) < sentinel)
       { add(((ExprFrame){ .tp = exfrParen, .sentinel = sentinel}), frames); }
 
-   subexCallFirstToken(sentinel, false, toks, cm);
+   subexProcessFirstTokenIfItsACall(cm->i, sentinel, toks, cm);
    for (; cm->i < sentinel; cm->i++) { // CONSUME any expression token
       eClose(e, cm);
       eProcessToken(toks[cm->i], sentinel, e, toks, cm);
@@ -4243,7 +4247,6 @@ importFns(Arr(Function) impts, Int const countFns, CM) {
    for (int j = 0; j < countFns; j++) {
       Function const fn = impts[j];
       NameId const name = fn.name;
-      print("importing name %d", name);
       Int newFnId = cm->functions.len;
       pushInfunctions(fn, cm);
       addRawOverload(name, fn.typeId, newFnId, cm);
