@@ -3542,18 +3542,17 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int*
 
 private void //:pFor
 pFor(Token forTk, TOKS, CM) {
-/* For loops. Look like "(for x~ = 0;  x < 100; x++:  ... )"
-                            ^initInd ^condInd ^stepInd ^bodyInd
- At least a step or a body is syntactically required.
- End result of a parse looks like:
- nodFor
-    scope (pl3 = length of nodes to inner scope)
-       initializations
-       expr evaluating to a bool (the cond - if present)
-       step(s)
-       scope (if body not empty)
-          body
-*/
+// For loops. Look like "for x' = 0;  x < 100; x++ {  ... }"
+//                             ^initInd ^condInd ^stepInd ^bodyInd
+// At least a step or a body is syntactically required.
+// End result of a parse looks like:
+// nodFor
+//    scope (pl3 = length of nodes to inner scope)
+//       initializations
+//       expr evaluating to a bool (the cond - if present)
+//       step(s)
+//       scope (if body not empty)
+//          body
    Int const initInd = cm->i; // index of the tokScope inside tokFor
 
    cm->stats.loopCounter++;
@@ -3564,6 +3563,7 @@ pFor(Token forTk, TOKS, CM) {
    Int bodyInd; // index of loop body
    Int const forNodeInd = cm->ast.len;
 
+   print("here in pFor for some reason")
    VALIDATEP(toks[cm->i].tp == tokScope, errLoopSyntaxError)
 
    // sets inds to 0 if not found. At least one of stepInd, bodyInd is guaranteed to be positive

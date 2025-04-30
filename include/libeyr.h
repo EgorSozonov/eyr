@@ -184,8 +184,8 @@ DEFINE_SLICE_HEADER(StructField)
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
 #define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  11  /* Followed by binding or complex left side. pl3 = distance to the right
-                           side, which is always an atom, nodExpr or a nodDataAlloc */
+#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the right
+                           // side, which is always an atom, nodExpr or a nodDataAlloc
 #define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
 
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
