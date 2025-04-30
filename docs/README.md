@@ -16,9 +16,14 @@
 
 ### Source code
 
-Source code is just 3 files (eyrc.c, include/eyrc.h, eyrc.internal.h). Navigate them using code folds. For example, in Neovim,
-use "za" to toggle a fold, and "zm" to close them en masse.
+Source code is just 3 files (eyrc.c, include/libeyr.h, libeyr.c). Navigate them using code folds. For example, 
+in Neovim, use "za" to toggle a fold, and "zm" to close them en masse.
 
+The library (files "libeyr.c" and "include/libeyr.h") are the lexer+parser+typechecker that is useful
+for writing code analyzers, linters, formatters, LSPs and so on.
+
+The compiler executable (file "eyrc.c") uses libeyr as a library, too, and contains the code generator
+using the libgccjit library.
 
 
 ### Releases

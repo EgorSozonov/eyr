@@ -461,20 +461,6 @@ newStruct(NameId nameId, Int countFields, Arr(Field*) fields, CG) {
 typedef void (*CgFunc)(Node, Arr(Node const) const restrict, Codegen* restrict);
 #define CG_FUN(fnName) static void fnName(Node nd, AST, CG)
 
-// host string constants
-#define hostFunction  0
-#define hostElse      1
-#define hostConst     2
-#define hostLet       3
-#define hostLo        4
-#define hostNew       5
-#define hostArray     6
-#define hostPrint     7
-#define hostAdd       8
-#define hostLength    9
-#define hostAbs      10
-
-
 CG_FUN(writeNop); CG_FUN(writeExpr); CG_FUN(writeAssignment); CG_FUN(writeDataAlloc);
 CG_FUN(writeAssert); CG_FUN(writeBreakCont); CG_FUN(writeTry); CG_FUN(writeCatch);
 CG_FUN(writeFnDef); CG_FUN(writeDef);
@@ -509,6 +495,10 @@ constexpr Byte
 hostStringLens[] = {
     6, 4
 };
+
+// host string constants
+#define hostMalloc    0
+#define hostFree      1
 
 private Int
 hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
@@ -739,6 +729,10 @@ private void //:writeExpr
 writeExpr(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    RValue* exprResult = expr(cg->i, sentinel, ast, cg);
+   if (exprResult == null) {
+      
+      print("Null expr result @%d to sent %d", cg->i, sentinel);
+   }
    evalExpr(exprResult, cg->cbl.c);
    cg->i = sentinel;
 }
@@ -1098,14 +1092,11 @@ openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
       cg->cbl = (CurrBlock) {
          .c = futureBlock.c, .after = futureBlock.after, .start = cg->i, .sentinel = sentinel
       };
-   } else {
-      if (nd.pl3 == ifclElseIf) {
-      }
-
+   } else { //ifClElseIf
       Node expression = ast[cg->i];
       Int exprSentinel = calcNodeSentinel(expression, cg->i);
       cg->i++; // CONSUME the nodExpr
-      expr(cg->i, calcNodeSentinel(expression, cg->i - 1), ast, cg);
+      expr(cg->i, exprSentinel, ast, cg);
       cg->i = exprSentinel; // CONSUME the if of "else if" condition
    }
 }
@@ -1129,13 +1120,13 @@ openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
 }
 
 private Fn* //:createFn
-createFn(FunctionId toplevelId, CR, CG) {
+createFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
 // Precondition: the function is neither imported nor generic
    Function eyrFn = cr->functions.c[toplevelId];
    TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
-   Int const arity = typeHeader.arity - 1;
+   *arity = typeHeader.arity - 1;
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
-   if (arity == 0) {
+   if (*arity == 0) {
       return newFnReal(
          eyrFn.name,
          null,
@@ -1151,8 +1142,9 @@ createFn(FunctionId toplevelId, CR, CG) {
       return newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
    } else {
       cg->params->len = 0;
-      for (Int n = eyrFn.nodeInd + 1; n < eyrFn.nodeInd + 1 + arity; n++) {
-         NameId parName = cr->vars.c[cr->ast.c[n].pl1].name;
+      Int const paramsSentinel = eyrFn.nodeInd + 1 + (*arity);
+      for (Int n = 0; n < *arity; n++) {
+         NameId parName = cr->vars.c[cr->ast.c[eyrFn.nodeInd + n + 1].pl1].name;
          FnParam* newParam = param(
             parName, typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + n]), cg
          );
@@ -1175,7 +1167,8 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
 
-   Fn* newToplevel = createFn(toplevelId, cr, cg);
+   Int arity;
+   Fn* newToplevel = createFn(toplevelId, OUT &arity, cr, cg);
    cg->currFn = newToplevel;
    cg->functions[toplevelId] = newToplevel;
    CodeBlock* mainBlock = newBlock(newToplevel);
@@ -1189,16 +1182,19 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    Node nodeFn = cr->ast.c[eyrFn.nodeInd];
    Int const sentinel = calcNodeSentinel(nodeFn, eyrFn.nodeInd);
 
-   cg->i = eyrFn.nodeInd + 1;
+   cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodFnDef and the parameters
    for (; cg->i < sentinel;) {
       Node nd = cr->ast.c[cg->i];
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
          FutureBlock newBlock = removeLast(cg->futureBlocks);
          openBlock(newBlock, nd, cr->ast.c, cg);
-      } else {
-         cg->i++; // CONSUME the span node
-         (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.c, cg);
       }
+      if (nd.tp < nodScope) {
+         print("LOOP erroneous tp %d @%d", nd.tp, nodScope)
+      }
+      print("LOOP i %d", cg->i);
+      cg->i++; // CONSUME the span node
+      (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.c, cg);
       mbCloseLoops(cg);
    }
    mbCloseLoops(cg);
@@ -1327,86 +1323,6 @@ temp2(CG) {
        print("OK %d %d", compiledFns[0](), compiledFns[1]());
     }
 }
-
-//~void //:temp
-//~temp(CG) {
-//~   Module* md = cg->md;
-//~   registerTypes(cg);
-//~
-//~   CgType* constCharPtrTp = builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, md);
-//~   CgType* const intTp = intType(cg);
-//~   CgType* const voidTp = voidType(cg);
-//~   FnParam* paramFormat = paramFromChars("format", constCharPtrTp, md);
-//~   Fn* printfFn = importFn("printf", 1, &paramFormat, intTp, true, md);
-//~
-//~
-//~   FnParam* paramInt1 = paramFrom("i", intTp, md);
-//~   Fn* fn1 = newFn("fn1", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
-//~   CodeBlock* bl1 = newBlock(fn1);
-//~   FnParam* paramInt2 = newParam("i", intTp, md);
-//~   Fn* fn2 = newFn("fn2", GCC_JIT_FUNCTION_EXPORTED, 0, null, voidTp, md);
-//~   CodeBlock* bl2 = newBlock(fn2);
-//~
-//~   RValue* zero = intConst(0, cg);
-//~   RValue* one = intConst(1, cg);
-//~   RValue* fifteen = intConst(15, cg);
-//~   RValue* hundred = intConst(100, cg);
-//~   RValue* hwArgs[2];
-//~   hwArgs[0] = strConst("HW from f1 %d\n", md);
-//~   hwArgs[1] = fifteen;
-//~   evalExpr(call(printfFn, 2, hwArgs, md), bl1);
-//~   returnVoid(bl1);
-//~
-//~   hwArgs[0] = strConst("HW from f2 %d\n", md);
-//~   hwArgs[1] = hundred;
-//~   evalExpr(call(printfFn, 2, hwArgs, md), bl2);
-//~   returnVoid(bl2);
-//~
-//~   CgType* fnTp = fnPointerType(0, null, voidTp, md);
-//~   CgType* fTableTp = gcc_jit_context_new_array_type(md, null, fnTp, 2);
-//~   LValue* fTable = gcc_jit_context_new_global(
-//~      md, null, GCC_JIT_GLOBAL_INTERNAL, fTableTp, "FTABLE"
-//~   );
-//~   RValue* fns[2];
-//~   fns[0] = gcc_jit_function_get_address(fn1, null);
-//~   fns[1] = gcc_jit_function_get_address(fn2, null);
-//~
-//~   gcc_jit_function_type* validatingT1 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[0]));
-//~   gcc_jit_function_type* validatingT2 = gcc_jit_type_dyncast_function_ptr_type(gcc_jit_rvalue_get_type(fns[1]));
-//~   print("function pointer types %p and %p", validatingT1, validatingT2);
-//~
-//~   fTable = gcc_jit_global_set_initializer_rvalue(
-//~      fTable,
-//~      gcc_jit_context_new_array_constructor(md, null, fTableTp, 2, fns)
-//~   );
-//~
-//~   FnParam* mainParams[2];
-//~   mainParams[0] = paramFromChars("argc", typeOf(tokInt), cg);
-//~   mainParams[1] = paramFromChars("argv", pointerOf(constCharPtrTp), cg);
-//~   Fn* mainFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, intTp, md);
-//~
-//~   CodeBlock* mainBlock = newBlock(mainFn);
-//~
-//~   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), zero, md)), 0, null, md), mainBlock);
-//~   evalExpr(callFnPtr(rValueOf(arrElem(rValueOf(fTable), one, md)), 0, null, md), mainBlock);
-//~
-//~   returnFromBlock(intConst(0, cg), mainBlock);
-//~
-//~   //gcc_jit_type *gcc_jit_context_new_function_ptr_type(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *return_type, int num_params, gcc_jit_type **param_types, int is_variadic)
-//~
-//~
-//~   //gcc_jit_lvalue *gcc_jit_context_new_global(gcc_jit_context *ctxt, gcc_jit_location *loc, GCC_JIT_GLOBAL_INTERNAL, gcc_jit_type *type, const char *name)
-//~   // gcc_jit_lvalue *gcc_jit_global_set_initializer_rvalue(gcc_jit_lvalue *global, gcc_jit_rvalue *init_value)
-//~   //gcc_jit_rvalue *gcc_jit_context_new_array_constructor(gcc_jit_context *ctxt, gcc_jit_location *loc, gcc_jit_type *type, size_t num_values, gcc_jit_rvalue **values)
-//~
-//~
-//~
-//~
-//~   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "_target/program");
-//~
-//~   gcc_jit_result* result = gcc_jit_context_compile(md);
-//~   gcc_jit_context_dump_to_file(md, "_target/outputDump.c", 0);
-//~}
 
 //}}}
 //{{{ Utils for tests & debugging
