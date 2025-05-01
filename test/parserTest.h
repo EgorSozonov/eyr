@@ -2,7 +2,6 @@
 
 typedef struct Arena Arena;
 
-
 Arena* createArena(void);
 
 void* allocateOnArena(size_t allocSize, Arena* a);
@@ -19,6 +18,9 @@ typedef struct {
     Int countPassed;
     Arena* a;
 } TestContext;
+
+typedef libeyr_String String;
+typedef libeyr_CompResult CompResult;
 
 //}}}
 //{{{ Lexer

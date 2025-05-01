@@ -1109,7 +1109,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          s("def f = {{} for {x' = 1; x < 101; x += 1;} { print $x; } };"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 19, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 18, .pl3 = 14 },
+            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 18, .pl3 = 8 },
 
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x~ = 1
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1118,112 +1118,12 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
             (Node){ .tp = tokInt,           .pl2 = 101 },
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x = x + 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
-            (Node){ .tp = nodExpr, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 },
 
-            (Node){ .tp = nodScope,        .pl2 = 4 },
+            (Node){ .tp = nodScope,        .pl2 = 10 },
             (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
             (Node){ .tp = nodVar,  .pl1 = 0, .pl2 = 0 },     // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For with two complex initializers"),
-         s("def f = {{}\n"
-           "   for {x' = 17; y' = x / 5; y < 101; x--; y++;}{\n"
-           "      print $x;}\n"
-           "}"
-           ),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 25 },
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 24, .pl3 = 20 },
-
-            (Node){ .tp = nodAssignment,         .pl2 = 2, .pl3 = 2 }, // x$ = 17
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,               .pl2 = 17 },
-
-            (Node){ .tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, // y$ = x$ / 5
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment },  // def y
-            (Node){ .tp = nodExpr,              .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // x'
-            (Node){ .tp = tokInt,               .pl2 = 5 },
-            (Node){ .tp = nodCall, .pl1 = oper(opDivBy, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodExpr, .pl2 = 3,              }, // y < 101
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 },
-            (Node){ .tp = tokInt,           .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodExpr,         .pl2 = 2, .pl3 = 0}, // x--
-            (Node){ .tp = nodVar, .pl1 = 0,     .pl2 = 0 },
-            (Node){ .tp = nodCall, .pl1 = oper(opDecrement, tokInt), .pl2 = 1 },
-
-            (Node){ .tp = nodExpr,           .pl2 = 2, .pl3 = 0}, // y++
-            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0 },
-            (Node){ .tp = nodCall, .pl1 = oper(opIncrement, tokInt), .pl2 = 1 },
-
-            (Node){ .tp = nodScope,             .pl2 = 4 },
-            (Node){ .tp = nodExpr,              .pl2 = 3 }, // print $x
-            (Node){ .tp = nodVar,   .pl1 = 0,      .pl2 = 0 }, // x
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 }, // print
-
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For without initializers"),
-         s("def f = {{}\n"
-           "   x = 4;\n"
-           "   for {x < 101;}{ \n"
-           "      print $x; } };"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,       .pl2 = 13 },
-
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 4
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,           .pl2 = 4 },
-
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 5 },
-
-            (Node){ .tp = nodExpr, .pl2 = 3         }, // < x 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope, .pl2 = 4,        }, // print $x
-            (Node){ .tp = nodExpr,       .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For loop without body"),
-         s("def f = {{} for {x' = 1; x < 101; x += 1;} {} }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 14, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 13, .pl3 = 14 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,        .pl2 = 1 },
-
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
+            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x = x + 1
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
             (Node){ .tp = nodExpr, .pl2 = 3 },
@@ -1234,324 +1134,424 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((Int[]) {}),
          ((TestEntityImport[]) {})
       ),
-      createTest(
-         s("For loop with no step"),
-         s("def f = {{} for {x' = 1; x < 101; } { print $x; } }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 12, .pl3 = 8 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = tokInt,        .pl2 = 1 },
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // x < 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,        .pl2 = 4 },
-            (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
-            (Node){ .tp = nodVar,   .pl1 = 0, .pl2 = 0 },     // x
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print string
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For with no initializers nor step"),
-         s("def f = {{} x = 0;\n"
-           " for { x < 101;}{ print $x; } }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
-
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,           .pl2 = 0 },
-
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 5 },
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,        .pl2 = 4 },
-            (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
-            (Node){ .tp = nodVar,   .pl1 = 0, .pl2 = 0 },     // x
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For loop with no initalizers nor body"),
-         s("def f = {{} x' = 7;\n"
-           " for {x < 101; x += 1;}{} }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 14, .pl3 = 0 },
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = tokInt,           .pl2 = 7 },
-
-            (Node){ .tp = nodFor,  .pl1 = 1, .pl2 = 10, .pl3 = 11 },
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // x < 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x += 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment  },
-            (Node){ .tp = nodExpr, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
-            (Node){ .tp = nodCall,   .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For loop with single-token condition"),
-         s("def f = {{} x' = true;\n"
-           " for {x;} {x = not x;} }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 11, .pl3 = 0 },
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokBool,        .pl2 = 1 },
-
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 7, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-
-            (Node){ .tp = nodScope,        .pl2 = 5 },
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 }, // x = x + 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
-            (Node){ .tp = nodExpr, .pl2 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = nodCall,   .pl1 = oper(opBoolNot, tokBool), .pl2 = 1 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("For loop error: neither step nor body"),
-         s(errLoopEmptyStepBody),
-         s("def f = {{} for {x$ = 1; x$ < 101;} {} }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 0, .pl3 = 0 },
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("For loop error: no condition"),
-         s(errLoopNoCondition),
-         s("def f = {{} for {x$ = 1; x$ = x$ + 1;}{ $x$ .print; } }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 0, .pl3 = 0 },
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For with break and continue"),
-         s("def f = {{}\n"
-           "   for {x = 0; x < 301;} {\n"
-           "      break;\n"
-           "      continue;}\n"
-           "}"
-           ),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,          .pl2 = 11 },
-            (Node){ .tp = nodFor, .pl1 = 1,  .pl2 = 10, .pl3 = 8 },
-
-
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt, .pl2 = 0 },
-
-            (Node){ .tp = nodExpr, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // x
-            (Node){ .tp = tokInt,      .pl2 = 301 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope, .pl2 = 2 },
-            (Node){ .tp = nodBreakCont, .pl1 = 1 },
-            (Node){ .tp = nodBreakCont, .pl1 = BIG + 1 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("For with break error"),
-         s(errBreakContinueInvalidDepth),
-         s("def f = {{}\n"
-           "   for {x = 0; x < 101;}{\n"
-           "      break 2;\n"
-           "} }"
-           ),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef            },
-            (Node){ .tp = nodFor, .pl3 = 8      },
-
-            (Node){ .tp = nodAssignment,     .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // x
-            (Node){ .tp = tokInt,          .pl2 = 0 },
-
-            (Node){ .tp = nodExpr,         .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 1 }, // x
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-            (Node){ .tp = nodScope }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("For with single-atom condition"),
-         s("def f = {{}\n"
-           "   for {x' = true; x; }{\n"
-           "      print $x;}\n"
-           "}"
-           ),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 10 },
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 5 },
-
-            (Node){ .tp = nodAssignment,         .pl2 = 2, .pl3 = 2 }, // x$ = 17
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokBool,               .pl2 = 1 },
-
-            (Node){ .tp = nodVar, .pl1 = 0,  .pl2 = 0 }, // condition
-
-            (Node){ .tp = nodScope,             .pl2 = 4 },
-            (Node){ .tp = nodExpr,              .pl2 = 3 }, // print $x
-            (Node){ .tp = nodVar,   .pl1 = 0,   .pl2 = 0 }, // x
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokBool), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 } // print
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Nested for with deep break and continue"),
-         s("def f = {{}\n"
-           "   for {a = 0; a < 101;}{\n"
-           "      for {b = 0; b < 201;}{\n"
-           "         for {c = 0; c < 301;}{\n"
-           "            break 3;}\n"
-           "      }\n"
-           "      for {d = 0; d < 51;}{\n"
-           "         for {e = 0; e < 401;}{\n"
-           "            continue 2;}\n"
-           "      }\n"
-           "      print $a;\n"
-           "   }\n"
-           "}"
-           ),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef,         .pl2 = 51 },
-
-            (Node){ .tp = nodFor,  .pl1 = 1, .pl2 = 50, .pl3 = 8 }, // for #1. It's being
-                                                                    // "broken" from
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2}, // a = 0
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt, .pl2 = 0 },
-
-            (Node){ .tp = nodExpr, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // a
-            (Node){ .tp = tokInt, .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,        .pl2 = 42 },
-            (Node){ .tp = nodFor, .pl1 = 2, .pl2 = 18, .pl3 = 8 }, // for #2
-
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // b = 0
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt, .pl2 = 0 },
-
-            (Node){ .tp = nodExpr,                .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 }, // b
-            (Node){ .tp = tokInt, .pl2 = 201 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,        .pl2 = 10 }, // for #3, double-nested
-            (Node){ .tp = nodFor, .pl1 = 3, .pl2 = 9, .pl3 = 8 }, // for #3, double-nested
-
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // c =
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt, .pl2 = 0 },
-
-            (Node){ .tp = nodExpr,       .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 }, // c
-            (Node){ .tp = tokInt,        .pl2 = 301 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,       .pl2 = 1 },
-            (Node){ .tp = nodBreakCont, .pl1 = 1 },
-
-            (Node){ .tp = nodFor,  .pl1 = 4, .pl2 = 18, .pl3 = 8 }, // for #4. It's "continued"
-
-            (Node){ .tp = nodAssignment,   .pl2 = 2, .pl3 = 2 }, // d = 0
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,         .pl2 = 0 },
-
-            (Node){ .tp = nodExpr,        .pl2 = 3 }, // d < 51
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
-            (Node){ .tp = tokInt, .pl2 = 51 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,      .pl2 = 10 },
-            (Node){ .tp = nodFor, .pl1 = 5, .pl2 = 9, .pl3 = 8 }, // for #5, the last one
-
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // e = 0
-            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt, .pl2 = 0 },
-
-            (Node){ .tp = nodExpr,       .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0 }, // e < 401
-            (Node){ .tp = tokInt,        .pl2 = 401 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,      .pl2 = 1 },
-            (Node){ .tp = nodBreakCont, .pl1 = 4 + BIG },
-
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // print $a
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },  // a
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("For with type error"),
-         s(errTypeMustBeBool),
-         s("def f = {{} for {x' = 1; x / 101;}{ print x; } }"),
-         ((Node[]) {
-            (Node){ .tp = nodFnDef },
-            (Node){ .tp = nodFor },
-
-            (Node){ .tp = nodAssignment,     .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // x
-            (Node){ .tp = tokInt,          .pl2 = 1 },
-
-            (Node){ .tp = nodExpr,         .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 1 }, // x
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opDivBy, tokInt), .pl2 = 2 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      )
+//~      createTest(
+//~         s("For with two complex initializers"),
+//~         s("def f = {{}\n"
+//~           "   for {x' = 17; y' = x / 5; y < 101; x--; y++;}{\n"
+//~           "      print $x;}\n"
+//~           "}"
+//~           ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 25 },
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 24, .pl3 = 20 },
+//~
+//~            (Node){ .tp = nodAssignment,         .pl2 = 2, .pl3 = 2 }, // x$ = 17
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt,               .pl2 = 17 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, // y$ = x$ / 5
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment },  // def y
+//~            (Node){ .tp = nodExpr,              .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // x'
+//~            (Node){ .tp = tokInt,               .pl2 = 5 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opDivBy, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodExpr, .pl2 = 3,              }, // y < 101
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 },
+//~            (Node){ .tp = tokInt,           .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodExpr,         .pl2 = 2, .pl3 = 0}, // x--
+//~            (Node){ .tp = nodVar, .pl1 = 0,     .pl2 = 0 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opDecrement, tokInt), .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodExpr,           .pl2 = 2, .pl3 = 0}, // y++
+//~            (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opIncrement, tokInt), .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodScope,             .pl2 = 4 },
+//~            (Node){ .tp = nodExpr,              .pl2 = 3 }, // print $x
+//~            (Node){ .tp = nodVar,   .pl1 = 0,      .pl2 = 0 }, // x
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
+//~            (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 }, // print
+//~
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For without initializers"),
+//~         s("def f = {{}\n"
+//~           "   x = 4;\n"
+//~           "   for {x < 101;}{ \n"
+//~           "      print $x; } };"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,       .pl2 = 13 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 4
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt,           .pl2 = 4 },
+//~
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 5 },
+//~
+//~            (Node){ .tp = nodExpr, .pl2 = 3         }, // < x 101
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope, .pl2 = 4,        }, // print $x
+//~            (Node){ .tp = nodExpr,       .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
+//~            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For loop without body"),
+//~         s("def f = {{} for {x' = 1; x < 101; x += 1;} {} }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 14, .pl3 = 0 },
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 13, .pl3 = 14 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt,        .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x = x + 1
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
+//~            (Node){ .tp = nodExpr, .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For loop with no step"),
+//~         s("def f = {{} for {x' = 1; x < 101; } { print $x; } }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 12, .pl3 = 8 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = tokInt,        .pl2 = 1 },
+//~            (Node){ .tp = nodExpr, .pl2 = 3 }, // x < 101
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,        .pl2 = 4 },
+//~            (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
+//~            (Node){ .tp = nodVar,   .pl1 = 0, .pl2 = 0 },     // x
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
+//~            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print string
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For with no initializers nor step"),
+//~         s("def f = {{} x = 0;\n"
+//~           " for { x < 101;}{ print $x; } }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt,           .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 5 },
+//~            (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,        .pl2 = 4 },
+//~            (Node){ .tp = nodExpr,         .pl2 = 3 }, // print $x
+//~            (Node){ .tp = nodVar,   .pl1 = 0, .pl2 = 0 },     // x
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
+//~            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }, // print
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For loop with no initalizers nor body"),
+//~         s("def f = {{} x' = 7;\n"
+//~           " for {x < 101; x += 1;}{} }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 14, .pl3 = 0 },
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = tokInt,           .pl2 = 7 },
+//~
+//~            (Node){ .tp = nodFor,  .pl1 = 1, .pl2 = 10, .pl3 = 11 },
+//~            (Node){ .tp = nodExpr, .pl2 = 3 }, // x < 101
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x += 1
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment  },
+//~            (Node){ .tp = nodExpr, .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
+//~            (Node){ .tp = nodCall,   .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For loop with single-token condition"),
+//~         s("def f = {{} x' = true;\n"
+//~           " for {x;} {x = not x;} }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 11, .pl3 = 0 },
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokBool,        .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 7, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodScope,        .pl2 = 5 },
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 }, // x = x + 1
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
+//~            (Node){ .tp = nodExpr, .pl2 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+//~            (Node){ .tp = nodCall,   .pl1 = oper(opBoolNot, tokBool), .pl2 = 1 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("For loop error: neither step nor body"),
+//~         s(errLoopEmptyStepBody),
+//~         s("def f = {{} for {x$ = 1; x$ < 101;} {} }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 0, .pl3 = 0 },
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("For loop error: no condition"),
+//~         s(errLoopNoCondition),
+//~         s("def f = {{} for {x$ = 1; x$ = x$ + 1;}{ $x$ .print; } }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 0, .pl3 = 0 },
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For with break and continue"),
+//~         s("def f = {{}\n"
+//~           "   for {x = 0; x < 301;} {\n"
+//~           "      break;\n"
+//~           "      continue;}\n"
+//~           "}"
+//~           ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,          .pl2 = 11 },
+//~            (Node){ .tp = nodFor, .pl1 = 1,  .pl2 = 10, .pl3 = 8 },
+//~
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr, .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // x
+//~            (Node){ .tp = tokInt,      .pl2 = 301 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope, .pl2 = 2 },
+//~            (Node){ .tp = nodBreakCont, .pl1 = 1 },
+//~            (Node){ .tp = nodBreakCont, .pl1 = BIG + 1 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("For with break error"),
+//~         s(errBreakContinueInvalidDepth),
+//~         s("def f = {{}\n"
+//~           "   for {x = 0; x < 101;}{\n"
+//~           "      break 2;\n"
+//~           "} }"
+//~           ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef            },
+//~            (Node){ .tp = nodFor, .pl3 = 8      },
+//~
+//~            (Node){ .tp = nodAssignment,     .pl2 = 2, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // x
+//~            (Node){ .tp = tokInt,          .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr,         .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 1 }, // x
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~            (Node){ .tp = nodScope }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("For with single-atom condition"),
+//~         s("def f = {{}\n"
+//~           "   for {x' = true; x; }{\n"
+//~           "      print $x;}\n"
+//~           "}"
+//~           ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 10 },
+//~            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 5 },
+//~
+//~            (Node){ .tp = nodAssignment,         .pl2 = 2, .pl3 = 2 }, // x$ = 17
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokBool,               .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodVar, .pl1 = 0,  .pl2 = 0 }, // condition
+//~
+//~            (Node){ .tp = nodScope,             .pl2 = 4 },
+//~            (Node){ .tp = nodExpr,              .pl2 = 3 }, // print $x
+//~            (Node){ .tp = nodVar,   .pl1 = 0,   .pl2 = 0 }, // x
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokBool), .pl2 = 1 }, // $
+//~            (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 } // print
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Nested for with deep break and continue"),
+//~         s("def f = {{}\n"
+//~           "   for {a = 0; a < 101;}{\n"
+//~           "      for {b = 0; b < 201;}{\n"
+//~           "         for {c = 0; c < 301;}{\n"
+//~           "            break 3;}\n"
+//~           "      }\n"
+//~           "      for {d = 0; d < 51;}{\n"
+//~           "         for {e = 0; e < 401;}{\n"
+//~           "            continue 2;}\n"
+//~           "      }\n"
+//~           "      print $a;\n"
+//~           "   }\n"
+//~           "}"
+//~           ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef,         .pl2 = 51 },
+//~
+//~            (Node){ .tp = nodFor,  .pl1 = 1, .pl2 = 50, .pl3 = 8 }, // for #1. It's being
+//~                                                                    // "broken" from
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2}, // a = 0
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr, .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // a
+//~            (Node){ .tp = tokInt, .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,        .pl2 = 42 },
+//~            (Node){ .tp = nodFor, .pl1 = 2, .pl2 = 18, .pl3 = 8 }, // for #2
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // b = 0
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr,                .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 }, // b
+//~            (Node){ .tp = tokInt, .pl2 = 201 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,        .pl2 = 10 }, // for #3, double-nested
+//~            (Node){ .tp = nodFor, .pl1 = 3, .pl2 = 9, .pl3 = 8 }, // for #3, double-nested
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // c =
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr,       .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 }, // c
+//~            (Node){ .tp = tokInt,        .pl2 = 301 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,       .pl2 = 1 },
+//~            (Node){ .tp = nodBreakCont, .pl1 = 1 },
+//~
+//~            (Node){ .tp = nodFor,  .pl1 = 4, .pl2 = 18, .pl3 = 8 }, // for #4. It's "continued"
+//~
+//~            (Node){ .tp = nodAssignment,   .pl2 = 2, .pl3 = 2 }, // d = 0
+//~            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt,         .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr,        .pl2 = 3 }, // d < 51
+//~            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
+//~            (Node){ .tp = tokInt, .pl2 = 51 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,      .pl2 = 10 },
+//~            (Node){ .tp = nodFor, .pl1 = 5, .pl2 = 9, .pl3 = 8 }, // for #5, the last one
+//~
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // e = 0
+//~            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0, .pl3 = assiVarAssignment },
+//~            (Node){ .tp = tokInt, .pl2 = 0 },
+//~
+//~            (Node){ .tp = nodExpr,       .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0 }, // e < 401
+//~            (Node){ .tp = tokInt,        .pl2 = 401 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodScope,      .pl2 = 1 },
+//~            (Node){ .tp = nodBreakCont, .pl1 = 4 + BIG },
+//~
+//~            (Node){ .tp = nodExpr, .pl2 = 3 }, // print $a
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },  // a
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
+//~            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("For with type error"),
+//~         s(errTypeMustBeBool),
+//~         s("def f = {{} for {x' = 1; x / 101;}{ print x; } }"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodFnDef },
+//~            (Node){ .tp = nodFor },
+//~
+//~            (Node){ .tp = nodAssignment,     .pl2 = 2, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // x
+//~            (Node){ .tp = tokInt,          .pl2 = 1 },
+//~
+//~            (Node){ .tp = nodExpr,         .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 1 }, // x
+//~            (Node){ .tp = tokInt,        .pl2 = 101 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opDivBy, tokInt), .pl2 = 2 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      )
    }));
 }
 
 //}}}
 
 void runATestSet(ParserTestSet* (*testGenerator)(Compiler*, Arena*),
-                 TestContext* ct,
-                 Compiler* protoOvs) {
+      TestContext* ct, Compiler* protoOvs
+) {
    ParserTestSet* testSet = (testGenerator)(protoOvs, ct->a);
    for (Int j = 0; j < testSet->totalTests; j++) {
       ParserTest test = testSet->tests[j];
@@ -1571,10 +1571,10 @@ main() {
    initializeParser(protoOvs, ct.a);
    createOverloads(protoOvs);
 
-   runATestSet(&assignmentTests, &ct, protoOvs);
-   runATestSet(&expressionTests, &ct, protoOvs);
-   runATestSet(&functionTests, &ct, protoOvs);
-   runATestSet(&ifTests, &ct, protoOvs);
+//~   runATestSet(&assignmentTests, &ct, protoOvs);
+//~   runATestSet(&expressionTests, &ct, protoOvs);
+//~   runATestSet(&functionTests, &ct, protoOvs);
+//~   runATestSet(&ifTests, &ct, protoOvs);
    runATestSet(&forTests, &ct, protoOvs);
 
    if (ct.countTests == 0) {

@@ -1991,13 +1991,13 @@ skipSpaces(Arr(char const) source, LX) {
    }
 }
 
-void //:ensureCapacityTokenBuf
-ensureCapacityTokenBuf(Int neededSpace, LToken* st, CM) {
+private void //:ensureCapacityTokenBuf
+ensureCapacityTokenBuf(Int neededSpace, LToken* st, Compiler* cm) {
 // Reserve space in the temp buffer used to shuffle tokens
-   st->len = 0;
+   st->len = neededSpace;
    if (neededSpace >= st->cap) {
-      Arr(Token) newContent = allocateArray(2*(st->cap), Token, cm->a);
-      st->cap *= 2;
+      Arr(Token) newContent = allocateArray(neededSpace, Token, cm->a);
+      st->cap = neededSpace;
       st->c = newContent;
    }
 }
@@ -3466,9 +3466,9 @@ closeSpans:
 
 private Assignment //:pPreparseAssignment
 pPreparseAssignment(Token tok, Int tokInd, TOKS, CM) {
-/* Looks at a tokDef or tokAssignment to determine its key points: where is the right side,
- is it a func definition, is the right side empty etc. Consumes no tokens.
- Precondition: tokInd is 1 past the "tok" */
+// Looks at a tokDef or tokAssignment to determine its key points: where is the right side,
+// is it a func definition, is the right side empty etc. Consumes no tokens.
+// Precondition: tokInd is 1 past the "tok"
    Int const sentinel = calcSentinel(tok, tokInd - 1);
    Int indRight = tokInd;
    NameId firstTokenName = toks[tokInd].pl1;
@@ -3496,7 +3496,7 @@ pAssignment(Token tok, TOKS, CM) {
 }
 
 private void //:preambleFor
-preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int* bodyInd) {
+preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
 // Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
 // Every out index is set to either positive or 0 for "not found".
 // A "for" syntax form is quadripartite:
@@ -3506,8 +3506,11 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int*
 // 4) loop body (arbitrary syntax forms).
 // Precondition: looking at the tokScope right after tokFor.
 // Postcond: "condInd" & one of "stepInd" and "bodyInd" are guaranteed to be found (=> positive)
+// If they are both present, this function performs important token twiddling: it reorders the step
+// to be after the body.
+   Int const scopeStart = cm->i;
    Int const scopeSentinel = calcSentinel(toks[cm->i], cm->i);
-
+   
    cm->i++; // CONSUME the tokScope
    Int j = cm->i;
    for (Token currTok = toks[j];
@@ -3525,7 +3528,7 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int*
 
    j = calcSentinel(condTok, j); // skipping the cond
    VALIDATEP(j < sentinel, errLoopEmptyStepBody);
-   *stepInd = j;
+   Int stepInd = j;
    for (Token currTok = toks[j]; j < scopeSentinel; currTok = toks[j]) {
       VALIDATEP(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
                 errLoopWrongFormInStepper);
@@ -3533,22 +3536,36 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* stepInd, OUT Int*
    }
 
    *bodyInd = (j < sentinel) ? j : 0;
-   VALIDATEP((*stepInd) + (*bodyInd) > 0, errLoopEmptyStepBody)
+   VALIDATEP(stepInd + (*bodyInd) > 0, errLoopEmptyStepBody)
+   
+   // re-order the steps into the body
+   if (stepInd > 0 && (*bodyInd) > 0)  {
+      Int const lenBody = sentinel - (*bodyInd);
+      Int const lenStep = (*bodyInd) - stepInd;
+      LToken* buf = cm->expr->reorderBuf;
+      
+      ensureCapacityTokenBuf(lenBody, buf, cm);
+      memcpy(buf->c, toks + (*bodyInd), lenBody*sizeof(Token));
+      memcpy(toks + sentinel - lenStep, toks + stepInd, lenStep*sizeof(Token));
+      memcpy(toks + stepInd, buf->c, lenBody*sizeof(Token));
+      toks[scopeStart].pl2 = sentinel - scopeStart - 1; // pure pedantry, it's not really necessary
+      *bodyInd = stepInd;
+   }
 }
 
 private void //:pFor
 pFor(Token forTk, TOKS, CM) {
 // For loops. Look like "for x' = 0;  x < 100; x++ {  ... }"
-//                             ^initInd ^condInd ^stepInd ^bodyInd
+//                           ^initInd ^condInd ^stepInd ^bodyInd
 // At least a step or a body is syntactically required.
 // End result of a parse looks like:
 // nodFor
 //    scope (pl3 = length of nodes to inner scope)
 //       initializations
 //       expr evaluating to a bool (the cond - if present)
-//       step(s)
 //       scope (if body not empty)
 //          body
+//          step(s)
    Int const initInd = cm->i; // index of the tokScope inside tokFor
 
    cm->stats.loopCounter++;
@@ -3559,11 +3576,12 @@ pFor(Token forTk, TOKS, CM) {
    Int bodyInd; // index of loop body
    Int const forNodeInd = cm->ast.len;
 
-   print("here in pFor for some reason")
    VALIDATEP(toks[cm->i].tp == tokScope, errLoopSyntaxError)
 
-   // sets inds to 0 if not found. At least one of stepInd, bodyInd is guaranteed to be positive
-   preambleFor(sentinel, toks, cm, OUT &condInd, OUT &stepInd, OUT &bodyInd);
+   // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
+   preambleFor(sentinel, toks, cm, OUT &condInd, OUT &bodyInd);
+   
+   print("after preamble %d body %d", condInd, bodyInd);
    openParsedScope(sentinel, (Node){.tp = nodFor, .pl1 = cm->stats.loopCounter}, locOf(forTk), cm);
 
    // variable initializations
@@ -3592,20 +3610,22 @@ pFor(Token forTk, TOKS, CM) {
    }
 
    // loop steps
-   if (stepInd > 0) {
-      Int const bodySentinel = minPositiveOf(2, bodyInd, sentinel);
-      for (cm->i = stepInd; cm->i < bodySentinel; ) {
-         Token stepTk = toks[cm->i];
-         Int nextStep = calcSentinel(stepTk, cm->i);
-         cm->i++; // CONSUME span token
-         (PARSE_TABLE[stepTk.tp])(stepTk, toks, cm);
-         cm->i = nextStep;
-      }
-   }
+//~   if (stepInd > 0) {
+//~      Int const bodySentinel = minPositiveOf(2, bodyInd, sentinel);
+//~      for (cm->i = stepInd; cm->i < bodySentinel; ) {
+//~         Token stepTk = toks[cm->i];
+//~         Int nextStep = calcSentinel(stepTk, cm->i);
+//~         
+//~         cm->i++; // CONSUME span token
+//~         (PARSE_TABLE[stepTk.tp])(stepTk, toks, cm);
+//~         cm->i = nextStep;
+//~      }
+//~   }
 
    // readying to parse the body + step statements
    Int bodyStartBt = toks[sndInd].startBt;
    Int const bodyNodeInd = cm->ast.len;
+   print("body node %d", bodyNodeInd);
 
    cm->ast.c[forNodeInd].pl3 = bodyNodeInd - forNodeInd; // distance to inner scope
    if (bodyInd > 0) {
@@ -3668,10 +3688,10 @@ exprSingleItem(Token tk, CM) {
 
 private void //:subexDataAllocation
 subexDataAllocation(ExprFrame frame, Expr* e, CM) {
-/* Creates an assignment in main. Then walks over the data allocator
-nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
-careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
-an id linked to the new entity */
+// Creates an assignment in main. Then walks over the data allocator
+// nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
+// careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
+// an id linked to the new entity
    LNode* scr = e->scr;  // ((ind in scr) (count of nodes in subexpr))
 
    const VarId newVarId = cm->vars.len;
@@ -3967,12 +3987,11 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
 
 private void //:eParse
 eParse(Int sentinel, TOKS, CM) {
-/* The core code of the general, long expression parse. Starts at cm->i and parses until
-"sentinel". Produces a linear sequence of operands and calls with arg counts in
-Reverse Polish Notation. Handles data allocations, too. But not single-item exprs.
-Consumes the whole expression
-Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's the whole exp)
-*/
+// The core code of the general, long expression parse. Starts at cm->i and parses until
+// "sentinel". Produces a linear sequence of operands and calls with arg counts in
+// Reverse Polish Notation. Handles data allocations, too. But not single-item exprs.
+// Consumes the whole expression
+// Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's the whole exp)
    Expr* e = cm->expr;
    e->metAnAllocation = false;
    LNode* scr = e->scr;
@@ -4019,11 +4038,10 @@ exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
 
 private TypeId //:exprUpTo
 exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
-/* The main "big" expression parser. Parses an expression whether there is a token or not.
-Precondition: we are looking 1 past the tokExpr or tokParens
-Starts from cm->i and goes up to the sentinel token.
-Emits a nodExpr and opens a corresponding parse frame
-Returns the expression's type */
+// The main "big" expression parser. Parses an expression whether there is a token or not.
+// Precondition: we are looking 1 past the tokExpr or tokParens.
+// Starts from cm->i and goes up to the sentinel token. Emits a nodExpr and opens a corresponding
+// parse frame. Returns the expression's type
    Int startNodeInd = cm->ast.len;
    add(((ParseFrame){
       .startNodeInd = startNodeInd, .sentinel = sentinelToken }), cm->backtrack);
@@ -4037,10 +4055,10 @@ Returns the expression's type */
 
 private TypeId //:exprHeadless
 exprHeadless(Int sentinel, SourceLoc loc, TOKS, CM) {
-/* Precondition: we are looking at the first token of expr which does not have a
-tokStmt/tokParens header. If "omitSpan" is set, this function will not emit a nodExpr nor
-create a ParseFrame.
-Consumes 1 or more tokens. Returns the type of parsed expression */
+// Precondition: we are looking at the first token of expr which does not have a
+// tokStmt/tokParens header. If "omitSpan" is set, this function will not emit a nodExpr nor
+// create a ParseFrame.
+// Consumes 1 or more tokens. Returns the type of parsed expression
    if (cm->i + 1 == sentinel) { // the [stmt 1, tokInt] case
       Token singleToken = toks[cm->i];
       if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord) {
@@ -4055,7 +4073,6 @@ private TypeId //:pExprWorker
 pExprWorker(Token tok, TOKS, CM) {
 // Precondition: we are looking 1 past the first token of expr, which is the first parameter.
 // Consumes 1 or more tokens. Handles single items also Returns the type of parsed expression
-
    if (tok.tp == tokStmt || tok.tp == tokParens) {
       if (tok.pl2 == 1) {
          Token singleToken = toks[cm->i];
@@ -4103,6 +4120,7 @@ parseUpTo(Int sentinelToken, TOKS, CM) {
 // Parses anything from current cm->i to "sentinelToken"
    while (cm->i < sentinelToken) {
       Token currTok = toks[cm->i];
+      print("PARSE %d", cm->i);
       cm->i++;
       (PARSE_TABLE[currTok.tp])(currTok, toks, cm);
       mbCloseSpans(cm);
@@ -5259,6 +5277,7 @@ void //:parseMain
 parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
+      //printLexer(cm);
 
       pToplevelTypes(cm);
       // This gives the complete overloads & overloadIds tables + list of toplevel functions
@@ -5274,8 +5293,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-
-      printParser(cm);
+      //printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");

@@ -340,12 +340,7 @@ paramFromChars(char const* s, CgType* tp, CG) {
 private CgType* //:fnPointerType
 fnPointerType(Int countParams, Arr(CgType*) paramTypes, CgType* returnTp, Module* md) {
    return gcc_jit_context_new_function_ptr_type (
-      md,
-	   null,
-      returnTp,
-      countParams,
-      paramTypes,
-	   0
+      md, null, returnTp, countParams, paramTypes, 0
    );
 }
 
@@ -1296,22 +1291,6 @@ generateCode(CR) {
 }
 
 //}}}
-//{{{ Debug & test utils
-
-void
-dbgBtLoops(Codegen* cg) {
-   printf("BtLoops [");
-   if (cg->bt->len == 0)
-      { goto closing; }
-   printf("%d ", cg->bt->c[0].sentinel);
-   for (Int i = 1; i < cg->bt->len; i++) {
-      printf("%d ", cg->bt->c[i].sentinel);
-   }
-   closing:
-   printf("]\n");
-}
-
-//}}}
 //{{{ Temp
 
 struct B_glb;
@@ -1395,6 +1374,19 @@ temp2(CG) {
 //{{{ Utils for tests & debugging
 
 #if defined(DEBUG) || defined(TEST)
+
+void
+dbgBtLoops(Codegen* cg) {
+   printf("BtLoops [");
+   if (cg->bt->len == 0)
+      { goto closing; }
+   printf("%d ", cg->bt->c[0].sentinel);
+   for (Int i = 1; i < cg->bt->len; i++) {
+      printf("%d ", cg->bt->c[i].sentinel);
+   }
+   closing:
+   printf("]\n");
+}
 
 void //:dbgTypeOuter
 dbgFutureBlocks(CG) {

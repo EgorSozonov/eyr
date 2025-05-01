@@ -10,8 +10,9 @@ endif
 
 CC=gcc --std=gnu2x
 CONFIG=-g3
-WARN=-Wpedantic -Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
+WARN=-Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
+    -Wno-discarded-qualifiers \
     -Werror=int-conversion -fstrict-flex-arrays=3
 SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
