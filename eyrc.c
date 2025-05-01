@@ -9,6 +9,8 @@
 #include "include/libeyr.h"
 #include "_target/libgccjit.h"
 
+typedef libeyr_String String;
+typedef libeyr_StringBuilder StringBuilder;
 extern jmp_buf excBuf;
 
 //}}}
@@ -36,6 +38,7 @@ typedef enum gcc_jit_comparison BuiltinComparison;
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
 typedef Fn* FnPtr;
+typedef libeyr_CompResult CompResult;
 
 DEFINE_LIST_HEADER(FnParamPtr)
 DEFINE_LIST_HEADER(FieldPtr)
@@ -179,7 +182,6 @@ private CgType* longType(CG);
 private CgType* boolType(CG);
 private CgType* doubleType(CG);
 
-
 #if defined(DEBUG) || defined(TEST)
 
 void printIntArray(Int count, Arr(Int) arr);
@@ -274,8 +276,13 @@ returnVoid(CodeBlock* bl) {
 }
 
 private void //:jump
-jump(CodeBlock* from, CodeBlock* to) {
-   gcc_jit_block_end_with_jump (from, NULL, to);
+jump(CodeBlock* from, NULLABLE CodeBlock* to) {
+// End current block with a jump to another block (if set) or with a void return
+   if (to != null) {
+      gcc_jit_block_end_with_jump(from, NULL, to);
+   } else {
+      gcc_jit_block_end_with_void_return(from, NULL);
+   }
 }
 
 private void //:conditional
@@ -439,6 +446,18 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
       printfArgs[1] = args[0];
       return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
    }
+   case emitPrintDou: {
+      RValue* printfArgs[2];
+      printfArgs[0] = cg->builtins.formatDou;
+      printfArgs[1] = args[0];
+      return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
+   }
+   case emitPrintStr: {
+      RValue* printfArgs[2];
+      printfArgs[0] = cg->builtins.formatStr;
+      printfArgs[1] = args[0];
+      return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
+   }
    }
    return null; // unreachable
 }
@@ -563,7 +582,7 @@ doubleType(CG) {
 
 private TypeId //:tFunctionReturnType
 tFunctionReturnType(TypeId funcTypeId, CR) {
-   TypeHeader hdr = tech_sozonov_eyr_readTypeHeader(funcTypeId, cr->types.c);
+   TypeHeader hdr = libeyr_readTypeHeader(funcTypeId, cr->types.c);
    return typeOf(cr->types.c[funcTypeId.v + TYPE_PREFIX_LEN + hdr.arity - 1]);
 }
 
@@ -573,11 +592,25 @@ tFunctionReturnType(TypeId funcTypeId, CR) {
 
 private RValue* //:intConst
 intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->typeRefs[0].cgType, val);
+   return gcc_jit_context_new_rvalue_from_int(cg->md, intType(cg), val);
 }
 
-private RValue* //:intConst
-stringConst(Arr(char const) val, Codegen* cg) {
+
+private RValue* //:stringConst
+stringConst(SourceLoc loc, Codegen* cg) {
+// To avoid an extra copy we perform a tactical temporary mutation: change the closing `
+// of the string constant to a \0 character, let libgccjit copy it to its internals, then change
+// back so the source code is unchanged.
+   StringBuilder sourceCode = cg->compResult.sourceCode;
+   sourceCode.c[loc.startBt + loc.lenBts - 1] = '\0';
+   RValue* newConstant = 
+      gcc_jit_context_new_string_literal(cg->md, (char const*)(sourceCode.c + loc.startBt + 1));
+   sourceCode.c[loc.startBt + loc.lenBts - 1] = '`';
+   return newConstant;
+}
+
+private RValue* //:cStringConst
+cStringConst(Arr(char const) val, Codegen* cg) {
    return gcc_jit_context_new_string_literal(cg->md, val);
 }
 
@@ -627,9 +660,9 @@ createBuiltins(CG) {
    return (Builtins){
       .printer = printfFn, .cString = constCharPtrTp,
       .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
-      .formatInt = stringConst("%d\n", cg),
-      .formatDou = stringConst("%f\n", cg),
-      .formatStr = stringConst("%s\n", cg)
+      .formatInt = cStringConst("%d\n", cg),
+      .formatDou = cStringConst("%f\n", cg),
+      .formatStr = cStringConst("%s\n", cg)
    };
 }
 
@@ -700,6 +733,7 @@ expr(Int start, Int sentinel, AST, CG) {
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr/singular node.
    LRValuePtr* exp = cg->exp;
+   print("EXPR start %d end %d", start, sentinel);
    exp->len = 0;
    for (Int j = start; j < sentinel; j++) {
       Node expNode = ast[j];
@@ -707,6 +741,10 @@ expr(Int start, Int sentinel, AST, CG) {
          case tokInt: {
             Int value = expNode.pl2;
             add(intConst(value, cg), exp);
+            break;
+         }
+         case tokString: {
+            add(stringConst(cg->compResult.sourceLocs.c[j], cg), exp);
             break;
          }
          case nodVar: {
@@ -729,10 +767,6 @@ private void //:writeExpr
 writeExpr(Node nd, AST, CG) {
    Int const sentinel = calcNodeSentinel(nd, cg->i - 1);
    RValue* exprResult = expr(cg->i, sentinel, ast, cg);
-   if (exprResult == null) {
-      
-      print("Null expr result @%d to sent %d", cg->i, sentinel);
-   }
    evalExpr(exprResult, cg->cbl.c);
    cg->i = sentinel;
 }
@@ -839,6 +873,7 @@ writeReturn(Node fr, AST, CG) {
       { cg->i++; } // CONSUME the expr node
 
    RValue* returnValue = expr(cg->i, sentinel, ast, cg);
+   print("return from fn %p", returnValue);
    returnFromFn(returnValue, cg->cbl.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
@@ -1087,7 +1122,7 @@ mbCloseLoops(CG) {
 private void //:openBlockIfClause
 openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
    if (nd.pl3 == ifclElse) {
-      jump(cg->cbl.c, cg->cbl.after);
+      print("encountered else, afterBlock = %p", cg->cbl.after);
       Int sentinel = calcNodeSentinel(nd, cg->i);
       cg->cbl = (CurrBlock) {
          .c = futureBlock.c, .after = futureBlock.after, .start = cg->i, .sentinel = sentinel
@@ -1103,7 +1138,6 @@ openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
 
 private void //:openBlockScope
 openBlockScope(FutureBlock futureBlock, Node nd, AST, CG) {
-   jump(cg->cbl.c, cg->cbl.after);
    Int sentinel = calcNodeSentinel(nd, cg->i);
    cg->cbl = (CurrBlock) {
       .start = cg->i, .sentinel = sentinel, .c = futureBlock.c, .after = futureBlock.after
@@ -1112,6 +1146,7 @@ openBlockScope(FutureBlock futureBlock, Node nd, AST, CG) {
 
 private void //:openBlock
 openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
+   jump(cg->cbl.c, NULLABLE cg->cbl.after);
    if (nd.tp == nodIfClause) {
       openBlockIfClause(futureBlock, nd, ast, cg);
    } else {
@@ -1119,19 +1154,24 @@ openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
    }
 }
 
-private Fn* //:createFn
-createFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
+private Fn* //:openFn
+openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
+// Opens a new function in the codegen and installs it as the current function.
 // Precondition: the function is neither imported nor generic
    Function eyrFn = cr->functions.c[toplevelId];
-   TypeHeader typeHeader = tech_sozonov_eyr_readTypeHeader(eyrFn.typeId, cr->types.c);
+   TypeHeader typeHeader = libeyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    *arity = typeHeader.arity - 1;
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
+   
+   enum gcc_jit_function_kind accessLevel =
+      eyrFn.access == accessPrivImm ? GCC_JIT_FUNCTION_INTERNAL : GCC_JIT_FUNCTION_EXPORTED;
+   Fn* freshFn;
    if (*arity == 0) {
-      return newFnReal(
+      freshFn = newFnReal(
          eyrFn.name,
          null,
          cgType(returnType, cg),
-         GCC_JIT_FUNCTION_EXPORTED,
+         accessLevel,
          cg
       );
    } else if (toplevelId == cr->entrypoint) {
@@ -1139,25 +1179,32 @@ createFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
       FnParam* mainParams[2];
       mainParams[0] = paramFromChars("argc", sloppyInt, cg);
       mainParams[1] = paramFromChars("argv", pointerOf(cg->builtins.cString), cg);
-      return newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
+      freshFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
+      *arity = 2;
    } else {
       cg->params->len = 0;
       Int const paramsSentinel = eyrFn.nodeInd + 1 + (*arity);
       for (Int n = 0; n < *arity; n++) {
-         NameId parName = cr->vars.c[cr->ast.c[eyrFn.nodeInd + n + 1].pl1].name;
+         VarId varId = cr->ast.c[eyrFn.nodeInd + n + 1].pl1;
+         Var parVar = cr->vars.c[varId];
          FnParam* newParam = param(
-            parName, typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + n]), cg
+            parVar.name, typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + n]), cg
          );
+         cg->vars[varId] = gcc_jit_param_as_lvalue(newParam);
          add(newParam, cg->params);
       }
-      return newFnReal(
+      freshFn = newFnReal(
          eyrFn.name,
          cg->params,
          cgType(returnType, cg),
-         GCC_JIT_FUNCTION_EXPORTED,
+         accessLevel,
          cg
       );
    }
+   
+   cg->currFn = freshFn;
+   cg->functions[toplevelId] = freshFn;
+   return freshFn;
 }
 
 private void //:writeToplevelFn
@@ -1168,9 +1215,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       { return; }
 
    Int arity;
-   Fn* newToplevel = createFn(toplevelId, OUT &arity, cr, cg);
-   cg->currFn = newToplevel;
-   cg->functions[toplevelId] = newToplevel;
+   Fn* newToplevel = openFn(toplevelId, OUT &arity, cr, cg);
    CodeBlock* mainBlock = newBlock(newToplevel);
    cg->cbl = (CurrBlock){
       .start = eyrFn.nodeInd,
@@ -1183,6 +1228,10 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    Int const sentinel = calcNodeSentinel(nodeFn, eyrFn.nodeInd);
 
    cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodFnDef and the parameters
+   if (toplevelId == cr->entrypoint) {
+      // TODO temp
+      cg->i -= 2;
+   }
    for (; cg->i < sentinel;) {
       Node nd = cr->ast.c[cg->i];
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
@@ -1190,14 +1239,17 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          openBlock(newBlock, nd, cr->ast.c, cg);
       }
       if (nd.tp < nodScope) {
-         print("LOOP erroneous tp %d @%d", nd.tp, nodScope)
+         print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
-      print("LOOP i %d", cg->i);
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, cr->ast.c, cg);
       mbCloseLoops(cg);
    }
    mbCloseLoops(cg);
+   
+   if (toplevelId == cr->entrypoint) {
+      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
+   }
 
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
    if (returnType.v == tokMisc)
@@ -1393,7 +1445,7 @@ main(int argc, char** argv) {
 //~   return 0;
 //}}}
 
-   CompResult* compResult = tech_sozonov_eyr_compileFile(str("program.eyr"));
+   CompResult* compResult = libeyr_compileFile(str("program.eyr"));
    Codegen* cg = generateCode(compResult);
 
    if (cg->wasError) {

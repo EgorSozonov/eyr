@@ -1,10 +1,4 @@
 //{{{ Common code
-
-typedef struct { // :String
-    char const* c;
-    int32_t len;
-} tech_sozonov_eyr_String;
-
 //{{{ Basic definitions
 
 typedef int32_t NameId;   // name index (in @stringTable)
@@ -17,7 +11,6 @@ typedef int16_t Short;
 typedef uint16_t Ushort;
 typedef char Byte;
 typedef bool Bool;
-typedef tech_sozonov_eyr_String String;
 #define InListUlong InListuint64_t
 #define InListUnt InListuint32_t
 #define Arr(T) T*
@@ -57,12 +50,6 @@ Arena* createArena();
 void deleteArena(Arena* ar);
 
 typedef struct Compiler Compiler;
-
-void printStringNoLn(String s);
-void printString(String s);
-
-constexpr String empty = {.c = null, .len = 0};
-String str(const char* cent);
 
 #define s(lit) str(lit)
 
@@ -157,6 +144,26 @@ DEFINE_SLICE_HEADER(StructField)
 
 //}}}
 //}}}
+//{{{ Strings
+
+typedef struct { // :String
+    char const* c;
+    int32_t len;
+} libeyr_String;
+
+typedef struct { // :StringBuilder
+   Arr(char) c;
+   Int len;
+   Int cap;
+} libeyr_StringBuilder;
+
+void printStringNoLn(libeyr_String s);
+void printString(libeyr_String s);
+
+constexpr libeyr_String empty = {.c = null, .len = 0};
+libeyr_String str(const char* cent);
+
+//}}}
 //{{{ AST nodes & operators
 
 #define tokInt          0
@@ -237,7 +244,7 @@ typedef struct { //:TypeId
 struct Var { //:Var Local variable inside function
    TypeId typeId;
    NameId name;  // if negative, then it's a nameless local & refers to @cg.local via (-x - 1)
-   Byte access;   // the "access" constants above
+   Byte access;  // the "access" constants above
    Int fnId;     // only for aliases to functions, otherwise -1
 };
 
@@ -281,6 +288,7 @@ struct Function { //:Function Parsed or built-in function
    Int tokenInd;   // Index into @tokens
    Int nodeInd;    // Index into @ast
    Int genericInd; // index into @monos (get full mono type & code from arg types)
+   Byte access;    // the "access" constants
    Emit emit;
 };
 
@@ -455,7 +463,7 @@ typedef struct { //:CompStats
 } CompStats;
 
 typedef struct { //:CompResult
-   String sourceCode;
+   libeyr_StringBuilder sourceCode; // mutable for need to temporarily change ` to \0 and back
    SliInt toplevels;
    Int entrypoint;
    SliNode ast;
@@ -470,16 +478,16 @@ typedef struct { //:CompResult
    CompStats stats;
    Bool wasLexerError;
    Bool wasParserError;
-   String errMsg;
+   libeyr_String errMsg;
    Arena* a;
-} CompResult;
+} libeyr_CompResult;
 
 Int calcNodeSentinel(Node nd, Int nodeInd);
-Compiler* lexicallyAnalyzeFromFile(String sourceCode, Arena* a);
-String readSourceFile(String fName, Arena* a);
-CompResult* getCompResult(CM);
-TypeHeader tech_sozonov_eyr_readTypeHeader(TypeId t, Arr(Int) types);
-CompResult* tech_sozonov_eyr_compileFile(String filename);
-CompResult* tech_sozonov_eyr_compile(String sourceCode);
+Compiler* lexicallyAnalyzeFromFile(libeyr_String sourceCode, Arena* a);
+libeyr_String readSourceFile(libeyr_String fName, Arena* a);
+libeyr_CompResult* getCompResult(CM);
+TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
+libeyr_CompResult* libeyr_compileFile(libeyr_String filename);
+libeyr_CompResult* libeyr_compile(libeyr_String sourceCode);
 
 //}}}

@@ -10,6 +10,8 @@
 #include <math.h>
 #include <setjmp.h>
 #include "include/libeyr.h"
+typedef libeyr_String String;
+typedef libeyr_StringBuilder StringBuilder;
 
 jmp_buf excBuf;
 
@@ -392,6 +394,7 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 //}}}
 //{{{ Forward decls & generics
 
+typedef libeyr_CompResult CompResult;
 #define SRC Arr(char const) restrict source // Source text
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // Compiler for parser functions
@@ -804,13 +807,6 @@ DEFINE_INTERNAL_LIST_HEADER(Ulong)
 
 //}}}
 //{{{ Strings
-
-typedef struct { // :StringBuilder
-   Arr(char) c;
-   Int len;
-   Int cap;
-} StringBuilder;
-
 
 String //:str
 str(char const* content) {
@@ -4714,8 +4710,8 @@ importPrelude(CM) {
    // List length
    Int lengthFnId = cm->functions.len;
    pushInfunctions(
-      (Function){ .name = opSize, .typeId = listLength,
-                  .genericInd = genericInd2, .tokenInd = -1, .emit = emitParsed },
+      (Function){ .name = opSize, .typeId = listLength, .genericInd = genericInd2, .tokenInd = -1,
+                  .access = accessPrivImm, .emit = emitParsed },
       cm
    );
    addRawOverload(opSize, listLength, lengthFnId, cm);
@@ -4731,12 +4727,16 @@ importPrelude(CM) {
       },
    };
    Function fnImports[5] =  {
-      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrintInt, .typeId = intToVoid },
-      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrintDou, .typeId = douToVoid },
-      (Function){ .name = nameOfStandard(strPrint), .emit = emitPrintStr, .typeId = strToVoid },
-      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd,
-                  .genericInd = genericInd, .tokenInd = -1, .emit = emitParsed },
-      (Function){ .name = nameOfStandard(strPrintErr), .typeId = strToVoid }
+      (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
+         .typeId = intToVoid },
+      (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintDou,
+         .typeId = douToVoid },
+      (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintStr,
+         .typeId = strToVoid },
+      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd, .genericInd = genericInd,
+         .tokenInd = -1, .access = accessPrivImm, .emit = emitParsed },
+      (Function){ .name = nameOfStandard(strPrintErr), 
+         .access = accessPrivImm, .typeId = strToVoid }
       // TODO functions for casting (int, double, unsigned)
    };
 
@@ -5118,9 +5118,11 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    fnAssign.entityId = -(newFnId) - 1;
 
    Int genericInd = te->isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
-   pushInfunctions(
-      ((Function){ .name = fnAssign.name, .typeId = newFnType, .emit = emitParsed,
-                   .genericInd = genericInd, .tokenInd = fnAssign.rightTokenInd + 1 }),
+   pushInfunctions(((Function){
+         .name = fnAssign.name, .typeId = newFnType,
+         .genericInd = genericInd, .tokenInd = fnAssign.rightTokenInd + 1,
+         .access = accessPrivImm, .emit = emitParsed
+      }),
       cm
    );
    if (fnAssign.name == nameOfStandard(strMain)) {
@@ -5328,8 +5330,8 @@ typeReadHeader(TypeId t, CM) {
    };
 }
 
-TypeHeader //:tech_sozonov_eyr_readTypeHeader
-tech_sozonov_eyr_readTypeHeader(TypeId t, Arr(Int) types) {
+TypeHeader //:libeyr_readTypeHeader
+libeyr_readTypeHeader(TypeId t, Arr(Int) types) {
 // Reads a type header from the type array. Does not work for primitive types
    Int tag = types[t.v + 1];
    return (TypeHeader){ .isGeneric = (tag >> 24) > 0, .sort = ((Unt)tag >> 16) & LOWER16BITS,
@@ -6976,8 +6978,8 @@ initCompiler() {
    _wasInit = true;
 }
 
-CompResult* //:tech_sozonov_eyr_compile
-tech_sozonov_eyr_compile(String sourceCode) {
+CompResult* //:libeyr_compile
+libeyr_compile(String sourceCode) {
    Arena* a = createArena();
    CompResult* cr = allocate(CompResult, a);
    if (sourceCode.len == 0) {
@@ -7012,8 +7014,8 @@ tech_sozonov_eyr_compile(String sourceCode) {
    return cr;
 }
 
-CompResult* //:tech_sozonov_eyr_compileFile
-tech_sozonov_eyr_compileFile(String filename) {
+CompResult* //:libeyr_compileFile
+libeyr_compileFile(String filename) {
    Arena* a = createArena();
    CompResult* cr = allocate(CompResult, a);
    cr->a = a;
@@ -7051,7 +7053,9 @@ tech_sozonov_eyr_compileFile(String filename) {
 private void
 fillInCompilationResult(CM, OUT CompResult* cr) {
    *cr = (CompResult) {
-      .sourceCode = cm->sourceCode,
+      .sourceCode = (StringBuilder){
+         .c = cm->sourceCode.c, .len = cm->sourceCode.len, .cap = cm->sourceCode.len
+      },
       .toplevels = sliceOfInternal(cm->toplevels),
       .entrypoint = cm->entrypoint,
       .ast = sliceOfInternal(cm->ast),
