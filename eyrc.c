@@ -286,7 +286,7 @@ jump(CodeBlock* from, NULLABLE CodeBlock* to) {
 }
 
 private void //:conditional
-conditional(CodeBlock* from, CodeBlock* toIfTrue, CodeBlock* toIfFalse, RValue* condition) {
+conditional(CodeBlock* from, RValue* condition, CodeBlock* toIfTrue, CodeBlock* toIfFalse) {
    gcc_jit_block_end_with_conditional(from, NULL, condition, toIfTrue, toIfFalse);
 }
 
@@ -733,7 +733,6 @@ expr(Int start, Int sentinel, AST, CG) {
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr/singular node.
    LRValuePtr* exp = cg->exp;
-   print("EXPR start %d end %d", start, sentinel);
    exp->len = 0;
    for (Int j = start; j < sentinel; j++) {
       Node expNode = ast[j];
@@ -899,15 +898,13 @@ ifCreateBlocks(Node nd, AST, CG) {
 
    // For an "if" expression, we need to create a block for every "else if" condition (but not for
    // the "if" condition - it ties into the preceding block) and a block for every branch's body
-   Int const ifBlocksStart = cg->futureBlocks->len;
-   for (Int j = cg->i; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
-      Int ifClause = ast[j].pl3;
-      if (ifClause == ifclElseIf || ifClause == ifclElse) {
-         CodeBlock* block = newBlock(cg->currFn);
-         add(
-            ((FutureBlock){.start = j, .c = block, .after = ifAfterBlock }), cg->futureBlocks
-         );
-      }
+   Int const ifBlocksOrig = cg->futureBlocks->len;
+   Int mbSecondBlockInd = calcNodeSentinel(ast[cg->i], cg->i);
+   for (Int j = mbSecondBlockInd; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
+      CodeBlock* block = newBlock(cg->currFn);
+      add(
+         ((FutureBlock){.start = j, .c = block, .after = ifAfterBlock }), cg->futureBlocks
+      );
    }
 
    if (weSplitCurrentBlock) {
@@ -916,32 +913,41 @@ ifCreateBlocks(Node nd, AST, CG) {
       }), cg->futureBlocks);
    }
 
-   Int const ifBlocksEnd = cg->futureBlocks->len;
-   if (ifBlocksEnd > ifBlocksStart) // need to reverse order of newly inserted blocks
-      { reverseFutureBlocks(cg->futureBlocks->c + ifBlocksStart, ifBlocksEnd - ifBlocksStart); }
+   Int const ifBlocksFinal = cg->futureBlocks->len;
+   if (ifBlocksFinal > ifBlocksOrig) // need to reverse order of newly inserted blocks
+      { reverseFutureBlocks(cg->futureBlocks->c + ifBlocksOrig, ifBlocksFinal - ifBlocksOrig); }
+   dbgFutureBlocks(cg); 
    return ifAfterBlock;
 }
 
-void //:ifWriteCondition
-ifWriteCondition(CodeBlock* ifAfterBlock, AST, CG) {
-// Emit the "if" condition and link the current block to the next. Consumes nodes.
-// At the start we are pointing at the nodIfClause
+private RValue* //:ifWriteCondition
+ifWriteCondition(OUT Int* startIfBody, OUT Int* sentinelIfBranch, AST, CG) {
    Node ifClause = ast[cg->i];
-   Int const sentinelIfBranch = calcNodeSentinel(ifClause, cg->i);
+   *sentinelIfBranch = calcNodeSentinel(ifClause, cg->i);
 
    cg->i++; // CONSUME the nodIfClause
    Node cond = ast[cg->i];
    Int const startIfCond = cond.tp == nodExpr ? cg->i + 1 : cg->i;
-   Int const startIfBody = calcNodeSentinel(cond, cg->i);
+   *startIfBody = calcNodeSentinel(cond, cg->i);
 
-   RValue* ifCondition = expr(startIfCond, startIfBody, ast, cg);
-   CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
+   RValue* ifCondition = expr(startIfCond, *startIfBody, ast, cg);
+}
 
-   // if there's an "else if" or "else", then it's this. Otherwise, ifAfterBlock
+private void //:ifInitialCondition
+ifInitialCondition(CodeBlock* ifAfterBlock, AST, CG) {
+// Emit the "if" condition and branch from the current block based on it. Consumes all the nodes.
+// Precondition: we are looking at the first nodIfClause in an "if"
+   Int startIfBody, sentinelIfBranch;
+   RValue* ifCondition = ifWriteCondition(OUT &startIfBody, OUT &sentinelIfBranch, ast, cg);
+
+   // Link to the next "else if" or "else", or, if none - to the block after the "if" 
    FutureBlock firstAdjacent = last(cg->futureBlocks);
 
+   CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
+   
    // close the current block with two branches, and enter the first "if" clause
-   conditional(cg->cbl.c, ifBody, firstAdjacent.c, ifCondition);
+   conditional(cg->cbl.c, ifCondition, ifBody, firstAdjacent.c);
+  print("IF init body %p next clause %p after if %p", ifBody, firstAdjacent.c, ifAfterBlock) 
    cg->cbl = (CurrBlock) {
       .start = startIfBody, .sentinel = sentinelIfBranch, .c = ifBody, .after = ifAfterBlock
    };
@@ -952,7 +958,7 @@ private void //:writeIf
 writeIf(Node nd, AST, CG) {
 // Consumes the first clause of an "if"
    CodeBlock* ifAfterBlock = ifCreateBlocks(nd, ast, cg);
-   ifWriteCondition(ifAfterBlock, ast, cg);
+   ifInitialCondition(ifAfterBlock, ast, cg);
 }
 
 private void //:writeMatch
@@ -1121,18 +1127,26 @@ mbCloseLoops(CG) {
 
 private void //:openBlockIfClause
 openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
-   if (nd.pl3 == ifclElse) {
-      print("encountered else, afterBlock = %p", cg->cbl.after);
-      Int sentinel = calcNodeSentinel(nd, cg->i);
+   CodeBlock* const ifAfterBlock = cg->cbl.after;
+   
+   Int const sentinel = calcNodeSentinel(nd, cg->i);
+   if (nd.pl3 == ifclElseIf) {
+      Int startIfBody, sentinelIfBranch;
+      RValue* ifCondition = ifWriteCondition(OUT &startIfBody, OUT &sentinelIfBranch, ast, cg);
+
+      // Link to the next "else if" or "else", or, if none - to the block after the "if" 
+      FutureBlock firstAdjacent = last(cg->futureBlocks);
+      CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
+      conditional(futureBlock.c, ifCondition, ifBody, firstAdjacent.c);
+      
+      cg->i = startIfBody - 1; // - 1 because the main loop will increment right now
+      cg->cbl = (CurrBlock) {
+         .start = startIfBody, .sentinel = sentinelIfBranch, .c = ifBody, .after = ifAfterBlock
+      };
+   } else { // "else"
       cg->cbl = (CurrBlock) {
          .c = futureBlock.c, .after = futureBlock.after, .start = cg->i, .sentinel = sentinel
       };
-   } else { //ifClElseIf
-      Node expression = ast[cg->i];
-      Int exprSentinel = calcNodeSentinel(expression, cg->i);
-      cg->i++; // CONSUME the nodExpr
-      expr(cg->i, exprSentinel, ast, cg);
-      cg->i = exprSentinel; // CONSUME the if of "else if" condition
    }
 }
 
@@ -1146,6 +1160,7 @@ openBlockScope(FutureBlock futureBlock, Node nd, AST, CG) {
 
 private void //:openBlock
 openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
+// Precondition: we are looking at nd
    jump(cg->cbl.c, NULLABLE cg->cbl.after);
    if (nd.tp == nodIfClause) {
       openBlockIfClause(futureBlock, nd, ast, cg);
@@ -1386,10 +1401,15 @@ dbgFutureBlocks(CG) {
    printf("FutureBlocks[ ");
    if (cg->futureBlocks->len == 0)
       { goto closing; }
-   printf("%d", cg->futureBlocks->c[cg->futureBlocks->len - 1].start);
+   
+   Int const j = cg->futureBlocks->len - 1;
+   printf(" %d %p after: %p", cg->futureBlocks->c[j].start,
+      cg->futureBlocks->c[j].c, cg->futureBlocks->c[j].after);
+   
    for (Int i = cg->futureBlocks->len - 2; i > -1; i--) {
-      printf(" %d", cg->futureBlocks->c[i].start);
-      if (i % 8 == 0) {
+      printf(" %d %p after: %p", cg->futureBlocks->c[i].start,
+         cg->futureBlocks->c[i].c, cg->futureBlocks->c[i].after);
+      if (i % 4 == 0) {
          printf("\n");
       }
    }
