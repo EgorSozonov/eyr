@@ -140,7 +140,7 @@ typedef struct { //:Codegen
    CurrBlock cbl; // no relation to Carbon-Based Lifeforms
    Fn* currFn; // the function we are in
    LFutureBlock* futureBlocks; // future block at lowest AST index is at the top
-   LBtLoop* bt;// backtrack of loop conditions, used for "continue" block linking
+   LBtLoop* loops;// backtrack of loop conditions, used for "continue" block linking
 
    Module* md;
 
@@ -686,7 +686,7 @@ createCodegen(CR, Arena* a) {
       },
       .currFn = null,
       .futureBlocks = createLFutureBlock(16, a),
-      .bt = createLBtLoop(16, a),
+      .loops = createLBtLoop(16, a),
       .bufferLen = 0,
       .functions = allocateArray(cr->functions.len, Fn*, a),
       .vars = allocateArray(cr->vars.len, LValue*, a),
@@ -951,28 +951,6 @@ private void //:writeMatch
 writeMatch(Node nd, Int sentinel, AST, CG) {
 }
 
-void //:preambleFor
-preambleFor(
-   Int sentinel, Int skipToBody, AST, CG,
-   OUT Int* initCount, OUT Int* condInd, OUT Int* stepCount, OUT Int* stepInd, OUT Int* bodyInd
-) {
-// Precondition: 1 past the nodFor
-
-   Int j = cg->i;
-   *bodyInd = cg->i + skipToBody - 1;
-   for (; ast[j].tp != nodExpr; j = calcNodeSentinel(ast[j], j)) {
-      (*initCount)++;
-   }
-   *condInd = j;
-   j = calcNodeSentinel(ast[j], j);
-   if (j < *bodyInd) {
-      *stepInd = j;
-      for (; j < *bodyInd; j = calcNodeSentinel(ast[j], j)) {
-         (*stepCount)++;
-      }
-   }
-}
-
 private void //:forWriteInitializers
 forWriteInitializers(Node nd, Int sentinel, AST, CG) {
    Int const condInd = cg->i + nd.pl3 - 1;
@@ -980,21 +958,18 @@ forWriteInitializers(Node nd, Int sentinel, AST, CG) {
       Node assign = ast[cg->i];
       cg->i++;
       assignmentWorker(assign, ast, cg);
-      print("assignin' in a loop @%d", cg->i);
    }
 }
 
 private void //:forBranchOnCondition
 forBranchOnCondition(Int sentinel, AST, CG) {
+// Creates two blocks (for the condition and the body) and adds the loop to @loops
    CodeBlock* loopAfterBlock = splitCurrentBlock(sentinel, cg);
    if (loopAfterBlock != cg->cbl.after) {
       add(
          ((FutureBlock){.start = sentinel, .c = loopAfterBlock, .after = cg->cbl.after }), cg->futureBlocks
       );
    }
-
-   print("for after blocks");
-   dbgFutureBlocks(cg);
 
    Node cond = ast[cg->i];
    Int const startLoopCond = cond.tp == nodExpr ? cg->i + 1 : cg->i;
@@ -1010,6 +985,9 @@ forBranchOnCondition(Int sentinel, AST, CG) {
    CodeBlock* loopBody = newBlock(cg->currFn);
    conditional(loopCondition, conditionValue, loopBody, loopAfterBlock);
 
+   add(((BtLoop)
+      {.condition = loopCondition, .after = loopAfterBlock, .sentinel = sentinel }), cg->loops
+   );
    cg->i = loopBodyInd;
    cg->cbl = (CurrBlock) {
       .start = loopBodyInd, .sentinel = sentinel, .c = loopBody, .after = loopCondition
@@ -1018,23 +996,21 @@ forBranchOnCondition(Int sentinel, AST, CG) {
 
 private void //:writeFor
 writeFor(Node nd, Int sentinel, AST, CG) {
-   print("FOR 1");
    forWriteInitializers(nd, sentinel, ast, cg);
-   print("FOR 2");
    forBranchOnCondition(sentinel, ast, cg);
-   print("FOR 3");
 }
 
 private void //:writeBreakCont
-writeBreakCont(Node fr, Int sentinel, Arr(Node const) ast, CG) {
-   if (fr.pl1 == -1) {
-   } else if (fr.pl1 == BIG - 1)     {
+writeBreakCont(Node nd, Int sentinel, Arr(Node const) ast, CG) {
+   Int unwindDepth = nd.pl1;
+   Bool isContinue = unwindDepth >= BIG;
+   if (isContinue)
+      { unwindDepth -= BIG; }
+   BtLoop unwindTarget = cg->loops->c[cg->loops->len - unwindDepth];
+   if (isContinue) {
+      jump(cg->cbl.c, unwindTarget.condition);
    } else {
-      Int loopInd = fr.pl1;
-      if (loopInd >= BIG) {
-         loopInd -= BIG;
-      } else {
-      }
+      jump(cg->cbl.c, unwindTarget.after);
    }
 }
 
@@ -1100,8 +1076,8 @@ writeImpl(Node nd, Int sentinel, Arr(Node const) ast, CG) {
 
 private void //:mbCloseLoops
 mbCloseLoops(CG) {
-   for (Int j = cg->bt->len - 1; j > -1 && cg->bt->c[j].sentinel == cg->i; j--) {
-      removeLast(cg->bt);
+   for (Int j = cg->loops->len - 1; j > -1 && cg->loops->c[j].sentinel == cg->i; j--) {
+      removeLast(cg->loops);
    }
 }
 
@@ -1370,11 +1346,11 @@ temp2(CG) {
 void
 dbgBtLoops(Codegen* cg) {
    printf("BtLoops [");
-   if (cg->bt->len == 0)
+   if (cg->loops->len == 0)
       { goto closing; }
-   printf("%d ", cg->bt->c[0].sentinel);
-   for (Int i = 1; i < cg->bt->len; i++) {
-      printf("%d ", cg->bt->c[i].sentinel);
+   printf("%d ", cg->loops->c[0].sentinel);
+   for (Int i = 1; i < cg->loops->len; i++) {
+      printf("%d ", cg->loops->c[i].sentinel);
    }
    closing:
    printf("]\n");

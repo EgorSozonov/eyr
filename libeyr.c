@@ -1840,7 +1840,8 @@ char const errLoopNoCondition[] = "A loop header should contain a condition";
 char const errLoopEmptyStepBody[] = "Empty loop step code & body, but at least one must be present!";
 char const errLoopWrongFormInStepper[] = "A for loop's stepper can only contain assignments, expressions and asserts";
 char const errLoopBreakOutside[] = "The break keyword can only be used inside a loop scope!";
-char const errBreakContinueTooComplex[]    = "This statement is too complex! Continues and breaks may contain one thing only: the postitive number of enclosing loops to continue/break!";
+char const
+errBreakContinueTooComplex[]    = "This statement is too complex! Continues and breaks may contain one thing only: the positive number of enclosing loops to continue/break!";
 char const errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a positive 32-bit integer!";
 char const errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
 char const errExpressionError[]   = "Cannot parse expression!";

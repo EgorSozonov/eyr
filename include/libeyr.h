@@ -196,8 +196,8 @@ libeyr_String str(const char* cent);
 #define nodDataAlloc   12  // pl1 = name of collection type, pl3 = count of elements
 
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   14  // pl1 = number of label to break or cinue to, -1 if none needed
-                           // It's a cinue iff it's >= BIG
+#define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
+                           // It's a continue iff it's >= BIG
 #define nodCatch       15  // `catch e {`
 #define nodImport      16  // This is for test files only, no need to import anything in main
 #define nodFnDef       17  // pl1 = index into @functions
@@ -205,8 +205,7 @@ libeyr_String str(const char* cent);
 #define nodTrait       19
 #define nodReturn      20
 #define nodTry         21
-#define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
-                           // have a label in codegen; pl3 = number of nodes to skip to get to condition
+#define nodFor         22  // pl1 = number of nodes to skip to get to condition
 #define nodIf          23
 #define nodIfClause    24  // pl3 = "ifcl" constants
 #define nodImpl        25
