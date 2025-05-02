@@ -3509,7 +3509,7 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
 // to be after the body.
    Int const scopeStart = cm->i;
    Int const scopeSentinel = calcSentinel(toks[cm->i], cm->i);
-   
+
    cm->i++; // CONSUME the tokScope
    Int j = cm->i;
    for (Token currTok = toks[j];
@@ -3536,13 +3536,13 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
 
    *bodyInd = (j < sentinel) ? j : 0;
    VALIDATEP(stepInd + (*bodyInd) > 0, errLoopEmptyStepBody)
-   
+
    // re-order the steps into the body
    if (stepInd > 0 && (*bodyInd) > 0)  {
       Int const lenBody = sentinel - (*bodyInd);
       Int const lenStep = (*bodyInd) - stepInd;
       LToken* buf = cm->expr->reorderBuf;
-      
+
       ensureCapacityTokenBuf(lenBody, buf, cm);
       memcpy(buf->c, toks + (*bodyInd), lenBody*sizeof(Token));
       memcpy(toks + sentinel - lenStep, toks + stepInd, lenStep*sizeof(Token));
@@ -3581,7 +3581,7 @@ pFor(Token forTk, TOKS, CM) {
 
    // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
    preambleFor(sentinel, toks, cm, OUT &condInd, OUT &bodyInd);
-   
+
    openParsedScope(sentinel, (Node){.tp = nodFor, .pl1 = cm->stats.loopCounter}, locOf(forTk), cm);
 
    // variable initializations
@@ -4732,7 +4732,7 @@ importPrelude(CM) {
          .typeId = strToVoid },
       (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd, .genericInd = genericInd,
          .tokenInd = -1, .access = accessPrivImm, .emit = emitParsed },
-      (Function){ .name = nameOfStandard(strPrintErr), 
+      (Function){ .name = nameOfStandard(strPrintErr),
          .access = accessPrivImm, .typeId = strToVoid }
       // TODO functions for casting (int, double, unsigned)
    };
@@ -5272,7 +5272,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      //printParser(cm);
+      printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");
