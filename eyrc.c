@@ -1007,11 +1007,14 @@ writeBreakCont(Node nd, Int sentinel, Arr(Node const) ast, CG) {
    if (isContinue)
       { unwindDepth -= BIG; }
    BtLoop unwindTarget = cg->loops->c[cg->loops->len - unwindDepth];
+   FutureBlock nextBlock = last(cg->futureBlocks);
    if (isContinue) {
-      jump(cg->cbl.c, unwindTarget.condition);
+      cg->cbl.after = unwindTarget.condition;
    } else {
-      jump(cg->cbl.c, unwindTarget.after);
+      cg->cbl.after = unwindTarget.after;
    }
+   cg->i = nextBlock.start;
+   print("BREAK CONT skipping to i %d", cg->i);
 }
 
 private void //:writeTry
@@ -1226,9 +1229,9 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    }
    mbCloseLoops(cg);
 
-//~   if (toplevelId == cr->entrypoint) {
-//~      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
-//~   }
+   if (toplevelId == cr->entrypoint) {
+      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
+   }
 
    if (returnType.v == tokMisc)
       { jump(cg->cbl.c, cg->cbl.after); }
