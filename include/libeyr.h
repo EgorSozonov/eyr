@@ -206,8 +206,7 @@ libeyr_String str(const char* cent);
 #define nodReturn      20
 #define nodTry         21
 #define nodFor         22  // pl1 = id of loop (unique within a function) if it needs to
-                           // have a label in codegen; pl3 = number of nodes to skip to get to body
-
+                           // have a label in codegen; pl3 = number of nodes to skip to get to condition
 #define nodIf          23
 #define nodIfClause    24  // pl3 = "ifcl" constants
 #define nodImpl        25

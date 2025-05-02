@@ -3498,14 +3498,13 @@ pAssignment(Token tok, TOKS, CM) {
 private void //:preambleFor
 preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
 // Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
-// Every out index is set to either positive or 0 for "not found".
 // A "for" syntax form is quadripartite:
 // 1) var inits (they must all be assignments),
 // 2) the condition (must be an expression),
 // 3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
 // 4) loop body (arbitrary syntax forms).
 // Precondition: looking at the tokScope right after tokFor.
-// Postcond: "condInd" & one of "stepInd" and "bodyInd" are guaranteed to be found (=> positive)
+// Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
 // If they are both present, this function performs important token twiddling: it reorders the step
 // to be after the body.
    Int const scopeStart = cm->i;
@@ -3548,7 +3547,10 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
       memcpy(buf->c, toks + (*bodyInd), lenBody*sizeof(Token));
       memcpy(toks + sentinel - lenStep, toks + stepInd, lenStep*sizeof(Token));
       memcpy(toks + stepInd, buf->c, lenBody*sizeof(Token));
-      toks[scopeStart].pl2 = sentinel - scopeStart - 1; // pure pedantry, it's not really necessary
+      toks[scopeStart].pl2 = sentinel - scopeStart - 1;
+      *bodyInd = stepInd;
+   } else if (stepInd > 0) { // the steps will become the body
+      toks[scopeStart].pl2 = stepInd - scopeStart - 1;
       *bodyInd = stepInd;
    }
 }
@@ -3572,7 +3574,6 @@ pFor(Token forTk, TOKS, CM) {
    Int const sentinel = cm->i + forTk.pl2;
 
    Int condInd; // index of condition
-   Int stepInd; // index of iteration stepping code
    Int bodyInd; // index of loop body
    Int const forNodeInd = cm->ast.len;
 
@@ -3581,11 +3582,10 @@ pFor(Token forTk, TOKS, CM) {
    // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
    preambleFor(sentinel, toks, cm, OUT &condInd, OUT &bodyInd);
    
-   print("after preamble %d body %d", condInd, bodyInd);
    openParsedScope(sentinel, (Node){.tp = nodFor, .pl1 = cm->stats.loopCounter}, locOf(forTk), cm);
 
    // variable initializations
-   Int sndInd = minPositiveOf(3, condInd, stepInd, bodyInd);
+   Int sndInd = minPositiveOf(2, condInd, bodyInd);
    if (sndInd > initInd) {
       for (cm->i = initInd + 1; cm->i < sndInd;) {
          Token tok = toks[cm->i];
@@ -3595,49 +3595,29 @@ pFor(Token forTk, TOKS, CM) {
    }
 
    // loop condition
-   if (condInd > 0)  {
-      Token condTok = toks[condInd];
+   Token condTok = toks[condInd];
 
-      cm->i = condInd + 1; // +1 cause the expression parser needs to be 1 past the exprToken
-      TypeId condType = exprUpToWithFrame((ParseFrame){
-            .level = 0, .startNodeInd = cm->ast.len,
-            .sentinel = minPositiveOf(3, stepInd, bodyInd, sentinel),
-            .typeId = cm->stats.loopCounter
-         },
-         locOf(condTok), toks, cm
-      );
-      VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
-   }
-
-   // loop steps
-//~   if (stepInd > 0) {
-//~      Int const bodySentinel = minPositiveOf(2, bodyInd, sentinel);
-//~      for (cm->i = stepInd; cm->i < bodySentinel; ) {
-//~         Token stepTk = toks[cm->i];
-//~         Int nextStep = calcSentinel(stepTk, cm->i);
-//~         
-//~         cm->i++; // CONSUME span token
-//~         (PARSE_TABLE[stepTk.tp])(stepTk, toks, cm);
-//~         cm->i = nextStep;
-//~      }
-//~   }
+   cm->i = condInd + 1; // +1 cause the expression parser needs to be 1 past the exprToken
+   Int const condNodeInd = cm->ast.len;
+   TypeId condType = exprUpToWithFrame((ParseFrame){
+         .level = 0, .startNodeInd = cm->ast.len,
+         .sentinel = minPositiveOf(2, bodyInd, sentinel),
+         .typeId = cm->stats.loopCounter
+      },
+      locOf(condTok), toks, cm
+   );
+   VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
 
    // readying to parse the body + step statements
    Int bodyStartBt = toks[sndInd].startBt;
-   Int const bodyNodeInd = cm->ast.len;
-   print("body node %d", bodyNodeInd);
 
-   cm->ast.c[forNodeInd].pl3 = bodyNodeInd - forNodeInd; // distance to inner scope
-   if (bodyInd > 0) {
-      openParsedScope(
-         sentinel, (Node){.tp = nodScope },
-         (SourceLoc){.startBt = bodyStartBt, .lenBts = forTk.lenBts - bodyStartBt + forTk.startBt },
-         cm
-      );
-      cm->i = bodyInd; // CONSUME the "for" until the loop body
-   } else {
-      cm->i = sentinel; // CONSUME the loop with empty body
-   }
+   cm->ast.c[forNodeInd].pl3 = condNodeInd - forNodeInd; // distance to the condition
+   openParsedScope(
+      sentinel, (Node){.tp = nodScope },
+      (SourceLoc){.startBt = bodyStartBt, .lenBts = forTk.lenBts - bodyStartBt + forTk.startBt },
+      cm
+   );
+   cm->i = bodyInd; // CONSUME the "for" until the loop body
 }
 
 private void //:parseErrorBareAtom
@@ -4120,7 +4100,6 @@ parseUpTo(Int sentinelToken, TOKS, CM) {
 // Parses anything from current cm->i to "sentinelToken"
    while (cm->i < sentinelToken) {
       Token currTok = toks[cm->i];
-      print("PARSE %d", cm->i);
       cm->i++;
       (PARSE_TABLE[currTok.tp])(currTok, toks, cm);
       mbCloseSpans(cm);
