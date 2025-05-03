@@ -870,9 +870,9 @@ writeNop(Node nd, Int sentinel, AST, CG) {
 private CodeBlock* //:ifCreateBlocks
 ifCreateBlocks(Node nd, Int sentinel, AST, CG) {
 // Create blocks for all the clauses and add them to @futureBlocks. Does not change @cbl
+// For an "if" expression, we need to create a block for every "else if" condition (but not for
+// the "if" condition - it ties into the preceding block) and a block for every branch's body
    CodeBlock* ifAfterBlock = splitCurrentBlock(sentinel, cg);
-   // For an "if" expression, we need to create a block for every "else if" condition (but not for
-   // the "if" condition - it ties into the preceding block) and a block for every branch's body
    Int const ifBlocksOrig = cg->futureBlocks->len;
    Int mbSecondBlockInd = calcNodeSentinel(ast[cg->i], cg->i);
    for (Int j = mbSecondBlockInd; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
@@ -915,14 +915,13 @@ ifInitialCondition(CodeBlock* ifAfterBlock, AST, CG) {
 // Precondition: we are looking at the first nodIfClause in an "if"
    Int startIfBody, sentinelIfBranch;
    RValue* ifCondition = ifWriteCondition(OUT &startIfBody, OUT &sentinelIfBranch, ast, cg);
-
+   
    // Link to the next "else if" or "else", or, if none - to the block after the "if"
-   FutureBlock firstAdjacent = last(cg->futureBlocks);
-
+   CodeBlock* ifAfter = cg->futureBlocks->len > 0 ? last(cg->futureBlocks).c : cg->cbl.after;
    CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
 
    // close the current block with two branches, and enter the first "if" clause
-   conditional(cg->cbl.c, ifCondition, ifBody, firstAdjacent.c);
+   conditional(cg->cbl.c, ifCondition, ifBody, ifAfter);
    cg->cbl = (CurrBlock) {
       .start = startIfBody, .sentinel = sentinelIfBranch, .c = ifBody, .after = ifAfterBlock
    };
@@ -1104,9 +1103,8 @@ openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
       RValue* ifCondition = ifWriteCondition(OUT &startIfBody, OUT &sentinelIfBranch, ast, cg);
 
       // Link to the next "else if" or "else", or, if none - to the block after the "if"
-      FutureBlock firstAdjacent = last(cg->futureBlocks);
       CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
-      conditional(futureBlock.c, ifCondition, ifBody, firstAdjacent.c);
+      conditional(futureBlock.c, ifCondition, ifBody, ifAfterBlock);
 
       cg->i = startIfBody - 1; // - 1 because the main loop will increment right now
       cg->cbl = (CurrBlock) {
@@ -1224,6 +1222,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    }
    for (; cg->i < fnSentinel;) {
       Node nd = cr->ast.c[cg->i];
+      
       Int const sentinel = calcNodeSentinel(nd, cg->i);
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
          FutureBlock newBlock = removeLast(cg->futureBlocks);
