@@ -3634,9 +3634,6 @@ pFor(Token forTk, TOKS, CM) {
    Int bodyStartBt = toks[sndInd].startBt;
 
    cm->ast.c[forNodeInd].pl1 = condNodeInd - forNodeInd; // distance to the condition
-   if (stepInd > 0) {
-      cm->ast.c[forNodeInd].pl3 = stepInd - forNodeInd; // distance to the stepping code
-   }
    openParsedScope(
       sentinel, (Node){.tp = nodScope },
       (SourceLoc){.startBt = bodyStartBt, .lenBts = forTk.lenBts - bodyStartBt + forTk.startBt },
@@ -4180,9 +4177,11 @@ breakContinue(Token tok, TOKS, CM) {
    if (unwindDepth > 0)
       { throwExcParser(errBreakContinueInvalidDepth); }
 
-   if (isContinue) { // we need to mark any loop being "continue"d to for codegen
+   if (isContinue) {
+      // for codegen, we need to mark any loop with steppers being "continue"d to
       ParseFrame loopFrame = cm->backtrack->c[j + 1];
-      if (cm->ast.c[loopFrame.startNodeInd].pl1 < BIG) {
+      Node forNode = cm->ast.c[loopFrame.startNodeInd];
+      if (forNode.pl1 < BIG) {
          cm->ast.c[loopFrame.startNodeInd].pl1 += BIG;
       }
    }
@@ -5309,7 +5308,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      //printParser(cm);
+      printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");

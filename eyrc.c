@@ -112,7 +112,7 @@ typedef CodeBlock* CodeBlockPtr;
 typedef RValue* RValuePtr;
 
 typedef struct { //:BtLoop
-   CodeBlock* condition; // used for "continue" implementation
+   CodeBlock* continueBlock; // used for "continue" - it's either the steppers or condition
    CodeBlock* after; // used for "break" implementation
    Int sentinel; // node index of end, exclusive
 } BtLoop;
@@ -640,7 +640,6 @@ private CodeBlock* //:splitCurrentBlock
 splitCurrentBlock(Int sentinel, CG) {
 // When we're about to create a sub-block within the current block, we need to check whether
 // this sub-block will end the current or split it.
-   print("split sent %d cbl.sentinel %d", sentinel, cg->cbl.sentinel);
    if (sentinel < cg->cbl.sentinel) {
       // if the new block splits the current one into two, we need to create the tail
       return newBlock(cg->currFn);
@@ -814,23 +813,18 @@ assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const
 }
 
 private void //:assignmentWorker
-assignmentWorker(Node nd, Arr(Node const) ast, CG) {
+assignmentWorker(Node nd, Int sentinel, AST, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
 // Consumes the whole assignment
-
-
-   print("assign worker @%d", cg->i)
-
-   Int const sentinel = cg->i + nd.pl2;
    if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
       { goto end; } // a function-typed local var - nothing to codegen here
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
+   
    Int innerExprInd = rightNodeInd; // for complex expressions
    for (; innerExprInd < sentinel && ast[innerExprInd].tp == nodAssignment; innerExprInd++) {
    }
 
-   print("assign left right node ind = %d @%d", rightNodeInd, cg->i)
    LValue* lValue = assignmentLeft(rightNodeInd, ast, cg);
    cg->i = innerExprInd;
 
@@ -844,7 +838,7 @@ assignmentWorker(Node nd, Arr(Node const) ast, CG) {
 private void //:writeAssignment
 writeAssignment(Node nd, Int sentinel, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
-   assignmentWorker(nd, ast, cg);
+   assignmentWorker(nd, sentinel, ast, cg);
 }
 
 private void //:writeDataAlloc
@@ -869,7 +863,6 @@ writeReturn(Node fr, Int sentinel, AST, CG) {
       { cg->i++; } // CONSUME the expr node
 
    RValue* returnValue = expr(cg->i, sentinel, ast, cg);
-   print("return from fn %p", returnValue);
    returnFromFn(returnValue, cg->cbl.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
@@ -953,24 +946,26 @@ writeMatch(Node nd, Int sentinel, AST, CG) {
 
 private void //:forWriteInitializers
 forWriteInitializers(Node nd, Int sentinel, AST, CG) {
-   Int const condInd = cg->i + nd.pl3 - 1;
+// Consumes everything up to condition
+   Int const condInd = cg->i + (nd.pl1 >= BIG ? (nd.pl1 - BIG) : nd.pl1) - 1;
    for (; cg->i < condInd; ) {
       Node assign = ast[cg->i];
+      Int sentinel = calcNodeSentinel(assign, cg->i);
       cg->i++;
-      assignmentWorker(assign, ast, cg);
+      assignmentWorker(assign, sentinel, ast, cg);
    }
 }
 
 private void //:forBranchOnCondition
-forBranchOnCondition(Int sentinel, AST, CG) {
+forBranchOnCondition(Node forNode, Int stepNodeInd, Int sentinel, AST, CG) {
 // Creates two blocks (for the condition and the body) and adds the loop to @loops
-   CodeBlock* loopAfterBlock = splitCurrentBlock(sentinel, cg);
-   if (loopAfterBlock != cg->cbl.after) {
+// Precondition: we are at condInd
+   CodeBlock* loopAfter = splitCurrentBlock(sentinel, cg);
+   if (loopAfter != cg->cbl.after) {
       add(
-         ((FutureBlock){.start = sentinel, .c = loopAfterBlock, .after = cg->cbl.after }), cg->futureBlocks
+         ((FutureBlock){.start = sentinel, .c = loopAfter, .after = cg->cbl.after }), cg->futureBlocks
       );
    }
-
    Node cond = ast[cg->i];
    Int const startLoopCond = cond.tp == nodExpr ? cg->i + 1 : cg->i;
    Int const loopBodyInd = calcNodeSentinel(cond, cg->i);
@@ -983,38 +978,52 @@ forBranchOnCondition(Int sentinel, AST, CG) {
    RValue* conditionValue = expr(startLoopCond, loopBodyInd, ast, cg);
 
    CodeBlock* loopBody = newBlock(cg->currFn);
-   conditional(loopCondition, conditionValue, loopBody, loopAfterBlock);
+   conditional(loopCondition, conditionValue, loopBody, loopAfter);
 
-   add(((BtLoop)
-      {.condition = loopCondition, .after = loopAfterBlock, .sentinel = sentinel }), cg->loops
-   );
+   Bool isTargetOfContinue = forNode.pl1 >= BIG;
+   CodeBlock* stepper = null;
+   if (isTargetOfContinue) {
+      // create a separate block for steppers so "continue" can jump to it
+      stepper = newBlock(cg->currFn);
+      add(
+         ((FutureBlock){.start = stepNodeInd, .c = stepper, .after = loopCondition }), cg->futureBlocks
+      );
+      add(((BtLoop)
+         {.continueBlock = stepper, .after = loopAfter, .sentinel = sentinel }), cg->loops
+      );
+   } else {
+      // there are no steppers, so "continue" will just jump back to the loop condition
+      add(((BtLoop)
+         {.continueBlock = loopCondition, .after = loopAfter, .sentinel = sentinel }), cg->loops
+      );
+   }
+
    cg->i = loopBodyInd;
    cg->cbl = (CurrBlock) {
-      .start = loopBodyInd, .sentinel = sentinel, .c = loopBody, .after = loopCondition
+      .start = loopBodyInd, .sentinel = (isTargetOfContinue ? stepNodeInd : sentinel),
+      .c = loopBody, .after = (isTargetOfContinue ? stepper : loopCondition)
    };
 }
 
 private void //:writeFor
 writeFor(Node nd, Int sentinel, AST, CG) {
+   Int stepNodeInd = nd.pl3 < nd.pl2 ? cg->i + nd.pl3 - 1 : 0;
    forWriteInitializers(nd, sentinel, ast, cg);
-   forBranchOnCondition(sentinel, ast, cg);
+   forBranchOnCondition(nd, stepNodeInd, sentinel, ast, cg);
 }
 
 private void //:writeBreakCont
 writeBreakCont(Node nd, Int sentinel, Arr(Node const) ast, CG) {
    Int unwindDepth = nd.pl1;
-   Bool isContinue = unwindDepth >= BIG;
-   if (isContinue)
-      { unwindDepth -= BIG; }
+   Bool isContinue = nd.pl3 == 1;
    BtLoop unwindTarget = cg->loops->c[cg->loops->len - unwindDepth];
    FutureBlock nextBlock = last(cg->futureBlocks);
    if (isContinue) {
-      cg->cbl.after = unwindTarget.condition;
+      cg->cbl.after = unwindTarget.continueBlock;
    } else {
       cg->cbl.after = unwindTarget.after;
    }
    cg->i = nextBlock.start;
-   print("BREAK CONT skipping to i %d", cg->i);
 }
 
 private void //:writeTry
@@ -1220,18 +1229,20 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
          FutureBlock newBlock = removeLast(cg->futureBlocks);
          openBlock(newBlock, nd, cr->ast.c, cg);
       }
+      
       if (nd.tp < nodScope) {
          print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
+      
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, sentinel, cr->ast.c, cg);
       mbCloseLoops(cg);
    }
    mbCloseLoops(cg);
 
-   if (toplevelId == cr->entrypoint) {
-      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
-   }
+//~   if (toplevelId == cr->entrypoint) {
+//~      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
+//~   }
 
    if (returnType.v == tokMisc)
       { jump(cg->cbl.c, cg->cbl.after); }
@@ -1366,11 +1377,11 @@ dbgFutureBlocks(CG) {
       { goto closing; }
 
    Int const j = cg->futureBlocks->len - 1;
-   printf(" %d %p after: %p", cg->futureBlocks->c[j].start,
+   printf("|%d %p after: %p", cg->futureBlocks->c[j].start,
       cg->futureBlocks->c[j].c, cg->futureBlocks->c[j].after);
 
    for (Int i = cg->futureBlocks->len - 2; i > -1; i--) {
-      printf(" %d %p after: %p", cg->futureBlocks->c[i].start,
+      printf("| %d %p after: %p", cg->futureBlocks->c[i].start,
          cg->futureBlocks->c[i].c, cg->futureBlocks->c[i].after);
       if (i % 4 == 0) {
          printf("\n");
@@ -1429,7 +1440,13 @@ main(int argc, char** argv) {
 //}}}
 
    CompResult* compResult = libeyr_compileFile(str("program.eyr"));
-   Codegen* cg = generateCode(compResult);
+   
+   Codegen* cg;
+   if (setjmp(excBuf) == 0) {
+      cg = generateCode(compResult);
+   } else {
+      print("Codegen exception!");
+   }
 
    if (cg->wasError) {
       print("Code generation error");
