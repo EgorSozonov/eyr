@@ -166,6 +166,8 @@ constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define miscPub        0    // pub. It must be 0 because it's the only one denoted by a keyword
 #define miscUnderscore 1    // _
 #define miscArrow      2    // ->
+#define miscForStep0   3    // token that provides space for a "for" loop reorganization
+#define miscForStep    4    // token that marks stepping code in a "for" loop
 
 //}}}
 
@@ -351,7 +353,7 @@ typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
 
 #define PARSER_FN(name) private void name(Token tok, TOKS, CM);
 PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment) PARSER_FN(pDef)
-PARSER_FN(pMisc) PARSER_FN(pAlias) PARSER_FN(parseAssert) PARSER_FN(pBreakCont) PARSER_FN(pReturn)
+PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert) PARSER_FN(pBreakCont) PARSER_FN(pReturn)
 PARSER_FN(pIf) PARSER_FN(pElseIf) PARSER_FN(pElse) PARSER_FN(pFor)
 
 private ParserFn const PARSE_TABLE[countSyntaxForms] = {
@@ -360,7 +362,7 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokDouble]     = &parseErrorBareAtom,
    [tokBool]       = &parseErrorBareAtom,
    [tokString]     = &parseErrorBareAtom,
-   [tokMisc]       = &parseErrorBareAtom,
+   [tokMisc]       = &pForStepMarker,
    [tokWord]       = &parseErrorBareAtom,
    [tokTypeName]   = &parseErrorBareAtom,
    [tokTypeVar]    = &parseErrorBareAtom,
@@ -1469,8 +1471,7 @@ struct ParseFrame { // :ParseFrame
    Int startNodeInd;
    Int sentinel;   // sentinel token
    Byte level;     // the "pfr" constants above
-   TypeId typeId;  // valid only for fnDef (then it's the function's type) and loops
-                   // (then it's the loop counter)
+   TypeId typeId;  // valid only for fnDef (then it's the function's type)
 };
 
 DEFINE_LIST(ParseFrame) //:createLParseFrame
@@ -2060,28 +2061,28 @@ throwExcLexer0(char const errMsg[], Int lineNumber, LX) {
 //}}}
 //{{{ Lexer proper
 
-private void
-checkPrematureEnd(Int requiredSymbols, LX) { //:checkPrematureEnd
+private void //:checkPrematureEnd
+checkPrematureEnd(Int requiredSymbols, LX) {
 // Checks that there are at least 'requiredSymbols' symbols left in the input
    VALIDATEL(lx->i + requiredSymbols <= lx->stats.inpLength, errPrematureEndOfInput)
 }
 
-private void
-setSpanLengthLexer(Int tokenInd, LX) { //:setSpanLengthLexer
+private void //:setSpanLengthLexer
+setSpanLengthLexer(Int tokenInd, LX) {
 // Finds the top-level punctuation opener by its index, and sets its lengths.
 // Called when the matching closer is lexed. Does not pop anything from the "lexBtrack"
    lx->tokens.c[tokenInd].lenBts = lx->i - lx->tokens.c[tokenInd].startBt + 1;
    lx->tokens.c[tokenInd].pl2 = lx->tokens.len - tokenInd - 1;
 }
 
-private void
-setStmtSpanLength(Int spanInd, LX) { //:setStmtSpanLength
+private void //:setStmtSpanLength
+setStmtSpanLength(Int spanInd, LX) {
 // Correctly calculates the lenBts for a single-line, statement-type span.
    lx->tokens.c[spanInd].lenBts = lx->i - lx->tokens.c[spanInd].startBt;
    lx->tokens.c[spanInd].pl2 = lx->tokens.len - spanInd - 1;
 }
 
-private void
+private void //:addStatementSpan
 addStatementSpan(Unt stmtType, Int startBt, LX) {
    add(((BtToken){ .tp = stmtType, .tokenInd = lx->tokens.len, .spanLevel = slStmt }),
                lx->lexBtrack);
@@ -2105,8 +2106,8 @@ wrapInAStatement(Int startBt, Arr(char const) source, LX) {
    }
 }
 
-private int64_t
-calcIntegerWithinLimits(LX) { //:calcIntegerWithinLimits
+private int64_t //:calcIntegerWithinLimits
+calcIntegerWithinLimits(LX) {
    int64_t powerOfTen = (int64_t)1;
    int64_t result = 0;
    Int j = lx->numeric.len - 1;
@@ -2120,8 +2121,8 @@ calcIntegerWithinLimits(LX) { //:calcIntegerWithinLimits
    return result;
 }
 
-private bool
-integerWithinDigits(const Byte* b, Int bLength, LX) { //:integerWithinDigits
+private Bool //:integerWithinDigits
+integerWithinDigits(const Byte* b, Int bLength, LX) {
 // Is the current numeric <= b if they are regarded as arrays of decimal digits (0 to 9)?
    if (lx->numeric.len != bLength) return (lx->numeric.len < bLength);
    for (Int j = 0; j < lx->numeric.len; j++) {
@@ -2131,15 +2132,15 @@ integerWithinDigits(const Byte* b, Int bLength, LX) { //:integerWithinDigits
    return true;
 }
 
-private Int
-calcInteger(int64_t* result, LX) { //:calcInteger
+private Int //:calcInteger
+calcInteger(int64_t* result, LX) {
    if (lx->numeric.len > 19 || !integerWithinDigits(maxInt, sizeof(maxInt), lx)) return -1;
    *result = calcIntegerWithinLimits(lx);
    return 0;
 }
 
-private Long
-calcHexNumber(LX) { //:calcHexNumber
+private Long //:calcHexNumber
+calcHexNumber(LX) {
    int64_t result = 0;
    int64_t powerOfSixteen = 1;
    Int j = lx->numeric.len - 1;
@@ -2154,8 +2155,8 @@ calcHexNumber(LX) { //:calcHexNumber
    return result;
 }
 
-private void
-hexNumber(Arr(char const) source, LX) { //:hexNumber
+private void //:hexNumber
+hexNumber(Arr(char const) source, LX) {
 // Lexes a hexadecimal numeric literal (integer or floating-point)
 // Examples of accepted expressions: 0xCAFE'BABE, 0xdeadbeef, 0x123'45A
 // Examples of NOT accepted expressions: 0xCAFE'babe, 0x'deadbeef, 0x123'
@@ -2188,9 +2189,9 @@ hexNumber(Arr(char const) source, LX) { //:hexNumber
    lx->i = j; // CONSUME the hex number
 }
 
-private Int
+private Int //:calcFloating
 calcFloating(double* result, Int powerOfTen, SRC, LX) {
-//:calcFloating Parses the floating-point numbers using just the "fast path" of David Gay's
+// Parses the floating-point numbers using just the "fast path" of David Gay's
 // "strtod" function, extended to 16 digits.
 // I.e. it handles only numbers with 15 digits or 16 digits with the first digit not 9,
 // and decimal powers within [-22; 22]. Parsing the rest of numbers exactly is a huge and pretty
@@ -2245,20 +2246,20 @@ calcFloating(double* result, Int powerOfTen, SRC, LX) {
    return 0;
 }
 
-int64_t
-longOfDoubleBits(double d) { //:longOfDoubleBits
+int64_t //:longOfDoubleBits
+longOfDoubleBits(double d) {
    FloatingBits un = {.d = d};
    return un.i;
 }
 
-private double
-doubleOfLongBits(int64_t i) { //:doubleOfLongBits
+private double //:doubleOfLongBits
+doubleOfLongBits(int64_t i) {
    FloatingBits un = {.i = i};
    return un.d;
 }
 
-private void
-decNumber(bool isNegative, SRC, LX) { //:decNumber
+private void //:decNumber
+decNumber(bool isNegative, SRC, LX) {
 // Lexes a decimal numeric literal (integer or floating-point). Adds a token.
 // TODO: add support for the '1.23E4' format
    Int j = (isNegative) ? (lx->i + 1) : lx->i;
@@ -2338,9 +2339,9 @@ lexNumber(SRC, LX) { //:lexNumber
    lx->numeric.len = 0;
 }
 
-private void
+private void //:openPunctuation
 openPunctuation(Unt tType, Unt spanLevel, Int startBt, LX) {
-//:openPunctuation Adds a token which serves punctuation purposes, i.e. either a ( or  a [
+// Adds a token which serves punctuation purposes, i.e. either a ( or  a [
 // These tokens are used to define the structure, that is, nesting within the AST.
 // Upon addition, they are saved to the backtracking stack to be updated with their length
 // once it is known. Consumes no bytes
@@ -2350,8 +2351,8 @@ openPunctuation(Unt tType, Unt spanLevel, Int startBt, LX) {
                     .startBt = startBt }, lx);
 }
 
-private void
-lexIf(Unt reservedWordType, Int startBt, SRC, LX) { //:lexIf
+private void //:lexIf
+lexIf(Unt reservedWordType, Int startBt, SRC, LX) {
    if (reservedWordType == tokElse) {
       openPunctuation(tokElse, slScope, startBt, lx);
    } else {
@@ -2359,18 +2360,19 @@ lexIf(Unt reservedWordType, Int startBt, SRC, LX) { //:lexIf
    }
 }
 
-private void
-lexDef(Int startBt, SRC, LX) { //:lexDef
+private void //:lexDef
+lexDef(Int startBt, SRC, LX) {
    openPunctuation(tokDef, slStmt, startBt, lx);
 }
 
-private void
-lexFor(Int startBt, SRC, LX) { //:lexFor
+private void //:lexFor
+lexFor(Int startBt, SRC, LX) {
    openPunctuation(tokFor, slUnbraced, startBt, lx);
+   pushIntokens(((Token){.tp = tokMisc, .pl1 = miscForStep0, .startBt = lx->i}), lx);
 }
 
-private void
-lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) { //:lexProcessSyntaxForm
+private void //:lexProcessSyntaxForm
+lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
 // Lexer action for a paren-type or statement-type syntax form.
 // Precondition: we are looking at the character immediately after the keyword
 // We must NOT consume any characters here - that's been done in {{wordInternal}}
@@ -3227,7 +3229,7 @@ openParsedScope(Int sentinelToken, Node nd, SourceLoc loc, CM) {
       .level = nd.tp == nodFor ? pfrLoop : pfrScope,
       .startNodeInd = cm->ast.len,
       .sentinel = sentinelToken,
-      .typeId = nd.tp == nodFor ? nd.pl1 : 0
+      .typeId = 0
       }), cm->backtrack
    );
    scopesNewLexicalScope(cm);
@@ -3242,10 +3244,6 @@ openFnScope(Int funcOrMonoId, TypeId fnType, Byte callSort, SourceLoc loc, Int s
       .typeId = fnType }), cm->backtrack);
    scopesNewLexicalScope(cm); // a function body is also a lexical scope
    newNode((Node){ .tp = nodFnDef, .pl1 = funcOrMonoId, .pl3 = callSort}, loc, cm);
-}
-
-private void //:pMisc
-pMisc(Token tok, TOKS, CM) {
 }
 
 private void //:pScope
@@ -3496,9 +3494,56 @@ pAssignment(Token tok, TOKS, CM) {
    }
 }
 
+private void //:reorderFor
+reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int sentinel, TOKS, CM) {
+// Reorders tokens in a "for" loop. Preconditions: we are looking at (tokFor + 2),
+// one or both of stepIndInitial, bodyInd is positive.
+// BEFORE: tokFor misc (scope inits cond steps) body
+// AFTER:  tokFor (scope inits cond) body misc steps
+   Int totalLen = sentinel - scopeStart + 1; // +1 for the tokMisc which is before the scope
+   Int scopeLen = minPositiveOf(2, stepInd, bodyInd) - scopeStart - 1;
+   LToken* const buf = cm->expr->reorderBuf;
+   Token stepMarker = toks[cm->i];
+   Token scope = toks[scopeStart];
+   scope.pl2 = scopeLen;
+   
+   ensureCapacityTokenBuf(totalLen, buf, cm);
+   Int sndInd = minPositiveOf(2, stepInd, bodyInd);
+   
+   Int const piece1Start = scopeStart + 1;
+   Int const piece1Len = sndInd - piece1Start;
+   Int const piece2Start = stepInd;
+   Int const piece2Len = stepInd > 0 ? (minPositiveOf(2, *bodyInd, sentinel) - stepInd) : 0;
+   Int const piece3Start = *bodyInd;
+   Int const piece3Len = *bodyInd > 0 ? sentinel - (*bodyInd) : 0;
+   
+   // shifting piece 1 (initializers and condition) by one token back 
+   buf->c[0] = scope;
+   memcpy(buf->c + 1, toks + piece1Start, piece1Len*sizeof(Token));
+   if (piece3Len > 0) {
+      memcpy(buf->c + 1 + piece1Len, toks + piece3Start, piece3Len*sizeof(Token));
+   }
+   buf->c[1 + piece1Len + piece3Len] = (Token){
+      .tp = tokMisc, .pl1 = miscForStep, .startBt = stepMarker.startBt
+   };
+   if (piece2Len > 0) {
+      memcpy(buf->c + 1 + piece1Len + piece3Len + 1, toks + piece2Start, piece2Len*sizeof(Token));
+   }
+   
+   memcpy(toks + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
+   
+   Int const newStart = scopeStart - 1;
+   toks[newStart].pl2 = scopeLen;
+   (*condInd)--;
+   (*bodyInd) = newStart + 1 + piece1Len; 
+}
+
 private void //:preambleFor
-preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
+preambleFor(Int scopeStart, Int sentinel,
+   OUT Int* condInd, OUT Int* bodyInd, OUT Int* stepInd, TOKS, CM
+) {
 // Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
+// Consumes no tokens
 // A "for" syntax form is quadripartite:
 // 1) var inits (they must all be assignments),
 // 2) the condition (must be an expression),
@@ -3506,13 +3551,8 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
 // 4) loop body (arbitrary syntax forms).
 // Precondition: looking at the tokScope right after tokFor.
 // Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
-// If they are both present, this function performs important token twiddling: it reorders the step
-// to be after the body.
-   Int const scopeStart = cm->i;
-   Int const scopeSentinel = calcSentinel(toks[cm->i], cm->i);
-
-   cm->i++; // CONSUME the tokScope
-   Int j = cm->i;
+   Int const scopeSentinel = calcSentinel(toks[scopeStart], scopeStart);
+   Int j = scopeStart + 1;
    for (Token currTok = toks[j];
         (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
         currTok = toks[j]) {
@@ -3528,7 +3568,7 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
 
    j = calcSentinel(condTok, j); // skipping the cond
    VALIDATEP(j < sentinel, errLoopEmptyStepBody);
-   Int stepInd = j;
+   *stepInd = j;
    for (Token currTok = toks[j]; j < scopeSentinel; currTok = toks[j]) {
       VALIDATEP(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
                 errLoopWrongFormInStepper);
@@ -3536,24 +3576,7 @@ preambleFor(Int sentinel, TOKS, CM, OUT Int* condInd, OUT Int* bodyInd) {
    }
 
    *bodyInd = (j < sentinel) ? j : 0;
-   VALIDATEP(stepInd + (*bodyInd) > 0, errLoopEmptyStepBody)
-
-   // re-order the steps into the body
-   if (stepInd > 0 && (*bodyInd) > 0)  {
-      Int const lenBody = sentinel - (*bodyInd);
-      Int const lenStep = (*bodyInd) - stepInd;
-      LToken* buf = cm->expr->reorderBuf;
-
-      ensureCapacityTokenBuf(lenBody, buf, cm);
-      memcpy(buf->c, toks + (*bodyInd), lenBody*sizeof(Token));
-      memcpy(toks + sentinel - lenStep, toks + stepInd, lenStep*sizeof(Token));
-      memcpy(toks + stepInd, buf->c, lenBody*sizeof(Token));
-      toks[scopeStart].pl2 = sentinel - scopeStart - 1;
-      *bodyInd = stepInd;
-   } else if (stepInd > 0) { // the steps will become the body
-      toks[scopeStart].pl2 = stepInd - scopeStart - 1;
-      *bodyInd = stepInd;
-   }
+   VALIDATEP((*stepInd) + (*bodyInd) > 0, errLoopEmptyStepBody)
 }
 
 private void //:pFor
@@ -3569,56 +3592,72 @@ pFor(Token forTk, TOKS, CM) {
 //       scope (if body not empty)
 //          body
 //          step(s)
-   Int const initInd = cm->i; // index of the tokScope inside tokFor
-
-   cm->stats.loopCounter++;
-   Int const sentinel = cm->i + forTk.pl2;
+   
+   Int const sentinel = calcSentinel(forTk, cm->i - 1);
+   Int const scopeStart = cm->i + 1; // index of the tokScope inside tokFor, skipping the tokMisc
 
    Int condInd; // index of condition
-   Int bodyInd; // index of loop body
+   Int bodyInd = 0; // index of loop body
+   Int stepInd = 0; // index of stepping code (or 0 if there was none)
    Int const forNodeInd = cm->ast.len;
 
-   VALIDATEP(toks[cm->i].tp == tokScope, errLoopSyntaxError)
+   VALIDATEP(toks[scopeStart].tp == tokScope, errLoopSyntaxError)
 
    // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
-   preambleFor(sentinel, toks, cm, OUT &condInd, OUT &bodyInd);
-
-   openParsedScope(sentinel, (Node){.tp = nodFor, .pl1 = cm->stats.loopCounter}, locOf(forTk), cm);
+   preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, toks, cm);
+   reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, toks, cm);
+   
+   Int const newScopeStart = scopeStart - 1;
+   openParsedScope(sentinel, (Node){.tp = nodFor }, locOf(forTk), cm);
 
    // variable initializations
-   Int sndInd = minPositiveOf(2, condInd, bodyInd);
-   if (sndInd > initInd) {
-      for (cm->i = initInd + 1; cm->i < sndInd;) {
-         Token tok = toks[cm->i];
-         cm->i++; // CONSUME the assignment span marker
-         pAssignment(tok, toks, cm);
-      }
+   for (cm->i = newScopeStart + 1; cm->i < condInd;) {
+      Token tok = toks[cm->i];
+      cm->i++; // CONSUME the assignment span marker
+      pAssignment(tok, toks, cm);
    }
 
    // loop condition
    Token condTok = toks[condInd];
-
    cm->i = condInd + 1; // +1 cause the expression parser needs to be 1 past the exprToken
    Int const condNodeInd = cm->ast.len;
    TypeId condType = exprUpToWithFrame((ParseFrame){
          .level = 0, .startNodeInd = cm->ast.len,
-         .sentinel = minPositiveOf(2, bodyInd, sentinel),
-         .typeId = cm->stats.loopCounter
+         .sentinel = minPositiveOf(2, bodyInd, sentinel)
       },
       locOf(condTok), toks, cm
    );
    VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
 
+   Int sndInd = minPositiveOf(2, stepInd, bodyInd);
    // readying to parse the body + step statements
    Int bodyStartBt = toks[sndInd].startBt;
 
-   cm->ast.c[forNodeInd].pl3 = condNodeInd - forNodeInd; // distance to the condition
+   cm->ast.c[forNodeInd].pl1 = condNodeInd - forNodeInd; // distance to the condition
+   if (stepInd > 0) {
+      cm->ast.c[forNodeInd].pl3 = stepInd - forNodeInd; // distance to the stepping code
+   }
    openParsedScope(
       sentinel, (Node){.tp = nodScope },
       (SourceLoc){.startBt = bodyStartBt, .lenBts = forTk.lenBts - bodyStartBt + forTk.startBt },
       cm
    );
    cm->i = bodyInd; // CONSUME the "for" until the loop body
+}
+
+private void //:pForStep
+pForStepMarker(Token tok, TOKS, CM) {
+// tokMisc as a span token must be the marker for stepping code in for loops
+   VALIDATEI(tok.pl1 == miscForStep, iErrorInconsistentSpans);
+   
+   Int j = cm->backtrack->len - 1;
+   for (; j > -1; j--) {
+      if (cm->backtrack->c[j].level == pfrLoop)
+         { break; }
+   }
+   VALIDATEI(j > -1, iErrorInconsistentSpans); // we must be inside a loop
+   ParseFrame topLoopFrame = cm->backtrack->c[j];
+   cm->ast.c[topLoopFrame.startNodeInd].pl3 = cm->ast.len - topLoopFrame.startNodeInd;
 }
 
 private void //:parseErrorBareAtom
@@ -4117,46 +4156,44 @@ parseAssert(Token tok, TOKS, CM) {
    throwExcParser(errTemp);
 }
 
-private Int //:breakContinue
-breakContinue(Token tok, Int* sentinel, TOKS, CM) {
+private Node //:breakContinue
+breakContinue(Token tok, TOKS, CM) {
 // Returns the number of levels to break/continue to, or 1 if there weren't any specified
+// For continue, the number is increased by BIG. Consumes no nodes.
    VALIDATEP(tok.pl2 <= 1, errBreakContinueTooComplex);
-   Int unwindLevel = 1;
-   *sentinel = cm->i;
-   if (tok.pl2 == 1) {
+   Bool const isContinue = tok.pl1 == 1;
+   
+   Int unwindDepth = 1;
+   if (tok.pl2 > 0) {
       Token nextTok = toks[cm->i];
       VALIDATEP(nextTok.tp == tokInt && nextTok.pl1 == 0 && nextTok.pl2 > 0,
                 errBreakContinueInvalidDepth)
-
-      unwindLevel = nextTok.pl2;
-      (*sentinel)++; // CONSUME the Int after the `break`
+      unwindDepth = nextTok.pl2;
    }
-   if (unwindLevel == 1)
-      { return 1; }
-
-   for (Int j = cm->backtrack->len - 1; j > -1; j--) {
-      if (cm->backtrack->c[j].level != pfrLoop)
-         { continue; }
-      unwindLevel--;
-      if (unwindLevel != 0)
-         { continue; }
-      ParseFrame loopFrame = cm->backtrack->c[j];
-      Int loopId = loopFrame.typeId.v;
-      cm->ast.c[loopFrame.startNodeInd].pl1 = loopId;
-      return unwindLevel == 1 ? -1 : loopId;
+   Int const fullUnwindDepth = unwindDepth;
+   
+   Int j = cm->backtrack->len - 1;
+   for (; j > -1 && unwindDepth > 0; j--) {
+      if (cm->backtrack->c[j].level == pfrLoop)
+         { unwindDepth--; }
    }
+   if (unwindDepth > 0)
+      { throwExcParser(errBreakContinueInvalidDepth); }
 
-   throwExcParser(errBreakContinueInvalidDepth);
+   if (isContinue) { // we need to mark any loop being "continue"d to for codegen
+      ParseFrame loopFrame = cm->backtrack->c[j + 1];
+      if (cm->ast.c[loopFrame.startNodeInd].pl1 < BIG) {
+         cm->ast.c[loopFrame.startNodeInd].pl1 += BIG;
+      }
+   }
+   return (Node){.tp = nodBreakCont, .pl1 = fullUnwindDepth, .pl2 = 0, .pl3 = isContinue ? 1 : 0 };
 }
 
 private void //:pBreakCont
 pBreakCont(Token tok, TOKS, CM) {
-   Int sentinel = cm->i;
-   Int loopId = breakContinue(tok, &sentinel, toks, cm);
-   if (tok.pl1 > 0) // continue
-      { loopId += BIG; }
-   newNode((Node){.tp = nodBreakCont, .pl1 = loopId}, locOf(tok), cm);
-   cm->i = sentinel; // CONSUME the whole break statement
+   Node breakContNode = breakContinue(tok, toks, cm);
+   newNode(breakContNode, locOf(tok), cm);
+   cm->i = calcSentinel(tok, cm->i - 1); // CONSUME the whole break statement
 }
 
 private void
@@ -5175,7 +5212,6 @@ private void //:pToplevelBody
 pToplevelBody(FunctionId fnId, TOKS, CM) {
 // Parses a top-level function. The result is the AST [ FnDef ParamList body... ]
 // Uses the function's type to introduce local vars for the function params
-   cm->stats.loopCounter = 0;
    cm->functions.c[fnId].nodeInd = cm->ast.len;
    Function fn = cm->functions.c[fnId];
    TypeId fnType = fn.typeId;
@@ -5273,7 +5309,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      printParser(cm);
+      //printParser(cm);
    } else {
 #ifndef TEST
       print("Exception!");
@@ -6940,7 +6976,6 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
       .activeBindings = allocateArray(countOperators, Int, a),
       .rawOverloads = createMultiAssocList(a),
       .stats = (CompStats) {
-         .loopCounter = 0,
          .standardTextLen = sizeof(standardText) - 1,
          .firstParsedName = (strSentinel + countOperators),
          .firstBuiltin = countOperators,

@@ -197,7 +197,7 @@ libeyr_String str(const char* cent);
 
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
 #define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
-                           // It's a continue iff it's >= BIG
+                           // pl3 = 1 iff it's a "continue"
 #define nodCatch       15  // `catch e {`
 #define nodImport      16  // This is for test files only, no need to import anything in main
 #define nodFnDef       17  // pl1 = index into @functions
@@ -205,7 +205,10 @@ libeyr_String str(const char* cent);
 #define nodTrait       19
 #define nodReturn      20
 #define nodTry         21
-#define nodFor         22  // pl1 = number of nodes to skip to get to condition
+#define nodFor         22  // pl1 = number of nodes to skip to get to the condition. Loops that get 
+                           // "continue"d to have pl1 += BIG.
+                           // pl3: the number of nodes to skip to get to the "step" part (or 0 if
+                           // there's no step)
 #define nodIf          23
 #define nodIfClause    24  // pl3 = "ifcl" constants
 #define nodImpl        25
@@ -452,7 +455,6 @@ typedef struct { //:CompStats
    Int toksLen;
    Int astLen;
    Int typesLen;
-   Int loopCounter;
    Int listType;
 
    Int standardTextLen; // length of standardText

@@ -6,6 +6,9 @@ typedef struct {
     Arena* a;
 } TestContext;
 
+typedef libeyr_String String;
+typedef libeyr_CompResult CompResult;
+
 //}}}
 //{{{ Tokens
 
@@ -141,6 +144,12 @@ extern char const errIndentation[];
 #define slClauseList   4 // a comma-separated list
 #define slUnbraced     5 // A scope that hasn't met its first brace, like an "if" before its "{"
 #define slSingleBraced 6 // A "for" scope that has met exactly 1 curly brace
+
+#define miscPub        0    // pub. It must be 0 because it's the only one denoted by a keyword
+#define miscUnderscore 1    // _
+#define miscArrow      2    // ->
+#define miscForStep0   3    // token that provides space for a "for" loop reorganization
+#define miscForStep    4    // token that marks stepping code in a "for" loop
 
 
 //}}}

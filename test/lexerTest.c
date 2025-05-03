@@ -1008,7 +1008,8 @@ LexerTestSet* coreFormTests(Arena* a) {
          (LexerTest) { .name = s("Loop simple"),
              .input = s("for {x' = 1; x < 101; x = x + 1;} { print x; }"),
              .expectedOutput = expect(((Token[]) {
-                 (Token){ .tp = tokFor, .pl1 = slScope, .pl2 = 18, .lenBts = 46 },
+                 (Token){ .tp = tokFor, .pl1 = slScope, .pl2 = 19, .lenBts = 46 },
+                 (Token){ .tp = tokMisc, .pl1 = miscForStep0, .startBt = 3 },
 
                  (Token){ .tp = tokScope, .pl1 = slScope, .pl2 = 14,
                           .startBt = 4, .lenBts = 29 },

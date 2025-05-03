@@ -1109,7 +1109,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          s("def f = {{} for {x' = 1; x < 101; x += 1;} { print $x; } };"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 19, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 18 },
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 18, .pl3 = 13 },
 
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x' = 1
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1143,7 +1143,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
            ),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 25 },
-            (Node){ .tp = nodFor, .pl1 = 10, .pl2 = 24 },
+            (Node){ .tp = nodFor, .pl1 = 10, .pl2 = 24, .pl3 = 19 },
 
             (Node){ .tp = nodAssignment,         .pl2 = 2, .pl3 = 2 }, // x' = 17
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1166,6 +1166,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar,   .pl1 = 0,      .pl2 = 0 }, // x
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 }, // $
             (Node){ .tp = nodCall, .pl1 = I - 3,      .pl2 = 1 }, // print
+
             (Node){ .tp = nodExpr,         .pl2 = 2, .pl3 = 0}, // x--
             (Node){ .tp = nodVar, .pl1 = 0,     .pl2 = 0 },
             (Node){ .tp = nodCall, .pl1 = oper(opDecrement, tokInt), .pl2 = 1 },
@@ -1190,7 +1191,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = tokInt,           .pl2 = 4 },
 
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9 },
+            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 10 },
 
             (Node){ .tp = nodExpr, .pl2 = 3         }, // < x 101
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
@@ -1211,7 +1212,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          s("def f = {{} for {x' = 1; x < 101; x += 1;} {} }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 15, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 14 },
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 14, .pl3 = 9 },
 
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1223,7 +1224,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
 
             (Node){ .tp = nodScope,           .pl2 = 6},
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x = x + 1
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x += 1
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
             (Node){ .tp = nodExpr, .pl2 = 3 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
@@ -1238,12 +1239,12 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          s("def f = {{} for {x' = 1; x < 101; } { print $x; } }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 12 },
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 12, .pl3 = 13 },
 
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = tokInt,        .pl2 = 1 },
-            
+
             (Node){ .tp = nodExpr, .pl2 = 3 }, // x < 101
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
             (Node){ .tp = tokInt,        .pl2 = 101 },
@@ -1269,7 +1270,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = tokInt,           .pl2 = 0 },
 
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9 },
+            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 9, .pl3 = 10 },
             (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
             (Node){ .tp = tokInt,        .pl2 = 101 },
@@ -1294,7 +1295,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = tokInt,           .pl2 = 7 },
 
-            (Node){ .tp = nodFor,  .pl1 = 1, .pl2 = 11 },
+            (Node){ .tp = nodFor,  .pl1 = 1, .pl2 = 11, .pl3 = 6 },
             (Node){ .tp = nodExpr, .pl2 = 3 }, // x < 101
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
             (Node){ .tp = tokInt,        .pl2 = 101 },
@@ -1321,7 +1322,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = tokBool,        .pl2 = 1 },
 
-            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 7 },
+            (Node){ .tp = nodFor, .pl1 = 1, .pl2 = 7, .pl3 = 8 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
 
             (Node){ .tp = nodScope,        .pl2 = 5 },
@@ -1364,7 +1365,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
            ),
          ((Node[]) {
             (Node){ .tp = nodFnDef,          .pl2 = 11 },
-            (Node){ .tp = nodFor, .pl1 = 4,  .pl2 = 10 },
+            (Node){ .tp = nodFor, .pl1 = 4 + BIG,  .pl2 = 10, .pl3 = 11 },
 
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1377,7 +1378,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
 
             (Node){ .tp = nodScope, .pl2 = 2 },
             (Node){ .tp = nodBreakCont, .pl1 = 1 },
-            (Node){ .tp = nodBreakCont, .pl1 = BIG + 1 }
+            (Node){ .tp = nodBreakCont, .pl1 = 1,        .pl3 = 1 }
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1426,8 +1427,8 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 51 },
 
-            (Node){ .tp = nodFor,  .pl1 = 4, .pl2 = 50 }, // "for" #1. It's being
-                                                          // "broken" from
+            (Node){ .tp = nodFor,  .pl1 = 4, .pl2 = 50, .pl3 = 51 }, // "for" #1. It's being
+                                                                    // "broken" from
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2}, // a = 0
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = tokInt, .pl2 = 0 },
@@ -1438,7 +1439,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
 
             (Node){ .tp = nodScope,        .pl2 = 42 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 18 }, // "for" #2
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 18, .pl3 = 19 }, // "for" #2
 
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // b = 0
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1450,7 +1451,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
 
             (Node){ .tp = nodScope,        .pl2 = 10 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 9 }, // "for" #3, double-nested
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 9, .pl3 = 10 }, // "for" #3, double-nested
 
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // c =
             (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1464,7 +1465,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodScope,       .pl2 = 1 },
             (Node){ .tp = nodBreakCont, .pl1 = 3 },
 
-            (Node){ .tp = nodFor,  .pl1 = 4, .pl2 = 18 }, // "for" #4. It's "continued"
+            (Node){ .tp = nodFor, .pl1 = 4 + BIG, .pl2 = 18, .pl3 = 19 }, // "for" #4. It's "continued"
 
             (Node){ .tp = nodAssignment,   .pl2 = 2, .pl3 = 2 }, // d = 0
             (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1476,7 +1477,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
 
             (Node){ .tp = nodScope,      .pl2 = 10 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 9 }, // "for" #5, the last one
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 9, .pl3 = 10 }, // "for" #5, the last one
 
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // e = 0
             (Node){ .tp = nodVar, .pl1 = 4, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -1487,10 +1488,10 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt,        .pl2 = 401 },
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
 
-            (Node){ .tp = nodScope,      .pl2 = 1 },
-            (Node){ .tp = nodBreakCont, .pl1 = 2 + BIG },
+            (Node){ .tp = nodScope,               .pl2 = 1 },
+            (Node){ .tp = nodBreakCont, .pl1 = 2,         .pl3 = 1 }, // continue
 
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // print $a
+            (Node){ .tp = nodExpr,                .pl2 = 3 }, // print $a
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },  // a
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
             (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
