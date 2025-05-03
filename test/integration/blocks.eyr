@@ -1,0 +1,22 @@
+////PROGRAM{
+def main Int = {{}
+   i' = 1;
+   if i > 1 {
+      for {j' = 100; j > 97; j -= 1; }{
+         print j;
+      }
+   }
+   i = 2; 
+   if i > 1 {
+      for {j' = 100; j > 97; j -= 1; }{
+         print j;
+      }
+   }
+   return 0;
+};
+////}
+////EXPECTED{
+//100
+//99
+//98
+////

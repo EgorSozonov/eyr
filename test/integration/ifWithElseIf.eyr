@@ -1,4 +1,3 @@
-////PROGRAM{
 
 def conditionalPrinter = {{x Int,}
    print `foo:`;
@@ -18,15 +17,14 @@ def main Int = {{}
    return 0;
 };
 
-////}
 ////TEST{
 ////INPUT{
-800
+//800
 ////}
 ////EXPECTED{
-foo:
-less than 800
-== 800
-greater than 800
+//foo:
+//less than 800
+//== 800
+//greater than 800
 ////}
 ////}

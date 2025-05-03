@@ -86,11 +86,6 @@ typedef struct { //:TypeRef Codegenned type and index of Eyr type (index into @C
    CgType* cgType;
 } TypeRef;
 
-#define bloCommon        0 // common blocks. nextBlock = afterBlock
-#define bloIf            1 // if conditions. nextBlock = next "else if"/"else"
-#define bloLoopCond      2 // loop conditions. nextBlock = afterBlock
-#define bloLoopBody      3 // loop bodies. nextBlock = bloLoopCond
-
 typedef struct { //:CurrBlock
    Int start; // start node ind
    Int sentinel; // end node ind, exclusive
@@ -100,7 +95,7 @@ typedef struct { //:CurrBlock
 
 typedef struct { //:FutureBlock
    Int start;
-   //Byte tp; // the "blo" constants above
+   Int sentinel;
    NULLABLE CodeBlock* c;
    CodeBlock* after;
 } FutureBlock;
@@ -876,21 +871,22 @@ private CodeBlock* //:ifCreateBlocks
 ifCreateBlocks(Node nd, Int sentinel, AST, CG) {
 // Create blocks for all the clauses and add them to @futureBlocks. Does not change @cbl
    CodeBlock* ifAfterBlock = splitCurrentBlock(sentinel, cg);
-
    // For an "if" expression, we need to create a block for every "else if" condition (but not for
    // the "if" condition - it ties into the preceding block) and a block for every branch's body
    Int const ifBlocksOrig = cg->futureBlocks->len;
    Int mbSecondBlockInd = calcNodeSentinel(ast[cg->i], cg->i);
    for (Int j = mbSecondBlockInd; j < sentinel; j = calcNodeSentinel(ast[j], j)) {
       CodeBlock* block = newBlock(cg->currFn);
-      add(
-         ((FutureBlock){.start = j, .c = block, .after = ifAfterBlock }), cg->futureBlocks
+      add(((FutureBlock){
+            .start = j, .sentinel = cg->cbl.sentinel, .c = block, .after = ifAfterBlock }
+         ),
+         cg->futureBlocks
       );
    }
 
    if (ifAfterBlock != cg->cbl.after) {
       add(((FutureBlock) {
-         .start = sentinel, .c = ifAfterBlock, .after = cg->cbl.after
+         .start = sentinel, .sentinel = cg->cbl.sentinel, .c = ifAfterBlock, .after = cg->cbl.after
       }), cg->futureBlocks);
    }
 
@@ -950,9 +946,9 @@ forWriteInitializers(Node nd, Int sentinel, AST, CG) {
    Int const condInd = cg->i + (nd.pl1 >= BIG ? (nd.pl1 - BIG) : nd.pl1) - 1;
    for (; cg->i < condInd; ) {
       Node assign = ast[cg->i];
-      Int sentinel = calcNodeSentinel(assign, cg->i);
+      Int assignSent = calcNodeSentinel(assign, cg->i);
       cg->i++;
-      assignmentWorker(assign, sentinel, ast, cg);
+      assignmentWorker(assign, assignSent, ast, cg);
    }
 }
 
@@ -962,8 +958,10 @@ forBranchOnCondition(Node forNode, Int stepNodeInd, Int sentinel, AST, CG) {
 // Precondition: we are at condInd
    CodeBlock* loopAfter = splitCurrentBlock(sentinel, cg);
    if (loopAfter != cg->cbl.after) {
-      add(
-         ((FutureBlock){.start = sentinel, .c = loopAfter, .after = cg->cbl.after }), cg->futureBlocks
+      add(((FutureBlock){
+            .start = sentinel, .sentinel = cg->cbl.sentinel, .c = loopAfter, .after = cg->cbl.after
+         }),
+         cg->futureBlocks
       );
    }
    Node cond = ast[cg->i];
@@ -985,8 +983,10 @@ forBranchOnCondition(Node forNode, Int stepNodeInd, Int sentinel, AST, CG) {
    if (isTargetOfContinue) {
       // create a separate block for steppers so "continue" can jump to it
       stepper = newBlock(cg->currFn);
-      add(
-         ((FutureBlock){.start = stepNodeInd, .c = stepper, .after = loopCondition }), cg->futureBlocks
+      add(((FutureBlock){
+            .start = stepNodeInd, .sentinel = sentinel, .c = stepper, .after = loopCondition
+         }),
+         cg->futureBlocks
       );
       add(((BtLoop)
          {.continueBlock = stepper, .after = loopAfter, .sentinel = sentinel }), cg->loops
@@ -1121,9 +1121,9 @@ openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
 
 private void //:openBlockScope
 openBlockScope(FutureBlock futureBlock, Node nd, AST, CG) {
-   Int sentinel = calcNodeSentinel(nd, cg->i);
    cg->cbl = (CurrBlock) {
-      .start = cg->i, .sentinel = sentinel, .c = futureBlock.c, .after = futureBlock.after
+      .start = cg->i, .sentinel = futureBlock.sentinel,
+      .c = futureBlock.c, .after = futureBlock.after
    };
 }
 
