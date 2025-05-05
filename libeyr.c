@@ -4991,21 +4991,6 @@ createOverloads(CM) {
    }
 }
 
-private Bool //:determineIfFnDef
-determineIfFnDef(Int tokInd, Int const sentinel, TOKS, CM, OUT Int* indRight) {
-// Determines if a toplevel definition is a function definition (true ret value) or value (false)
-   for (*indRight = cm->i;
-       *indRight < sentinel && toks[*indRight].tp != tokAssignRight;
-       *indRight++) {}
-
-#ifdef SAFETY
-   print("ind Right %d sentinel %d", *indRight, sentinel);
-   VALIDATEI((*indRight < sentinel && toks[*indRight].pl2 > 0), iErrorInconsistentSpans);
-#endif
-   return (toks[(*indRight) + 1].tp == tokFn);
-}
-
-
 private void //:pToplevelTypes
 pToplevelTypes(CM) {
 // Parses top-level types but not functions. Writes them to the types table and adds
@@ -6668,9 +6653,9 @@ dbgTypeOuter(TypeHeader currHdr, CM) {
    }
 }
 
-void //:dbgType1
+void
 dbgType1(Int t, CM) {
-   printIntArrayOff(t, 6, cm->types.c);
+  // printIntArrayOff(t, 6, cm->types.c);
 
    LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
    TypeLoc* top = null;
@@ -6721,7 +6706,7 @@ dbgType1(Int t, CM) {
    printf("\n");
 }
 
-void //:dbgType0
+void //:dbgType
 dbgType0(TypeId type, CM) {
 // Print a single type fully for debugging purposes
    //printf("Printing the type [ind = %d, len = %d]\n", typeId, cm->types.c[typeId]);
@@ -6871,6 +6856,13 @@ importTestFns(Arr(Int) types, Int countTypes,
       };
    }
    importFns(importedFns, countImports, cm);
+}
+
+CompResult*
+getCompResult(CM) {
+   CompResult* cr = allocate(CompResult, cm->a);
+   fillInCompilationResult(cm, OUT cr);
+   return cr;
 }
 
 Int
@@ -7048,6 +7040,12 @@ libeyr_compileFile(String filename) {
 #ifdef TRACE
    printParser(cm);
 #endif
+
+   for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
+      print("TYPE %d", j);
+      dbgType(typeOf(j));
+   }
+
    fillInCompilationResult(cm, OUT cr);
    return cr;
 }
@@ -7075,13 +7073,6 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .a = cm->a,
       .stats = cm->stats,
    };
-}
-
-CompResult*
-getCompResult(CM) {
-   CompResult* cr = allocate(CompResult, cm->a);
-   fillInCompilationResult(cm, OUT cr);
-   return cr;
 }
 
 //}}}
