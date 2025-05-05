@@ -136,10 +136,7 @@ typedef struct { // :Token
 #define tokEach        39
 
 #define topVerbatimTokenVariant tokString
-#define topVerbatimType     tokMisc
 #define voidType            tokMisc
-// Not used in types, only in overloads to mark functions with first param = type param
-constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 #define firstSpanTokenType  tokStmt
 #define firstScopeTokenType tokScope
 #define countSyntaxForms    (tokEach + 1)
@@ -1516,10 +1513,6 @@ struct TypeLoc { //:TypeLoc
 
 DEFINE_LIST(TypeLoc)
 
-#ifdef TEST
-private void dbgLNode(LNode*, Arena*);
-#endif
-
 #define eq(X, Y) _Generic((X),\
    TypeId: eq_TypeId\
    )(X, Y)
@@ -1636,14 +1629,14 @@ struct Compiler { // :Compiler
    InListInt toplevels;        // indices into @functions
    Int entrypoint;             // index into @functions
    InListInt importNames;
-   LParseFrame* backtrack; // [aTmp]
-   Scopes scopes;             // lists of local variables for keeping track of scopes
+   LParseFrame* backtrack;     // [aTmp]
+   Scopes scopes;              // lists of local variables for keeping track of scopes
    Expr* expr;                 // [aTmp]
    TExpr* tExpr;               // [aTmp]
    // For vars, index pointing into @vars.
    // For functions, (-ind - 2), ind points into @overloads. For types, index into @types
    Arr(Int) activeBindings;    // [aTmp]
-   InListNode ast;            // Abstract syntax tree
+   InListNode ast;             // Abstract syntax tree
    InListVar vars;                // local variables
    InListFunction functions;
    MultiAssocList* functionMonos; // (MultiAssocL (TypeId @monos), pointed into by Function.genericInd)
@@ -3022,10 +3015,6 @@ private Node //:createNodVarForName
 createNodVarForName(NameId name, CM) {
 // Resolves an active binding, throws if it's not active
    Int rawValue = cm->activeBindings[name];
-   if (rawValue == -187) {
-      print("for name %d unknown binding", name);
-      printName(name, cm);
-   }
    VALIDATEP(rawValue > -1 && rawValue < BIG, errUnknownBinding)
    Var v = cm->vars.c[rawValue];
    if (v.fnId == -1) {
@@ -3426,6 +3415,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
       Byte assiSort = assiVarAssignment;
       if (varId > -1) {
          VALIDATEP(cm->vars.c[varId].access == accessPrivMut, errCannotMutateImmutable)
+         
          leftType = cm->vars.c[varId].typeId;
          if (tIsFunction(leftType, cm) > -1) { // reassignment of a function var
             NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
@@ -3737,6 +3727,8 @@ subexDataAllocation(ExprFrame frame, Expr* e, CM) {
       TypeId collType = tCreateSingleParamTypeCall(
          typeOf(cm->activeBindings[nameOfStandard(strL)]), eltType, cm
       );
+      print("created list type %d for var %d", collType.v, newVarId);
+      dbgType(collType);
       cm->vars.c[newVarId].typeId = collType;
    }
 
@@ -4264,6 +4256,11 @@ private void //:importVars
 importVars(Arr(Var) impts, Int const countVars, CM) {
    for (int j = 0; j < countVars; j++) {
       Var const ent = impts[j];
+      
+      if (cm->activeBindings[ent.name] != -1) {
+         print("already active @ %d bind %d", ent.name, cm->activeBindings[ent.name]);
+         printName(ent.name, cm);
+      }
       VALIDATEP(cm->activeBindings[ent.name] == -1, errAssignmentShadowing)
       Int newVarId = cm->vars.len;
       pushInvars(ent, cm);
@@ -4458,7 +4455,11 @@ mergeType(TypeId startInd, CM) {
 // tail, and covered by @types.len. Returns the resulting index of this type and updates the
 // length of cm->types if appropriate
    Int lenInts = cm->types.c[startInd.v] + 1; // +1 for the type length
-   return mergeTypeWorker(startInd, lenInts, cm);
+   TypeId r = mergeTypeWorker(startInd, lenInts, cm);
+   if (r.v == 142) {
+      print("142 type @%d", cm->i);
+   }
+   return r;
 }
 
 private TypeId //:addConcrFnType
@@ -4483,7 +4484,7 @@ importGenericTypesList(OUT TypeId* addType, OUT TypeId* lengthType, CM) {
 // and the `#` function: `L $T -> Int`
    // add $0 type
    TypeId tentativeType = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX_LEN, cm);
+   pushIntypes(TYPE_PREFIX_LEN - 1, cm);
    typeAddHeader(((TypeHeader){ .sort = sorGenericParam, .tyrity = 1, .arity = 0, .name = 0,
         .isGeneric = true }), cm);
    TypeId p0 = mergeType(tentativeType, cm);
@@ -4590,20 +4591,21 @@ buildPreludeTypes(CM) {
 
    // List
    Int typeIndL = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 2, cm); // 4 for the field names & types
+   pushIntypes(TYPE_PREFIX_LEN + 3, cm); // 3 = 4 - 1, header size = TYPE_PREFIX_LEN - 1
    NameId name = nameOfStandard(strL);
    typeAddHeader((TypeHeader){.sort = sorDeclare, .arity = 1, .tyrity = 1,
       .isGeneric = true, .name = nameOfStandard(strL)},
       cm);
    pushIntypes(tokInt, cm);
+   pushIntypes(tokInt, cm);
    pushIntypes(nameOfStandard(strLen), cm);
-   pushIntypes(nameOfStandard(strLength), cm);
+   pushIntypes(nameOfStandard(strCap), cm);
    cm->activeBindings[name] = typeIndL;
-   cm->stats.listType = cm->activeBindings[nameOfStandard(strL)];
+   cm->stats.listType = typeIndL;
 
    // Array
    Int typeIndA = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 2, cm);
+   pushIntypes(TYPE_PREFIX_LEN + 1, cm);
    name = nameOfStandard(strArray);
    typeAddHeader((TypeHeader){.sort = sorDeclare, .isGeneric = true,
                          .arity = 1, .tyrity = 1, .name = nameOfStandard(strArray)}, cm);
@@ -4614,7 +4616,7 @@ buildPreludeTypes(CM) {
 
 private void //:buildOper
 buildOper(Int operId, TypeId typeId, Emit emit, CM) {
-//Creates an entity, pushes it to [rawOverloads] and activates its name
+//Creates an entity, pushes it to @rawOverloads and activates its name
    FunctionId newFnId = cm->functions.len;
    pushInfunctions(
       (Function){ .typeId = typeId, .name = OPERATORS[operId].name, .emit = emit, },
@@ -4648,7 +4650,7 @@ buildOperators(CM) {
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
    TypeId voidOfInt      = addConcrFnType(1, (Int[]){ tokInt, voidType}, cm);
-
+   
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
    buildOper(opNotEqual,     boolOfIntInt, emitNotEq, cm);
@@ -4718,10 +4720,13 @@ buildOperators(CM) {
    buildOper(opGetElemPtr,   douOfDou, emitNotEq, cm); // dummy
 }
 
-private void //:createBuiltins
-createBuiltins(CM) {
+private void //:createBuiltinsForProto
+createBuiltinsForProto(CM) {
 // Entities and functions for the built-in operators, types and functions
    buildStandardStrings(cm);
+   cm->activeBindings = allocateArray(cm->names->len, Int, cm->a),
+   memset(cm->activeBindings, 0xFF, 4*cm->names->len);
+   
    buildPreludeTypes(cm);
    buildOperators(cm);
    cm->stats.countOperatorFns = cm->functions.len;
@@ -4730,7 +4735,6 @@ createBuiltins(CM) {
 private void //:importPrelude
 importPrelude(CM) {
 // Imports the standard, Prelude stuff into the compiler immediately after the lexing phase
-   buildPreludeTypes(cm);
    TypeId const strToVoid = addConcrFnType(1, (Int[]){ tokString, voidType }, cm);
    TypeId const intToVoid = addConcrFnType(1, (Int[]){ tokInt, voidType }, cm);
    TypeId const douToVoid = addConcrFnType(1, (Int[]){ tokDouble, voidType }, cm);
@@ -4814,6 +4818,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
 private void //:initializeParser
 initializeParser(Compiler* lx, Arena* a) {
 // Turns a lexer into a parser. Initializes all the parser & typer stuff after lexing is done
+
    if (lx->wasError)
       { return; }
 
@@ -4841,11 +4846,9 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->overloads = (InListInt){.len = 0, .c = null};
 
    cm->activeBindings = allocateArray(lx->names->len, Int, lx->aTmp);
-   memcpy(cm->activeBindings, PROTO.activeBindings, 4*countOperators); // operators only
-
-   Int extraActive = lx->names->len - countOperators;
-   if (extraActive > 0)
-      { memset(cm->activeBindings + countOperators, 0xFF, extraActive*4); }
+   memcpy(cm->activeBindings, PROTO.activeBindings, 4*PROTO.names->len);
+   // need to write "-1" to all the bindings not present in the proto compiler
+   memset(cm->activeBindings + PROTO.names->len, 0xFF, 4*(lx->names->len - PROTO.names->len));
 
    cm->vars = createInListVar(PROTO.vars.cap, a);
    memcpy(cm->vars.c, PROTO.vars.c, PROTO.vars.len*sizeof(Var));
@@ -4881,7 +4884,6 @@ initializeParser(Compiler* lx, Arena* a) {
       .genericSt = createLTypeLoc(16, cm->aTmp),
       .concreteSt = createLTypeLoc(16, cm->aTmp),
    };
-
    cm->entrypoint = -1;
 
    importPrelude(cm);
@@ -5594,16 +5596,19 @@ tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM) {
 private TypeId //:tCreateSingleParamTypeCall
 tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM) {
 // Creates a type like (L Int)
-   TypeId listType = typeOf(cm->activeBindings[nameOfStandard(strL)]);
+   //TypeId listType = typeOf(cm->activeBindings[nameOfStandard(strL)]);
+   print("single param start len %d outer %d name %d", cm->types.len, outer.v, nameOfStandard(strL));
    TYPE_CREATE_START(
       ((TypeHeader){.sort = sorTypeCall, .tyrity = 0, .arity = 2,
          .name = nameOfStandard(strL), .isGeneric = false})
    );
-   pushIntypes(listType.v, cm);
+   pushIntypes(outer.v, cm);
    pushIntypes(param.v, cm);
 
    TYPE_CREATE_END;
    TypeId res = mergeType(tentativeType, cm);
+   
+   print("single param end len %d", cm->types.len);
    return res;
 }
 
@@ -5925,6 +5930,8 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 
       TypeId type1 = typeOf(exp->c[exp->len - 2]);
       TypeId outer1 = typeGetOuter(type1, cm);
+      print("type.v %d list type %d", type1.v, cm->stats.listType);
+      dbgType(type1);
       VALIDATEP(outer1.v == cm->stats.listType, errTypeOfNotList)
 
       TypeId type2 = typeOf(exp->c[exp->len - 1]);
@@ -6577,40 +6584,6 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
    }
 }
 
-void
-dbgLNode(LNode* st, Arena* a) { //:dbgLNode
-   Int indent = 0;
-   LInt* sentinels = createLInt(16, a);
-   for (int i = 0; i < st->len; i++) {
-      Node nod = st->c[i];
-      for (int m = sentinels->len - 1; m > -1 && sentinels->c[m] == i; m--) {
-         sentinels->len--;
-         indent--;
-      }
-
-      if (i < 10) printf(" ");
-      printf("%d: ", i);
-      for (int j = 0; j < indent; j++) {
-         printf("  ");
-      }
-      if (nod.tp == nodCall) {
-         printf("call %d type = \n", nod.pl1);
-      } ei (nod.pl1 != 0 || nod.pl2 != 0) {
-         if (nod.pl3 != 0)  {
-            printf("%s %d %d %d\n", nodeNames[nod.tp], nod.pl1, nod.pl2, nod.pl3);
-         } else {
-            printf("%s %d %d [%d; %d]\n", nodeNames[nod.tp], nod.pl1, nod.pl2);
-         }
-      } else {
-         printf("%s\n", nodeNames[nod.tp]);
-      }
-      if (nod.tp >= nodScope && nod.pl2 > 0) {
-         add(i + nod.pl2 + 1, sentinels);
-         indent++;
-      }
-   }
-}
-
 void //:dbgExprFrames
 dbgExprFrames(Expr* st) {
    print("Expr frames<<<");
@@ -6963,16 +6936,14 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
 // Creates a proto-compiler, which is used not for compilation but as a seed value to be cloned
 // for every source code module. The proto-compiler contains the following data:
 // - types that are sufficient for the built-in operators
-// - entities with the built-in operator entities
-// - overloadIds with counts
-   LUnt* st = createLUnt(16, a);
+// - function declarations for the built-in operator overloads
+// - raw overloads with counts
    (*proto) = (Compiler){
       .vars = createInListVar(32, a),
       .functions = createInListFunction(8, a),
       .sourceCode = str(standardText),
-      .names = st, .stringDict = createStringDict(128, a),
+      .names = createLUnt(16, a), .stringDict = createStringDict(128, a),
       .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
-      .activeBindings = allocateArray(countOperators, Int, a),
       .rawOverloads = createMultiAssocList(a),
       .stats = (CompStats) {
          .standardTextLen = sizeof(standardText) - 1,
@@ -6986,8 +6957,7 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
    };
 
    // operators are always active, and take up the initial chunk of names
-   memset(proto->activeBindings, 0xFF, 4*countOperators);
-   createBuiltins(proto);
+   createBuiltinsForProto(proto);
 }
 
 private void //:initCompiler

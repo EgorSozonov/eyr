@@ -1440,6 +1440,24 @@ main(int argc, char** argv) {
 
    CompResult* compResult = libeyr_compileFile(str("program.eyr"));
    
+   Int count = 0;
+   for (Int j = outerTypeForTypeParam + 1; j < compResult->types.len; j += (compResult->types.c[j] + 1)) {
+      count++;
+      print("type %d len %d", j, compResult->types.c[j]);
+   }
+   print("Count of types: %d @types len %d", count, compResult->types.len);
+   
+//~   for (Int j = outerTypeForTypeParam + 1; j < compResult->types.len; j += (compResult->types.c[j] + 1)) {
+//~      dbgType(j);
+//~      
+//~   }
+   
+   return 0;
+   
+   
+   
+   
+   
    Codegen* cg;
    if (setjmp(excBuf) == 0) {
       cg = generateCode(compResult);

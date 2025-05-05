@@ -220,6 +220,9 @@ libeyr_String str(const char* cent);
 #define metaDoc         1  // Doc comments
 #define metaDefault     2  // Default values for type arguments
 
+#define topVerbatimType tokMisc
+// Not used in types, only in overloads to mark functions with first param = type param
+constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 
 #define maxWordLength   127 // Maximum name of an identifier
 
