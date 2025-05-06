@@ -57,6 +57,7 @@ DEFINE_LIST_HEADER(FieldPtr)
    LSourceLoc*: addSourceLoc,\
    LFnParamPtr*: addFnParamPtr,\
    LRValuePtr*: addRValuePtr,\
+   LCgTypePtr*: addCgTypePtr,\
    LFutureBlock*: addFutureBlock,\
    LBtLoop*: addBtLoop\
 )(A, X)
@@ -69,6 +70,7 @@ DEFINE_LIST_HEADER(FieldPtr)
    LSourceLoc*: removeLastSourceLoc,\
    LFnParamPtr*: removeLastFnParamPtr,\
    LRValuePtr*: removeLastRValuePtr,\
+   LCgTypePtr*: removeLastCgTypePtr,\
    LFutureBlock*: removeLastFutureBlock,\
    LBtLoop*: removeLastBtLoop\
 )(X)
@@ -112,6 +114,7 @@ DEFINE_LIST(FutureBlock)
 
 typedef CodeBlock* CodeBlockPtr;
 typedef RValue* RValuePtr;
+typedef CgType* CgTypePtr;
 
 typedef struct { //:BtLoop
    CodeBlock* continueBlock; // used for "continue" - it's either the steppers or condition
@@ -122,10 +125,12 @@ typedef struct { //:BtLoop
 DEFINE_LIST_HEADER(CodeBlockPtr)
 DEFINE_LIST_HEADER(FnPtr)
 DEFINE_LIST_HEADER(RValuePtr)
+DEFINE_LIST_HEADER(CgTypePtr)
 DEFINE_LIST_HEADER(BtLoop)
 DEFINE_LIST(CodeBlockPtr)
 DEFINE_LIST(FnPtr)
 DEFINE_LIST(RValuePtr)
+DEFINE_LIST(CgTypePtr)
 DEFINE_LIST(BtLoop)
 
 typedef struct { //:Builtins
@@ -154,6 +159,7 @@ typedef struct { //:Codegen
 
    LFnParamPtr* params; // temporary buffer for function params
    LRValuePtr* exp; // temporary buffer for expression evaluation
+   LCgTypePtr* tExp; // temporary buffer for type registration
    LFieldPtr* fields; // temporary buffer for struct fields
 
    Int countTypes;
@@ -602,20 +608,24 @@ cgType(TypeId tp, CG) {
 }
 
 private Int
-countTheTypes(CR) {
-   Int res = 0;
+countConcreteTypes(CR) {
+   Int res = topVerbatimType + 1;
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
-      res++;
+      TypeHeader hdr = libeyr_readTypeHeader(j, cr->types.c);
+      if (!hdr.isGeneric) {
+         res++;
+      }
    }
    return res;
 }
 
 private CgType* //:registerType
-registerType(TypeId t, CG) {
-   TypeHeader hdr = libeyr_readTypeHeader(t, cg->compResult.types.c);
+registerType(TypeId t, TypeHeader hdr, CG) {
    if (hdr.sort == sorDeclare) {
-      if (hdr.name == nameOfStandard(strF)) {
+      if (hdr.name == nameOfStandard(strF)) { // functions
          return createFnType(t.v, hdr, cg->md);
+      } else { // structs
+         
       }
    }
    return null;
@@ -648,8 +658,11 @@ private void //:registerCompositeTypes
 registerCompositeTypes(CG) {
    Int typeInd = outerTypeForTypeParam + 1;
    for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
-      cg->types[typeInd] = registerType(typeOf(j), cg);
-      typeInd++;
+      TypeHeader hdr = libeyr_readTypeHeader(j, cr->types.c);
+      if (!hdr.isGeneric) {
+         cg->types[typeInd] = registerType(typeOf(j), hdr, cg);
+         typeInd++;
+      }
    }
 }
 
