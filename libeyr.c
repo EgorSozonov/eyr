@@ -1571,7 +1571,7 @@ struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
    LInt* tParams;      // Type params of a fn type expression. (nameId typeId).
                           // Also used in generic call resolution
    LInt* tmp;         // Used in name uniqueness validation, and generic param substitution
-   LInt* fnTypes;     // Used in function signature creation
+   LInt* fnScratch;     // Used in function signature creation
    Bool isGeneric;        // Does this type expression contain at least a single type parameter
    LTypeLoc* genericSt;
    LTypeLoc* concreteSt;
@@ -1671,13 +1671,6 @@ DEFINE_INTERNAL_LIST(vars, Var, a) //:pushInentities
 DEFINE_INTERNAL_LIST(functions, Function, a) //:pushInfunctions
 DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
 DEFINE_INTERNAL_LIST(fields, StructField, a) //:pushInfields
-
-// see the Type layout chapter in the docs
-#define sorDeclare         1 // Used for definitions of records and sum types, both generic and not
-#define sorTypeCall        2 // A reference to a generic type. May be generic itself (when
-                             // not all generic params are filled in)
-#define sorGenericParam    3 // A generic variant. outer = de Bruijn index
-#define sorMaxType         sorGenericParam
 
 // the following constants must not clash with the "sor" constants
 // Type expression data format: First element is the tag (one of the following
@@ -4591,7 +4584,7 @@ buildPreludeTypes(CM) {
 
    // List
    Int typeIndL = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 3, cm); // 3 = 4 - 1, header size = TYPE_PREFIX_LEN - 1
+   pushIntypes(TYPE_PREFIX_LEN + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX_LEN - 1
    NameId name = nameOfStandard(strL);
    typeAddHeader((TypeHeader){.sort = sorDeclare, .arity = 1, .tyrity = 1,
       .isGeneric = true, .name = nameOfStandard(strL)},
@@ -4880,7 +4873,7 @@ initializeParser(Compiler* lx, Arena* a) {
       .names = createLInt(16, cm->aTmp),
       .tParams = createLInt(16, cm->aTmp),
       .tmp = createLInt(16, cm->aTmp),
-      .fnTypes = createLInt(16, cm->aTmp),
+      .fnScratch = createLInt(16, cm->aTmp),
       .genericSt = createLTypeLoc(16, cm->aTmp),
       .concreteSt = createLTypeLoc(16, cm->aTmp),
    };
@@ -5072,13 +5065,13 @@ validateOverloadsFull(CM) {
 
 TypeId //:pFnCreateType
 pFnCreateType(TExpr* te, CM) {
-   Int const depth = te->fnTypes->len;
+   Int const depth = te->fnScratch->len;
    TYPE_CREATE_START(
       ((TypeHeader){ .sort = sorDeclare, .isGeneric = te->isGeneric,
                      .tyrity = te->tParams->len, .arity = depth, .name = nameOfStandard(strF) })
    );
    for (Int j = 0; j < depth; j++) {
-      pushIntypes(te->fnTypes->c[j], cm);
+      pushIntypes(te->fnScratch->c[j], cm);
    }
    TYPE_CREATE_END;
    return mergeType(tentativeType, cm);
@@ -5105,6 +5098,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
       { goto entityAdding; }
 
    te->tParams->len = 0; // list of params pertains to the whole function
+   te->fnScratch->len = 0;
    TypeId returnType = typeOf(voidType);
    if (hasReturnType) {
       cm->i = fnAssign.nameTokenInd; // To function name token
@@ -5116,7 +5110,6 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
       { goto returnTypeAdding; }
 
    tFreshState(te);
-   te->fnTypes->len = 0;
    for (cm->i = indParams + 1; cm->i < paramsSentinel;) {
       Token clause = toks[cm->i];
       VALIDATEP(clause.tp == tokClause, errTypeDefCannotContain)
@@ -5124,15 +5117,15 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
       cm->i++; // CONSUME the tokStmt
       TypeId paramType = teClause(te, clauseSentinel, toks, cm);
 
-      add(paramType.v, te->fnTypes);
+      add(paramType.v, te->fnScratch);
       cm->i = clauseSentinel; // CONSUME the statement
       arity++;
    }
 
    returnTypeAdding:
    if (arity == 0)
-      { add(voidType, te->fnTypes); }
-   add(returnType.v, te->fnTypes);
+      { add(voidType, te->fnScratch); }
+   add(returnType.v, te->fnScratch);
    newFnType = pFnCreateType(te, cm);
    entityAdding:
    FunctionId newFnId = cm->functions.len;
@@ -5465,8 +5458,8 @@ tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
 }
 
 /*
-private TypeId typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen,
-                        CM) { //:typeCreateRecord
+private TypeId //:typeCreateRecord
+typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
 // Creates/merges a new record type from a sequence of pairs in @exp and a list of type params
 // in @params. The sequence must be flat, i.e. not include any nested structs, and be in the
 // final position of @exp. "nameAndLen" may be -1 if it's an anonymous record.
@@ -5560,6 +5553,7 @@ teMergeParam(NameId name, TExpr* restrict te, CM) {
 
 private TypeId //:tCreateFnTypeCall
 tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM) {
+// Creates an `F(A B -> C)` type
    TYPE_DEFINE_EXP;
 
    Int const depth = exp->len - startInd; // this isn't function arity, it's type arity
@@ -5569,7 +5563,6 @@ tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM) {
       ((TypeHeader){ .sort = sorDeclare, .tyrity = 0, .arity = depth, .name = nameOfStandard(strF),
                .isGeneric = false})
    );
-   //pushIntypes(nameOfStandard(strF), cm);
    for (Int j = startInd; j < sentinel; j++) {
       pushIntypes(exp->c[j], cm);
    }
@@ -5915,8 +5908,6 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 
       TypeId type1 = typeOf(exp->c[exp->len - 2]);
       TypeId outer1 = typeGetOuter(type1, cm);
-      print("type.v %d list type %d", type1.v, cm->stats.listType);
-      dbgType(type1);
       VALIDATEP(outer1.v == cm->stats.listType, errTypeOfNotList)
 
       TypeId type2 = typeOf(exp->c[exp->len - 1]);
@@ -6654,19 +6645,24 @@ dbgTypeOuter(TypeHeader currHdr, CM) {
 }
 
 void
-dbgType1(Int t, CM) {
+dbgType1(Int t, TypeHeader hdr, CM) {
   // printIntArrayOff(t, 6, cm->types.c);
 
    LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
    TypeLoc* top = null;
 
-   TypeHeader hdr = typeReadHeader(typeOf(t), cm);
    Int sentinel = t + cm->types.c[t] + 1;
-   dbgTypeOuter(hdr, cm);
    Int startingT = t + TYPE_PREFIX_LEN;
-   if (hdr.sort == sorTypeCall && hdr.name != nameOfStandard(strF))
-      { startingT++; }
-
+   Bool isFn = hdr.name == nameOfStandard(strF);
+   if (!isFn) {
+      if (hdr.sort == sorTypeCall)
+         { startingT++; }
+      else if (hdr.sort == sorDeclare) { 
+         sentinel = t + TYPE_PREFIX_LEN  + (cm->types.c[t] - (TYPE_PREFIX_LEN - 1))/2;
+         printf("Data ");
+      }
+   }
+   dbgTypeOuter(hdr, cm);
    add(((TypeLoc){ .currPos = startingT, .sentinel = sentinel }), st);
    top = st->c;
 
@@ -6709,7 +6705,6 @@ dbgType1(Int t, CM) {
 void //:dbgType
 dbgType0(TypeId type, CM) {
 // Print a single type fully for debugging purposes
-   //printf("Printing the type [ind = %d, len = %d]\n", typeId, cm->types.c[typeId]);
    Int typeId = type.v;
 
    TypeHeader hdr = typeReadHeader(type, cm);
@@ -6717,9 +6712,9 @@ dbgType0(TypeId type, CM) {
       printf("%s\n", nodeNames[typeId]);
       return;
    } else if (hdr.sort == sorGenericParam) {
-      printf("$%d ", hdr.name);
+      printf("$%d\n", hdr.name);
    } else {
-      dbgType1(type.v, cm);
+      dbgType1(type.v, hdr, cm);
    }
 }
 
@@ -6767,6 +6762,14 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
       printf("%d ", overs[j]);
    }
    printf("]\n\n");
+}
+
+void
+dbgAllTypes(CM) {
+   for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
+      printf("TYPE %d: ", j);
+      dbgType(typeOf(j));
+   }
 }
 
 //}}}
@@ -6824,9 +6827,9 @@ importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
 
       pushIntypes(importLen + TYPE_PREFIX_LEN - 1, cm);
 
-      typeAddHeader(
-         (TypeHeader){.sort = sorDeclare, .tyrity = 0, .arity = importLen,
-                  .name = nameOfStandard(strF) }, cm);
+      typeAddHeader((TypeHeader){
+         .sort = sorDeclare, .tyrity = 0, .arity = importLen, .name = nameOfStandard(strF) }, cm
+      );
       for (Int k = j + 1; k < typeSentinel; k++) { // <= because there are (arity + 1) elts -
                                      // +1 for the return type!
          pushIntypes(types[k], cm);
@@ -7040,11 +7043,6 @@ libeyr_compileFile(String filename) {
 #ifdef TRACE
    printParser(cm);
 #endif
-
-   for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
-      print("TYPE %d", j);
-      dbgType(typeOf(j));
-   }
 
    fillInCompilationResult(cm, OUT cr);
    return cr;
