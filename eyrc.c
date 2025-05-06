@@ -15,6 +15,7 @@ extern jmp_buf excBuf;
 
 //}}}
 //{{{ Forward decls, generics & utils
+//{{{ Libgccjit wrappers
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -31,6 +32,10 @@ typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
 #define pointerOf(x) gcc_jit_type_get_pointer(x)
 
+
+//}}}
+//{{{ General definitions & generics
+
 #define AST Arr(Node const) const restrict ast // Source text
 #define SRC Arr(char const) const restrict source // Source text
 #define CR CompResult const* const restrict cr // Compilation results
@@ -38,6 +43,7 @@ typedef enum gcc_jit_comparison BuiltinComparison;
 typedef FnParam* FnParamPtr;
 typedef Field* FieldPtr;
 typedef Fn* FnPtr;
+
 typedef libeyr_CompResult CompResult;
 
 DEFINE_LIST_HEADER(FnParamPtr)
@@ -75,6 +81,7 @@ DEFINE_LIST(FnParamPtr)
 DEFINE_LIST(FieldPtr)
 DEFINE_LIST(SourceLoc)
 
+//}}}
 //{{{ Types & constants
 
 #define fraIf     1
@@ -149,14 +156,16 @@ typedef struct { //:Codegen
    LRValuePtr* exp; // temporary buffer for expression evaluation
    LFieldPtr* fields; // temporary buffer for struct fields
 
-   Int countTypeRefs;
-   Arr(TypeRef) typeRefs; // links between Eyr types and GCC types
+   Int countTypes;
+   Arr(Int) typeRefs; // indices into @compResult.types, len = countTypes
+   Arr(CgType*) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
 
    CompResult compResult; // results of the compilation from libeyr
    Builtins builtins;
 
    Arena* a;
    Bool wasError;
+   String errMsg;
 } Codegen;
 
 //}}}
@@ -167,7 +176,59 @@ stringOf(Arr(char) cString) {
    return (String){.c = cString, .len = strlen(cString) };
 }
 
+private Int
+binarySearch(Int key, Int start, Int end, Arr(Int) arr) {
+   if (end <= start) {
+      return -1;
+   }
+   Int i = start;
+   Int j = end - 1;
+   if (arr[start] == key) {
+      return i;
+   } ei (arr[j] == key) {
+      return j;
+   }
+
+   while (i < j) {
+      if (j - i == 1) {
+         return -1;
+      }
+      Int midInd = (i + j)/2;
+      Int mid = arr[midInd];
+      if (mid > key) {
+         j = midInd;
+      } ei (mid < key) {
+         i = midInd;
+      } else {
+         return midInd;
+      }
+   }
+   return -1;
+}
+
+_Noreturn private void //:throwExcCodegen
+throwExcCodegen0(Int errInd, Int lineNumber, CG) {
+   cg->wasError = true;
+#ifdef DEBUG
+   printf("Internal codegen error %d at line %d\n", errInd, lineNumber);
+#endif
+   cg->errMsg = stringOfInt(errInd, cg->a);
+   printString(cg->errMsg);
+   longjmp(excBuf, 1);
+}
+
+#define throwExcCodegen(errInd, cm) throwExcCodegen0(errInd, __LINE__, cg)
+
+#ifdef SAFETY
+#define VALIDATEI(cond, errInd) if (!(cond)) { throwExcCodegen0(errInd, __LINE__, cg); }
+#endif
+#ifndef SAFETY
+#define VALIDATEI(cond, errInd)
+#endif
+
 //}}}
+//{{{ Forward declarations
+
 #define CG Codegen* restrict cg
 private void prepareName(NameId name, CG);
 private CgType* cgType(TypeId tp, CG);
@@ -189,6 +250,7 @@ void dbgFutureBlocks(CG);
 
 #endif
 
+//}}}
 //}}}
 //{{{ GCC wrapper functions
 
@@ -332,10 +394,14 @@ paramFromChars(char const* s, CgType* tp, CG) {
    return gcc_jit_context_new_param(cg->md, NULL, tp, s);
 }
 
-private CgType* //:fnPointerType
-fnPointerType(Int countParams, Arr(CgType*) paramTypes, CgType* returnTp, Module* md) {
-   return gcc_jit_context_new_function_ptr_type (
-      md, null, returnTp, countParams, paramTypes, 0
+private CgType* //:createFnType
+createFnType(Int tp, TypeHeader hdr, CG) {
+// Creates a new type for codegen for an Eyr function type. Precondition: tp is a fn type
+   Int countParams = hdr.arity - 1;
+   returnType = tFunctionReturnType(tp, cr);
+
+   return gcc_jit_context_new_function_ptr_type(
+      cg->md, null, returnType, countParams, paramTypes, 0
    );
 }
 
@@ -513,6 +579,12 @@ private Int
 hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
 
 //}}}
+//{{{ Errors
+
+#define iErrorEyrTypeNotFound            1 // Illegal index (not found in @typeRefs)
+#define iErrorTypeNotRegisteredInCodegen 2 // null in @types
+
+//}}}
 //}}}
 //{{{ Type registry
 
@@ -523,31 +595,73 @@ builtinType(BuiltinType tp, Module* md) {
 
 private CgType* //:cgType
 cgType(TypeId tp, CG) {
-   return cg->typeRefs[tp.v].cgType;
+   Int ind = binarySearch(tp.v, 0, cg->countTypes, cg->typeRefs);
+   VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
+   CgType* res = cg->types[ind];
+   VALIDATEI(res != null, iErrorTypeNotRegisteredInCodegen);
+}
+
+private Int
+countTheTypes(CR) {
+   Int res = 0;
+   for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
+      res++;
+   }
+   return res;
+}
+
+private CgType* //:registerType
+registerType(TypeId t, CG) {
+   TypeHeader hdr = libeyr_readTypeHeader(t, cg->compResult.types.c);
+   if (hdr.sort == sorDeclare) {
+      if (hdr.name == nameOfStandard(strF)) {
+         return createFnType(t.v, hdr, cg->md);
+      }
+   }
+   return null;
+}
+
+private void //:registerPrimitiveTypes
+registerPrimitiveTypes(CG) {
+   for (Int j = 0; j <= tokMisc; j++) {
+      cg->typeRefs[j] = j;
+   }
+   cg->types[tokInt] = builtinType(GCC_JIT_TYPE_INT32_T, cg->md);
+   cg->types[tokLong] = builtinType(GCC_JIT_TYPE_INT64_T, cg->md);
+   cg->types[tokBool] = builtinType(GCC_JIT_TYPE_BOOL, cg->md);
+   cg->types[tokDouble] = builtinType(GCC_JIT_TYPE_DOUBLE, cg->md);
+   cg->types[tokMisc] = builtinType(GCC_JIT_TYPE_VOID, cg->md);
+
+   // String type
+   Field* stringFields[2];
+   stringFields[0] = field(nameOfStandard(strLen), intType(cg), cg);
+   stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
+   Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
+   cg->typeRefs[tokString] = tokString;
+   cg->types[tokString] = gcc_jit_struct_as_type(stringStruct);
+
+   cg->typeRefs[topVerbatimType + 1] = topVerbatimType + 1;
+   cg->types[topVerbatimType + 1] = null; // never to be used because it's a placeholder type!
+}
+
+private void //:registerCompositeTypes
+registerCompositeTypes(CG) {
+   Int typeInd = outerTypeForTypeParam + 1;
+   for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
+      cg->types[typeInd] = registerType(typeOf(j), cg);
+      typeInd++;
+   }
 }
 
 private void //:registerTypes
 registerTypes(CG) {
    // for every type in @cm.types, create an entry in @cg.typeRefs
-   cg->countTypeRefs = tokMisc;
-   cg->typeRefs = allocateArray(cg->countTypeRefs, TypeRef, cg->a);
-   cg->typeRefs[tokInt] = (TypeRef){.ind = tokInt,
-      .cgType = builtinType(GCC_JIT_TYPE_INT32_T, cg->md) };
-   cg->typeRefs[tokLong] = (TypeRef){.ind = tokLong,
-      .cgType = builtinType(GCC_JIT_TYPE_INT64_T, cg->md) };
-   cg->typeRefs[tokBool] = (TypeRef){.ind = tokBool,
-      .cgType = builtinType(GCC_JIT_TYPE_BOOL, cg->md) };
-   cg->typeRefs[tokDouble] = (TypeRef){.ind = tokDouble,
-      .cgType = builtinType(GCC_JIT_TYPE_DOUBLE, cg->md) };
-   cg->typeRefs[tokMisc] = (TypeRef){.ind = tokMisc,
-      .cgType = builtinType(GCC_JIT_TYPE_VOID, cg->md) };
+   cg->countTypes = countTheTypes(cg->compResult);
+   cg->typeRefs = allocateArray(cg->countTypeRefs, Int, cg->a);
+   cg->types = allocateArray(cg->countTypeRefs, CgType*, cg->a);
 
-   Field* stringFields[2];
-   stringFields[0] = field(nameOfStandard(strLen), intType(cg), cg);
-   stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
-   Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
-   cg->typeRefs[tokString] = (TypeRef){
-      .ind = tokString, .cgType = gcc_jit_struct_as_type(stringStruct) };
+   registerPrimitiveTypes(cg);
+   registerCompositeTypes(cg);
 }
 
 private CgType* //:intType
@@ -687,6 +801,7 @@ createCodegen(CR, Arena* a) {
       .params = createLFnParamPtr(16, a),
       .exp = createLRValuePtr(16, a),
       .fields = createLFieldPtr(16, a),
+      // @types and @typeRefs will be filled in by {registerTypes}
       .md = md,
       .compResult = *cr,
       .a = a,
@@ -815,7 +930,7 @@ assignmentWorker(Node nd, Int sentinel, AST, CG) {
       { goto end; } // a function-typed local var - nothing to codegen here
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
-   
+
    Int innerExprInd = rightNodeInd; // for complex expressions
    for (; innerExprInd < sentinel && ast[innerExprInd].tp == nodAssignment; innerExprInd++) {
    }
@@ -915,7 +1030,7 @@ ifInitialCondition(CodeBlock* ifAfterBlock, AST, CG) {
 // Precondition: we are looking at the first nodIfClause in an "if"
    Int startIfBody, sentinelIfBranch;
    RValue* ifCondition = ifWriteCondition(OUT &startIfBody, OUT &sentinelIfBranch, ast, cg);
-   
+
    // Link to the next "else if" or "else", or, if none - to the block after the "if"
    CodeBlock* ifAfter = cg->futureBlocks->len > 0 ? last(cg->futureBlocks).c : cg->cbl.after;
    CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
@@ -1222,17 +1337,17 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    }
    for (; cg->i < fnSentinel;) {
       Node nd = cr->ast.c[cg->i];
-      
+
       Int const sentinel = calcNodeSentinel(nd, cg->i);
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
          FutureBlock newBlock = removeLast(cg->futureBlocks);
          openBlock(newBlock, nd, cr->ast.c, cg);
       }
-      
+
       if (nd.tp < nodScope) {
          print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
-      
+
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, sentinel, cr->ast.c, cg);
       mbCloseLoops(cg);
@@ -1439,20 +1554,20 @@ main(int argc, char** argv) {
 //}}}
 
    CompResult* compResult = libeyr_compileFile(str("program.eyr"));
-   
+
 //~   Int count = 0;
 //~   for (Int j = outerTypeForTypeParam + 1; j < compResult->types.len; j += (compResult->types.c[j] + 1)) {
 //~      count++;
 //~      print("type %d len %d", j, compResult->types.c[j]);
 //~   }
 //~   print("Count of types: %d @types len %d", count, compResult->types.len);
-   
+
    return 0;
-   
-   
-   
-   
-   
+
+
+
+
+
    Codegen* cg;
    if (setjmp(excBuf) == 0) {
       cg = generateCode(compResult);

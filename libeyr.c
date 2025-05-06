@@ -1895,7 +1895,12 @@ char const errTypeFieldNotFound[]          = "Field access error in a type";
 #define CURR_BT source[lx->i]
 #define NEXT_BT source[lx->i + 1]
 #define IND_BT (lx->i - lx->stats.standardTextLen)
+#if defined(SAFETY) || defined(TEST)
 #define VALIDATEI(cond, errInd) if (!(cond)) { throwExcInternal0(errInd, __LINE__, cm); }
+#endif
+#if !defined(SAFETY) && !defined(TEST)
+#define VALIDATEI(cond, errInd)
+#endif
 #define VALIDATEL(cond, errMsg) if (!(cond)) { throwExcLexer0(errMsg, __LINE__, lx); }
 
 
@@ -2415,12 +2420,10 @@ mbCloseAssignRight(BtToken* top, CM) { //:mbCloseAssignRight
    if (top->tp != tokAssignRight)
       { return; }
    setStmtSpanLength(top->tokenInd, cm);
-#ifdef SAFETY
    VALIDATEI(cm->lexBtrack->len > 0 &&
              (last(cm->lexBtrack).tp == tokAssignment || last(cm->lexBtrack).tp == tokDef),
            iErrorInconsistentSpans
    )
-#endif
    *top = removeLast(cm->lexBtrack);
    setStmtSpanLength(top->tokenInd, cm);
 }
@@ -2435,9 +2438,8 @@ lxCloseFnDef(BtToken* top, CM) { //:lxCloseFnDef
    *top = removeLast(bt); // the tokAssignRight
    setStmtSpanLength(top->tokenInd, cm);
 
-#ifdef SAFETY
    VALIDATEI(bt->len > 0 && last(bt).tp == tokAssignment, iErrorInconsistentSpans)
-#endif
+
    *top = removeLast(bt); // the tokAssignment
    setStmtSpanLength(top->tokenInd, cm);
 }
@@ -3336,9 +3338,7 @@ pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
    Int lastNodeInd = cm->ast.len - 1;
    Node lastNode = cm->ast.c[lastNodeInd];
    if (lastNode.tp == nodCall)  {
-#ifdef SAFETY
       VALIDATEI(lastNode.pl1 == opGetElem, iErrorArrayElemButShouldBePtr)
-#endif
       cm->ast.c[lastNodeInd].pl1 = opGetElemPtr;
    }
    return leftType;
@@ -3408,7 +3408,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
       Byte assiSort = assiVarAssignment;
       if (varId > -1) {
          VALIDATEP(cm->vars.c[varId].access == accessPrivMut, errCannotMutateImmutable)
-         
+
          leftType = cm->vars.c[varId].typeId;
          if (tIsFunction(leftType, cm) > -1) { // reassignment of a function var
             NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
@@ -3489,18 +3489,18 @@ reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int 
    Token stepMarker = toks[cm->i];
    Token scope = toks[scopeStart];
    scope.pl2 = scopeLen;
-   
+
    ensureCapacityTokenBuf(totalLen, buf, cm);
    Int sndInd = minPositiveOf(2, stepInd, bodyInd);
-   
+
    Int const piece1Start = scopeStart + 1;
    Int const piece1Len = sndInd - piece1Start;
    Int const piece2Start = stepInd;
    Int const piece2Len = stepInd > 0 ? (minPositiveOf(2, *bodyInd, sentinel) - stepInd) : 0;
    Int const piece3Start = *bodyInd;
    Int const piece3Len = *bodyInd > 0 ? sentinel - (*bodyInd) : 0;
-   
-   // shifting piece 1 (initializers and condition) by one token back 
+
+   // shifting piece 1 (initializers and condition) by one token back
    buf->c[0] = scope;
    memcpy(buf->c + 1, toks + piece1Start, piece1Len*sizeof(Token));
    if (piece3Len > 0) {
@@ -3512,13 +3512,13 @@ reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int 
    if (piece2Len > 0) {
       memcpy(buf->c + 1 + piece1Len + piece3Len + 1, toks + piece2Start, piece2Len*sizeof(Token));
    }
-   
+
    memcpy(toks + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
-   
+
    Int const newStart = scopeStart - 1;
    toks[newStart].pl2 = scopeLen;
    (*condInd)--;
-   (*bodyInd) = newStart + 1 + piece1Len; 
+   (*bodyInd) = newStart + 1 + piece1Len;
 }
 
 private void //:preambleFor
@@ -3575,7 +3575,7 @@ pFor(Token forTk, TOKS, CM) {
 //       scope (if body not empty)
 //          body
 //          step(s)
-   
+
    Int const sentinel = calcSentinel(forTk, cm->i - 1);
    Int const scopeStart = cm->i + 1; // index of the tokScope inside tokFor, skipping the tokMisc
 
@@ -3589,7 +3589,7 @@ pFor(Token forTk, TOKS, CM) {
    // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
    preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, toks, cm);
    reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, toks, cm);
-   
+
    Int const newScopeStart = scopeStart - 1;
    openParsedScope(sentinel, (Node){.tp = nodFor }, locOf(forTk), cm);
 
@@ -3629,7 +3629,7 @@ private void //:pForStep
 pForStepMarker(Token tok, TOKS, CM) {
 // tokMisc as a span token must be the marker for stepping code in for loops
    VALIDATEI(tok.pl1 == miscForStep, iErrorInconsistentSpans);
-   
+
    Int j = cm->backtrack->len - 1;
    for (; j > -1; j--) {
       if (cm->backtrack->c[j].level == pfrLoop)
@@ -4144,7 +4144,7 @@ breakContinue(Token tok, TOKS, CM) {
 // For continue, the number is increased by BIG. Consumes no nodes.
    VALIDATEP(tok.pl2 <= 1, errBreakContinueTooComplex);
    Bool const isContinue = tok.pl1 == 1;
-   
+
    Int unwindDepth = 1;
    if (tok.pl2 > 0) {
       Token nextTok = toks[cm->i];
@@ -4153,7 +4153,7 @@ breakContinue(Token tok, TOKS, CM) {
       unwindDepth = nextTok.pl2;
    }
    Int const fullUnwindDepth = unwindDepth;
-   
+
    Int j = cm->backtrack->len - 1;
    for (; j > -1 && unwindDepth > 0; j--) {
       if (cm->backtrack->c[j].level == pfrLoop)
@@ -4249,7 +4249,7 @@ private void //:importVars
 importVars(Arr(Var) impts, Int const countVars, CM) {
    for (int j = 0; j < countVars; j++) {
       Var const ent = impts[j];
-      
+
       if (cm->activeBindings[ent.name] != -1) {
          print("already active @ %d bind %d", ent.name, cm->activeBindings[ent.name]);
          printName(ent.name, cm);
@@ -4643,7 +4643,7 @@ buildOperators(CM) {
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
    TypeId voidOfInt      = addConcrFnType(1, (Int[]){ tokInt, voidType}, cm);
-   
+
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
    buildOper(opNotEqual,     boolOfIntInt, emitNotEq, cm);
@@ -4719,7 +4719,7 @@ createBuiltinsForProto(CM) {
    buildStandardStrings(cm);
    cm->activeBindings = allocateArray(cm->names->len, Int, cm->a),
    memset(cm->activeBindings, 0xFF, 4*cm->names->len);
-   
+
    buildPreludeTypes(cm);
    buildOperators(cm);
    cm->stats.countOperatorFns = cm->functions.len;
@@ -4920,9 +4920,7 @@ createNameOverloads(NameId name, CM) {
 
    Int const rawStart = listId + 2;
 
-#if defined(SAFETY) || defined(TEST)
    VALIDATEI(rawStart != -1, iErrorImportedFunctionNotInScope)
-#endif
    Int const countOverloads = raw[listId]/2;
    Int const rawSentinel = rawStart + raw[listId];
 
@@ -5084,9 +5082,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    TExpr* te = cm->tExpr;
    Int const indParams = cm->i;
 
-#ifdef SAFETY
    VALIDATEI(toks[cm->i].tp == tokFnParams, iErrorInconsistentSpans);
-#endif
 
    Token paramListTk = toks[cm->i];
    Int paramsSentinel = calcSentinel(paramListTk, cm->i);
@@ -5585,7 +5581,7 @@ tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM) {
 
    TYPE_CREATE_END;
    TypeId res = mergeType(tentativeType, cm);
-   
+
    print("single param end len %d", cm->types.len);
    return res;
 }
@@ -6657,7 +6653,7 @@ dbgType1(Int t, TypeHeader hdr, CM) {
    if (!isFn) {
       if (hdr.sort == sorTypeCall)
          { startingT++; }
-      else if (hdr.sort == sorDeclare) { 
+      else if (hdr.sort == sorDeclare) {
          sentinel = t + TYPE_PREFIX_LEN  + (cm->types.c[t] - (TYPE_PREFIX_LEN - 1))/2;
          printf("Data ");
       }

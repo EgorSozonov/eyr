@@ -205,7 +205,7 @@ libeyr_String str(const char* cent);
 #define nodTrait       19
 #define nodReturn      20
 #define nodTry         21
-#define nodFor         22  // pl1 = number of nodes to skip to get to the condition. Loops that get 
+#define nodFor         22  // pl1 = number of nodes to skip to get to the condition. Loops that get
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
@@ -472,18 +472,21 @@ typedef struct { //:CompStats
 } CompStats;
 
 typedef struct { //:CompResult
-   libeyr_StringBuilder sourceCode; // mutable for need to temporarily change ` to \0 and back
-   SliInt toplevels;
-   Int entrypoint;
+   libeyr_StringBuilder sourceCode; // mutable for need to temporarily change "`" to \0 and back
+
+   // main data produced by the compiler:
    SliNode ast;
    SliSourceLoc sourceLocs;
    SliVar vars;
    SliFunction functions;
-   SliInt publicFns;
-   SliInt publicConsts;
    SliInt types;
    SliUnt names;
    SliStructField fields;
+
+   SliInt publicFns; // indices into @functions
+   SliInt publicConsts; // indices into @vars
+   SliInt toplevels; // indices into @functions
+   Int entrypoint; // index into @functions
    CompStats stats;
    Bool wasLexerError;
    Bool wasParserError;
