@@ -136,7 +136,6 @@ typedef struct { // :Token
 #define tokEach        39
 
 #define topVerbatimTokenVariant tokString
-#define voidType            tokMisc
 #define firstSpanTokenType  tokStmt
 #define firstScopeTokenType tokScope
 #define countSyntaxForms    (tokEach + 1)
@@ -484,6 +483,7 @@ void dbgTypeFrames(TExpr* st);
 void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
 void dbgScopes0(Scopes* scopes);
+void dbgAllTypes(CM);
 
 #endif
 
@@ -1713,17 +1713,15 @@ private void initCompiler();
 #define iErrorExpressionIsNotAnExpr      7 // What is supposed to be an expression in the AST is
                                            // not a nodExpr
 #define iErrorComplexExpression          8 // Error in a complex expression's internal definitions
-#define iErrorZeroArityFuncWrongEmit     9 // A 0-arity function has a wrong "emit" (should be
-                                           // one of the prefix ones)
-#define iErrorGenericTypesInconsistent  10 // Two generic types have inconsistent layout
+#define iErrorGenericTypesInconsistent   9 // Two generic types have inconsistent layout
                                            // (premature end of type)
-#define iErrorGenericTypesParamOutOfBou 11 // A type contains a paramId that is out-of-bounds
+#define iErrorGenericTypesParamOutOfBou 10 // A type contains a paramId that is out-of-bounds
                                            // of the generic's tyrity
-#define iErrorOuterTypeOfParam          12 // Tried to get an outer type of param
-#define iErrorInconsistentTypeExpr      13 // Reduced type expression has != 1 elements
-#define iErrorNotAFunction              14 // Expected to find a function type here
-#define iErrorArrayElemButShouldBePtr   15 // An assignment with list accessor on left should be ptr
-#define iErrorIllegalEmit               16 // This entity cannot have this emit type in codegen
+#define iErrorOuterTypeOfParam          11 // Tried to get an outer type of param
+#define iErrorInconsistentTypeExpr      12 // Reduced type expression has != 1 elements
+#define iErrorNotAFunction              13 // Expected to find a function type here
+#define iErrorArrayElemButShouldBePtr   14 // An assignment with list accessor on left should be ptr
+#define iErrorIllegalEmit               15 // This entity cannot have this emit type in codegen
 
 //}}}
 //{{{ Syntax errors
@@ -1873,7 +1871,7 @@ char const errExpectedType[]               = "Expected to find a type here";
 char const errUnknownTypeConstructor[]     = "Unknown type constructor";
 char const errTypeUnknownFirstArg[]        = "The type of first argument to a call must be known, otherwise I can't resolve the function overload!";
 char const errTypeOverloadsIntersect[]     = "Two or more overloads of a single function intersect (impossible to choose one over the other)";
-char const errTypeOverloadsOnlyOneZero[]   = "Only one 0-arity function version is possible, otherwise I can't disambiguate the overloads!";
+char const errTypeOverloadsOnlyOneZero[]   = "Only one nullary function version is possible, otherwise I can't disambiguate the overloads!";
 char const errTypeNoMatchingOverload[]     = "No matching function overload was found";
 char const errTypeWrongArgumentType[]      = "Wrong argument type";
 char const errTypeWrongReturnType[]        = "Wrong return type";
@@ -4886,7 +4884,7 @@ private void //:validateNameOverloads
 validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
 // Validates the overloads for a name don't intersect via their outer types
 // 1. First parameter outer types must be unique
-// 2. A zero-arity function, if any, must be unique
+// 2. A nullary function, if any, must be unique
 // 3. If a blanket overload (outerTypeForTypeParam) then the only other acceptable one is 0-arity
    Arr(Int) ov = cm->overloads.c;
    Int start = listId + 1;
@@ -5119,7 +5117,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    }
 
    returnTypeAdding:
-   if (arity == 0)
+   if (arity == 0) // nullary functions get an implicit Void-type parameter
       { add(voidType, te->fnScratch); }
    add(returnType.v, te->fnScratch);
    newFnType = pFnCreateType(te, cm);
@@ -5285,6 +5283,7 @@ parseMain(CM, Arena* a) {
       generateMonomorphizations(toks, cm);
       updateStats(cm);
       printParser(cm);
+      //dbgAllTypes(cm);
    } else {
 #ifndef TEST
       print("Exception!");
@@ -5783,7 +5782,7 @@ pTypeDef(TOKS, CM) {
 
 private TypeId //:getFirstParamType
 getFirstParamType(TypeId t, CM) {
-// Gets the type of the first param of a type. Returns -1 iff it's zero arity
+// Gets the type of the first param of a type. Returns -1 iff it's zero-arity
    TypeHeader hdr = typeReadHeader(t, cm);
    if (hdr.arity == 0)
       { return ZERO_ARITY_TYPE; }
@@ -5792,7 +5791,7 @@ getFirstParamType(TypeId t, CM) {
 
 private TypeId //:getFirstParamInd
 getFirstParamInd(TypeId funcTypeId, CM) {
-// Gets the ind of the first param of a function. Precondition: function has a non-zero arity!
+// Gets the ind of the first param of a function. Precondition: function is not nullary!
    TypeHeader hdr = typeReadHeader(funcTypeId, cm);
    return typeOf(funcTypeId.v + TYPE_PREFIX_LEN + hdr.tyrity);
 }

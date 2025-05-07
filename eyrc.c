@@ -159,10 +159,9 @@ typedef struct { //:Codegen
 
    LFnParamPtr* params; // temporary buffer for function params
    LRValuePtr* exp; // temporary buffer for expression evaluation
-   LCgTypePtr* tExp; // temporary buffer for type registration
    LFieldPtr* fields; // temporary buffer for struct fields
 
-   Int countTypes;
+   Int countConcreteTypes;
    Arr(Int) typeRefs; // indices into @compResult.types, len = countTypes
    Arr(CgType*) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
 
@@ -174,6 +173,8 @@ typedef struct { //:Codegen
    String errMsg;
 } Codegen;
 
+#define CG Codegen* restrict cg
+
 //}}}
 //{{{ Utils
 
@@ -182,11 +183,10 @@ stringOf(Arr(char) cString) {
    return (String){.c = cString, .len = strlen(cString) };
 }
 
-private Int
+private Int //:binarySearch
 binarySearch(Int key, Int start, Int end, Arr(Int) arr) {
-   if (end <= start) {
-      return -1;
-   }
+   if (end <= start)
+      { return -1; }
    Int i = start;
    Int j = end - 1;
    if (arr[start] == key) {
@@ -196,9 +196,8 @@ binarySearch(Int key, Int start, Int end, Arr(Int) arr) {
    }
 
    while (i < j) {
-      if (j - i == 1) {
-         return -1;
-      }
+      if (j - i == 1)
+         { return -1; }
       Int midInd = (i + j)/2;
       Int mid = arr[midInd];
       if (mid > key) {
@@ -218,7 +217,6 @@ throwExcCodegen0(Int errInd, Int lineNumber, CG) {
 #ifdef DEBUG
    printf("Internal codegen error %d at line %d\n", errInd, lineNumber);
 #endif
-   cg->errMsg = stringOfInt(errInd, cg->a);
    printString(cg->errMsg);
    longjmp(excBuf, 1);
 }
@@ -235,14 +233,13 @@ throwExcCodegen0(Int errInd, Int lineNumber, CG) {
 //}}}
 //{{{ Forward declarations
 
-#define CG Codegen* restrict cg
 private void prepareName(NameId name, CG);
 private CgType* cgType(TypeId tp, CG);
-private CgType* intType(CG);
-private CgType* voidType(CG);
 private CgType* longType(CG);
 private CgType* boolType(CG);
 private CgType* doubleType(CG);
+private TypeId tFunctionReturnType(TypeId funcTypeId, CR);
+private CgType* searchCgTypePartiallyFilled(TypeId tp, Int typeCounter, CG);
 
 #if defined(DEBUG) || defined(TEST)
 
@@ -401,14 +398,27 @@ paramFromChars(char const* s, CgType* tp, CG) {
 }
 
 private CgType* //:createFnType
-createFnType(Int tp, TypeHeader hdr, CG) {
+createFnType(Int tp, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
 // Creates a new type for codegen for an Eyr function type. Precondition: tp is a fn type
    Int countParams = hdr.arity - 1;
-   returnType = tFunctionReturnType(tp, cr);
-
-   return gcc_jit_context_new_function_ptr_type(
-      cg->md, null, returnType, countParams, paramTypes, 0
-   );
+   CompResult* cr = &(cg->compResult);
+   TypeId returnType = tFunctionReturnType(typeOf(tp), cr);
+   buffer->len = 0;
+   
+   if (countParams == 1 && cr->types.c[tp + TYPE_PREFIX_LEN] == voidType) { // nullary functions
+      return gcc_jit_context_new_function_ptr_type(
+         cg->md, null, searchCgTypePartiallyFilled(returnType, typeCounter, cg), 0, null, 0
+      );
+   } else {
+      for (Int j = tp + TYPE_PREFIX_LEN; j < tp + TYPE_PREFIX_LEN + countParams; j++) {
+         TypeId paramType = typeOf(cr->types.c[j]);
+         add(searchCgTypePartiallyFilled(paramType, typeCounter, cg), buffer);
+      }
+      return gcc_jit_context_new_function_ptr_type(
+         cg->md, null, searchCgTypePartiallyFilled(returnType, typeCounter, cg), countParams,
+         buffer->c, 0
+      );
+   }
 }
 
 private RValue*
@@ -599,19 +609,31 @@ builtinType(BuiltinType tp, Module* md) {
    return gcc_jit_context_get_type(md, tp);
 }
 
-private CgType* //:cgType
-cgType(TypeId tp, CG) {
-   Int ind = binarySearch(tp.v, 0, cg->countTypes, cg->typeRefs);
+private CgType* //:searchCgTypePartiallyFilled
+searchCgTypePartiallyFilled(TypeId tp, Int typeCounter, CG) {
+// Search for a type in a partially filled @typeRefs
+   Int ind = binarySearch(tp.v, 0, typeCounter, cg->typeRefs);
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
    CgType* res = cg->types[ind];
    VALIDATEI(res != null, iErrorTypeNotRegisteredInCodegen);
+   return res;
 }
 
-private Int
-countConcreteTypes(CR) {
-   Int res = topVerbatimType + 1;
+private CgType* //:cgType
+cgType(TypeId tp, CG) {
+   Int ind = binarySearch(tp.v, 0, cg->countConcreteTypes, cg->typeRefs);
+   VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
+   CgType* res = cg->types[ind];
+   VALIDATEI(res != null, iErrorTypeNotRegisteredInCodegen);
+   return res;
+}
+
+private Int //:countTheConcreteTypes
+countTheConcreteTypes(CR) {
+   // +1 for outerTypeForTypeParam, +1 because it's the array length, not index
+   Int res = topVerbatimType + 2;
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
-      TypeHeader hdr = libeyr_readTypeHeader(j, cr->types.c);
+      TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (!hdr.isGeneric) {
          res++;
       }
@@ -620,10 +642,11 @@ countConcreteTypes(CR) {
 }
 
 private CgType* //:registerType
-registerType(TypeId t, TypeHeader hdr, CG) {
+registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
+// searches in @typeRefs interval [0; typeCounter)
    if (hdr.sort == sorDeclare) {
       if (hdr.name == nameOfStandard(strF)) { // functions
-         return createFnType(t.v, hdr, cg->md);
+         return createFnType(t.v, hdr, typeCounter, buffer, cg);
       } else { // structs
          
       }
@@ -644,7 +667,7 @@ registerPrimitiveTypes(CG) {
 
    // String type
    Field* stringFields[2];
-   stringFields[0] = field(nameOfStandard(strLen), intType(cg), cg);
+   stringFields[0] = field(nameOfStandard(strLen), cg->types[0], cg);
    stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
    Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
@@ -656,45 +679,43 @@ registerPrimitiveTypes(CG) {
 
 private void //:registerCompositeTypes
 registerCompositeTypes(CG) {
-   Int typeInd = outerTypeForTypeParam + 1;
-   for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
-      TypeHeader hdr = libeyr_readTypeHeader(j, cr->types.c);
+   Int typeCounter = outerTypeForTypeParam + 1;
+   LCgTypePtr* buffer = createLCgTypePtr(16, cg->a);
+   CompResult* cr = &(cg->compResult);
+   for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
+      TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (!hdr.isGeneric) {
-         cg->types[typeInd] = registerType(typeOf(j), hdr, cg);
-         typeInd++;
+         cg->typeRefs[typeCounter] = j;
+         cg->types[typeCounter] = registerType(typeOf(j), hdr, typeCounter, buffer, cg);
+         typeCounter++;
       }
    }
 }
 
 private void //:registerTypes
 registerTypes(CG) {
-   // for every type in @cm.types, create an entry in @cg.typeRefs
-   cg->countTypes = countTheTypes(cg->compResult);
-   cg->typeRefs = allocateArray(cg->countTypeRefs, Int, cg->a);
-   cg->types = allocateArray(cg->countTypeRefs, CgType*, cg->a);
+// for every non-generic type in @cm.types, create an entry in @cg.typeRefs
+   cg->countConcreteTypes = countTheConcreteTypes(&(cg->compResult));
+   cg->typeRefs = allocateArray(cg->countConcreteTypes, Int, cg->a);
+   cg->types = allocateArray(cg->countConcreteTypes, CgTypePtr, cg->a);
 
    registerPrimitiveTypes(cg);
    registerCompositeTypes(cg);
 }
 
-private CgType* //:intType
-intType(CG) {
-   return cg->typeRefs[0].cgType;
-}
-
 private CgType* //:longType
 longType(CG) {
-   return cg->typeRefs[tokLong].cgType;
+   return cg->types[tokLong];
 }
 
 private CgType* //:boolType
 boolType(CG) {
-   return cg->typeRefs[tokBool].cgType;
+   return cg->types[tokBool];
 }
 
 private CgType* //:doubleType
 doubleType(CG) {
-   return cg->typeRefs[tokDouble].cgType;
+   return cg->types[tokDouble];
 }
 
 private TypeId //:tFunctionReturnType
@@ -709,7 +730,7 @@ tFunctionReturnType(TypeId funcTypeId, CR) {
 
 private RValue* //:intConst
 intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->md, intType(cg), val);
+   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[0], val);
 }
 
 
@@ -1567,18 +1588,6 @@ main(int argc, char** argv) {
 //}}}
 
    CompResult* compResult = libeyr_compileFile(str("program.eyr"));
-
-//~   Int count = 0;
-//~   for (Int j = outerTypeForTypeParam + 1; j < compResult->types.len; j += (compResult->types.c[j] + 1)) {
-//~      count++;
-//~      print("type %d len %d", j, compResult->types.c[j]);
-//~   }
-//~   print("Count of types: %d @types len %d", count, compResult->types.len);
-
-   return 0;
-
-
-
 
 
    Codegen* cg;

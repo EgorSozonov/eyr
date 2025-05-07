@@ -221,6 +221,9 @@ libeyr_String str(const char* cent);
 #define metaDefault     2  // Default values for type arguments
 
 #define topVerbatimType tokMisc
+
+#define voidType            tokMisc
+
 // Not used in types, only in overloads to mark functions with first param = type param
 constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 
