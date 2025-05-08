@@ -428,7 +428,7 @@ private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 
 private TypeId typeGetGenericParam(TypeId t, Int ind, CM);
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
-TypeId typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM);
+TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
 
 DEFINE_LIST_HEADER(Token)
@@ -1647,7 +1647,10 @@ struct Compiler { // :Compiler
    InListInt overloads;
    InListInt types;
    StringDict* typesDict;
-   InListStructField fields;
+   InListStructField genericFields; // fields of sorDeclare types (i.e. not type instantiations)
+                                    // type instantiations have their own lists of types of fields
+                                    // but not their names - the names are defined once per generic
+                                    // type and kept here.
    LMonomorphization* monos; // Addresses of monomorphizations of generic functions
 
    // GENERAL STATE
@@ -1670,7 +1673,7 @@ DEFINE_INTERNAL_LIST(toplevels, Int, a) //:pushIntoplevels
 DEFINE_INTERNAL_LIST(vars, Var, a) //:pushInentities
 DEFINE_INTERNAL_LIST(functions, Function, a) //:pushInfunctions
 DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
-DEFINE_INTERNAL_LIST(fields, StructField, a) //:pushInfields
+DEFINE_INTERNAL_LIST(genericFields, StructField, a) //:pushIngenericFields
 
 // the following constants must not clash with the "sor" constants
 // Type expression data format: First element is the tag (one of the following
@@ -4444,9 +4447,6 @@ mergeType(TypeId startInd, CM) {
 // length of cm->types if appropriate
    Int lenInts = cm->types.c[startInd.v] + 1; // +1 for the type length
    TypeId r = mergeTypeWorker(startInd, lenInts, cm);
-   if (r.v == 142) {
-      print("142 type @%d", cm->i);
-   }
    return r;
 }
 
@@ -4580,30 +4580,35 @@ buildPreludeTypes(CM) {
    
    // Array
    Int typeIndA = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 1, cm); // 1 = 2 - 1, since header size = TYPE_PREFIX_LEN - 1
+   pushIntypes(TYPE_PREFIX_LEN + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX_LEN - 1
    NameId name = nameOfStandard(strArray);
    typeAddHeader(((TypeHeader){
-      .sort = sorDeclare, .isGeneric = true, .arity = 1, .tyrity = 1, .name = name }), cm
+      .sort = sorDeclare, .isGeneric = true, .arity = 2, .tyrity = 1, .name = name }), cm
    );
+   pushIntypes(-1, cm); // dummy value for the raw pointer, not to be used within Eyr
    pushIntypes(tokInt, cm);
-   pushIntypes(cm->fields.len, cm);
-   pushInfields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
+   pushIntypes(cm->genericFields.len, cm);
+   pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
+   pushIngenericFields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
+   
    cm->activeBindings[name] = typeIndA;
    cm->stats.arrayType = typeIndA;
 
    // List
    Int typeIndL = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX_LEN - 1
+   pushIntypes(TYPE_PREFIX_LEN + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX_LEN - 1
    name = nameOfStandard(strL);
    typeAddHeader(((TypeHeader){
-      .sort = sorDeclare, .arity = 1, .tyrity = 1, .isGeneric = true, .name = name }),
+      .sort = sorDeclare, .arity = 3, .tyrity = 1, .isGeneric = true, .name = name }),
       cm
    );
+   pushIntypes(-1, cm); // dummy value for the raw pointer, not to be used within Eyr
    pushIntypes(tokInt, cm);
    pushIntypes(tokInt, cm);
-   pushIntypes(cm->fields.len, cm);
-   pushInfields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
-   pushInfields(((StructField){.name = nameOfStandard(strCap), .access = accessPubImm}), cm);
+   pushIntypes(cm->genericFields.len, cm);
+   pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
+   pushIngenericFields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
+   pushIngenericFields(((StructField){.name = nameOfStandard(strCap), .access = accessPubImm}), cm);
    cm->activeBindings[name] = typeIndL;
    cm->stats.listType = typeIndL;
    // no need to merge the types as they are surely unique
@@ -4869,7 +4874,9 @@ initializeParser(Compiler* lx, Arena* a) {
    memcpy(cm->types.c, PROTO.types.c, PROTO.types.len*4);
    cm->types.len = PROTO.types.len;
 
-   cm->fields = createInListStructField(16, a);
+   cm->genericFields = createInListStructField(PROTO.genericFields.len, a);
+   memcpy(cm->genericFields.c, PROTO.genericFields.c, PROTO.genericFields.len*sizeof(StructField));
+   cm->genericFields.len = PROTO.genericFields.len;
 
    cm->typesDict = copyStringDict(PROTO.typesDict, a);
 
@@ -5308,6 +5315,7 @@ parseMain(CM, Arena* a) {
 Compiler* //:parse
 parse(CM, Arena* a) {
 // Parses a single file in 4 passes, see docs/parser.txt
+
    initializeParser(cm, a);
    parseMain(cm, a);
    clearArena(cm->aTmp);
@@ -5359,6 +5367,12 @@ libeyr_readTypeHeader(TypeId t, Arr(Int) types) {
    return (TypeHeader){ .isGeneric = (tag >> 24) > 0, .sort = ((Unt)tag >> 16) & LOWER16BITS,
          .arity = (tag >> 8) & 0xFF, .tyrity = tag & 0xFF, .name = types[t.v + 2]
    };
+}
+
+
+Int //:libeyr_getFieldIndOfStruct
+libeyr_getFieldIndOfStruct(TypeId t, TypeHeader hdr, Arr(Int) types) {
+   return types[t.v + TYPE_PREFIX_LEN + hdr.arity];
 }
 
 private Int //:typeGetTyrity
@@ -5511,7 +5525,7 @@ typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
 private TypeId //:tCreateTypeCall
 tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
 // Creates/merges a new type call from a sequence of pairs in @exp
-// Handles ordinary type calls and function types. Returns the typeId of the new type
+// Handles ordinary type calls, NOT function types. Returns the typeId of the new type
    TypeId genericId = frame.id;
    TypeHeader genericHdr = typeReadHeader(genericId, cm);
    VALIDATEP(genericHdr.tyrity == frame.countArgs, errTypeConstructorWrongArity)
@@ -5524,13 +5538,20 @@ tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
          .arity = (sentinel - startInd + 1),
          .name = genericHdr.name, .isGeneric = false })
    );
+   for (Int j = genericId.v + TYPE_PREFIX_LEN;
+        j < genericId.v + TYPE_CREATE_END + genericHdr.arity + 1; // +1 to include index in fields
+        j++
+   ) {
+      pushIntypes(cm->types.c[j], cm); // TODO substitute the generic params
+      
+   }
    pushIntypes(frame.id.v, cm);
    for (Int j = startInd; j < sentinel; j++) {
       pushIntypes(exp->c[j], cm);
    }
 
    TYPE_CREATE_END;
-   TypeId r =  mergeType(tentativeType, cm);
+   TypeId r = mergeType(tentativeType, cm);
    return r;
 }
 
@@ -5927,15 +5948,15 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
    } ei (nd.pl3 == callField) { // a field accessor
       VALIDATEP(exp->len >= 1, errExpressionError)
       NameId name = nd.pl1;
-      NameId mbAltName = -1;
+      
       Int prevType = exp->c[exp->len - 1];
       VALIDATEP(prevType > topVerbatimType, errTypeFieldNotFound);
-      TypeId fieldType = typeTryGetFieldType(name, typeOf(prevType), OUT &mbAltName, cm);
+      
+      Int fieldInd;
+      TypeId fieldType = typeTryGetField(name, typeOf(prevType), OUT &fieldInd, cm);
 
       cm->ast.c[cm->j].pl1 = fieldType.v;
-      if (mbAltName != -1)
-         { cm->ast.c[cm->j].pl1 = mbAltName; }
-
+      cm->ast.c[cm->j].pl2 = fieldInd;
       exp->c[exp->len - 1] = fieldType.v;
    } else {
       // A function call. cont[j] contains the argument count, cont[j + 1] index in @overloads
@@ -6086,27 +6107,49 @@ typecheckList(Int startInd, CM) {
    return fstType;
 }
 
-TypeId //:typeTryGetFieldType
-typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM) {
+TypeId //:typeTryGetField
+typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
+// Searches for a field within a struct by its name. Returns the index of that field
+// (within the type, so 0-based), and its type.
    TypeHeader hdr = typeReadHeader(t, cm);
-   TypeId rootType = t;
-   if (hdr.sort == sorTypeCall) {
-      rootType = typeOf(cm->types.c[t.v + TYPE_PREFIX_LEN]);
-      hdr = typeReadHeader(rootType, cm);
-   }
-   Int payloadSize = cm->types.c[rootType.v] - TYPE_PREFIX_LEN + 1;
-   Int ratio = payloadSize/hdr.arity;
-   VALIDATEP(ratio >= 2, errTypeFieldNotFound);
-   Int const namesStart = rootType.v + TYPE_PREFIX_LEN + hdr.arity;
-   Int const namesEnd = rootType.v + TYPE_PREFIX_LEN + 2*hdr.arity;
-   Int nameInd = namesStart;
    
-   for (; nameInd < namesEnd; nameInd++) {
-      if (name == cm->types.c[nameInd])
+   Int const indInGenericFields = libeyr_getFieldIndOfStruct(t, hdr, cm->types.c);
+   Int j = indInGenericFields;
+   for (; j < indInGenericFields + hdr.arity; j++) {
+      if (cm->genericFields.c[j].name == name)
          { break; }
    }
-   VALIDATEP(nameInd < namesEnd, errTypeFieldNotFound);
-   return typeOf(cm->types.c[nameInd - hdr.arity]);
+   print("getting field for name %d type %d, indInGen %d end %d", name, t.v,
+      indInGenericFields, indInGenericFields + hdr.arity
+   );
+   print("present first two names: %d %d",
+      cm->genericFields.c[0].name, cm->genericFields.c[1].name
+   );
+   
+   VALIDATEP(j < indInGenericFields + hdr.arity, errTypeFieldNotFound);
+   *fieldInd = j - indInGenericFields;
+   
+   print("got field %d type %d", *fieldInd, cm->types.c[t.v + TYPE_PREFIX_LEN + (*fieldInd)]);
+   return typeOf(cm->types.c[t.v + TYPE_PREFIX_LEN + (*fieldInd)]);
+   
+//~   TypeId rootType = t;
+//~   if (hdr.sort == sorTypeCall) {
+//~      rootType = typeOf(cm->types.c[t.v + TYPE_PREFIX_LEN]);
+//~      hdr = typeReadHeader(rootType, cm);
+//~   }
+//~   Int payloadSize = cm->types.c[rootType.v] - TYPE_PREFIX_LEN + 1;
+//~   Int ratio = payloadSize/hdr.arity;
+//~   VALIDATEP(ratio >= 2, errTypeFieldNotFound);
+//~   Int const namesStart = rootType.v + TYPE_PREFIX_LEN + hdr.arity;
+//~   Int const namesEnd = rootType.v + TYPE_PREFIX_LEN + 2*hdr.arity;
+//~   Int nameInd = namesStart;
+//~   
+//~   for (; nameInd < namesEnd; nameInd++) {
+//~      if (name == cm->types.c[nameInd])
+//~         { break; }
+//~   }
+//~   VALIDATEP(nameInd < namesEnd, errTypeFieldNotFound);
+//~   return typeOf(cm->types.c[nameInd - hdr.arity]);
 }
 
 //}}}
@@ -6786,8 +6829,6 @@ dbgAllTypes(CM) {
 
 #ifdef TEST
 
-//{{{ Definitions
-
 #define S   70000000 // A constant larger than the largest allowed file size.
                 // Separates parsed entities from others
 #define I  140000000 // The base index for imported entities/overloads
@@ -6799,8 +6840,6 @@ typedef struct { // :TestEntityImport
     Int nameInd; // 0, 1 or 2. Corresponds to the "foobarinner" in standardText
     Int typeInd; // index in the intermediary array of types that is imported alongside
 } TestEntityImport;
-
-//}}}
 
 Int
 tryGetOper0(Int opType, Int typeId, Compiler* protoOvs) {
@@ -6875,12 +6914,13 @@ getCompResult(CM) {
    return cr;
 }
 
-Int
+Int //:equalityParser
 equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool compareLocsToo) {
 // Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
 // differing token otherwise
    CompResult* statsA = getCompResult(a);
    CompResult* statsB = getCompResult(b);
+   print("parser error %d %d", statsA->wasParserError, statsB->wasParserError);
    if (statsA->wasParserError != statsB->wasParserError
          || (!endsWith(statsA->errMsg, statsB->errMsg)))
       { return -1; }
@@ -6947,6 +6987,7 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
       .names = createLUnt(16, a), .stringDict = createStringDict(128, a),
       .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
       .rawOverloads = createMultiAssocList(a),
+      .genericFields = createInListStructField(16, a),
       .stats = (CompStats) {
          .standardTextLen = sizeof(standardText) - 1,
          .firstParsedName = (strSentinel + countOperators),
@@ -7077,6 +7118,7 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
             : ((SliUnt){.len = 0, .c = null}),
       .a = cm->a,
       .stats = cm->stats,
+      .wasParserError = cm->wasError
    };
 }
 

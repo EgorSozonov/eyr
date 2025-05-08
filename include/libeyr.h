@@ -184,9 +184,9 @@ libeyr_String str(const char* cent);
                            //   index into @functions (after type resolution) when pl3 = callNormal,
                            //   into @monos if pl3 = callMonomorph,
                            //   into @vars if pl3 = callVar,
-                           //   into @fields if pl3 = callField
-                           // pl2 = arg count (or 0 iff pl3 = callField), pl3 = "call" constants.
-
+                           //   into @types if pl3 = callField.
+                           // pl2 = arg count (or ind of field within type iff pl3 = callField).
+                           // pl3 = "call" constants.
 // Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
@@ -472,9 +472,9 @@ typedef struct { //:CompStats
    Int listType;
    Int arrayType;
 
-   Int standardTextLen; // length of standardText
-   Int firstParsedName; // the name index for the first parsed word
-   Int firstBuiltin;    // the name for the first built-in word in standardStrings
+   Int standardTextLen; // length of @standardText
+   Int firstParsedName; // the name index for the first parsed word in @names
+   Int firstBuiltin;    // the name for the first built-in word in @standardStrings
 } CompStats;
 
 typedef struct { //:CompResult
@@ -505,6 +505,7 @@ Compiler* lexicallyAnalyzeFromFile(libeyr_String sourceCode, Arena* a);
 libeyr_String readSourceFile(libeyr_String fName, Arena* a);
 libeyr_CompResult* getCompResult(CM);
 TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
+Int libeyr_getFieldIndOfStruct(TypeId t, TypeHeader hdr, Arr(Int) types);
 libeyr_CompResult* libeyr_compileFile(libeyr_String filename);
 libeyr_CompResult* libeyr_compile(libeyr_String sourceCode);
 

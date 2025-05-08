@@ -15,7 +15,7 @@ extern jmp_buf excBuf;
 
 //}}}
 //{{{ Forward decls, generics & utils
-//{{{ Libgccjit wrappers
+//{{{ Libgccjit wrapper declarations
 
 typedef gcc_jit_param FnParam;
 typedef gcc_jit_type CgType;
@@ -122,6 +122,11 @@ typedef struct { //:BtLoop
    Int sentinel; // node index of end, exclusive
 } BtLoop;
 
+typedef struct { //:TypeInfo
+   CgType* c;
+   Int field;    // index into @concreteFields. null for function types
+} TypeInfo;
+
 DEFINE_LIST_HEADER(CodeBlockPtr)
 DEFINE_LIST_HEADER(FnPtr)
 DEFINE_LIST_HEADER(RValuePtr)
@@ -137,6 +142,8 @@ typedef struct { //:Builtins
    Fn* printer; // the "printf" function
    CgType* cString; // the zero-terminated array of chars
    CgType* sloppyInt; // the sloppy "int" type of C
+   Int fieldsArray;
+   Int fieldsList;
    RValue* formatInt; // "%d\n"
    RValue* formatDou; // "%f\n"
    RValue* formatStr; // "%s\n"
@@ -159,11 +166,11 @@ typedef struct { //:Codegen
 
    LFnParamPtr* params; // temporary buffer for function params
    LRValuePtr* exp; // temporary buffer for expression evaluation
-   LFieldPtr* fields; // temporary buffer for struct fields
+   LFieldPtr* concreteFields; // fields of concrete structs & unions
 
    Int countConcreteTypes;
    Arr(Int) typeRefs; // indices into @compResult.types, len = countTypes
-   Arr(CgType*) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
+   Arr(TypeInfo) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
 
    CompResult compResult; // results of the compilation from libeyr
    Builtins builtins;
@@ -421,9 +428,14 @@ createFnType(Int tp, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
    }
 }
 
-private RValue*
+private RValue* //:callFnPtr
 callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
    return gcc_jit_context_new_call_through_ptr(md, null, fnPtr, countArgs, args);
+}
+
+private RValue* //:fieldAccess
+fieldAccess(RValue* val, Field* fld, CG) {
+   return gcc_jit_rvalue_access_field(val, null, fld);
 }
 
 #define builtinBinary(op, retType, arg1, arg2) gcc_jit_context_new_binary_op(\
@@ -432,6 +444,7 @@ callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
    cg->md, null, op, retType, arg1)
 #define builtinCompare(op, arg1, arg2) gcc_jit_context_new_comparison(\
    cg->md, null, op, arg1, arg2)
+   
 
 private NULLABLE RValue* //:eCall
 eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
@@ -511,6 +524,12 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
    }
    case emitGreaterThanEq: {
       return builtinCompare(GCC_JIT_COMPARISON_GE, args[0], args[1]);
+   }
+   case emitArrayLen: {
+      return fieldAccess(args[0], cg->concreteFields.c[cg->builtins.fieldsArray], cg);
+   }
+   case emitListLen: {
+      return fieldAccess(args[0], cg->concreteFields.c[cg->builtins.fieldsList], cg);
    }
    case emitPrintInt: {
       RValue* printfArgs[2];
@@ -644,11 +663,19 @@ countTheConcreteTypes(CR) {
 private CgType* //:registerType
 registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
 // searches in @typeRefs interval [0; typeCounter)
-   if (hdr.sort == sorDeclare) {
-      if (hdr.name == nameOfStandard(strF)) { // functions
-         return createFnType(t.v, hdr, typeCounter, buffer, cg);
-      } else if (hdr.name == nameOfStandard(strArray)) { // structs
-         
+   if (hdr.name == nameOfStandard(strF)) { // functions
+      return createFnType(t.v, hdr, typeCounter, buffer, cg);
+   } else if (hdr.sort == sorTypeCall) {
+      if (hdr.name == nameOfStandard(strArray)) {
+         Int fieldInd = libeyr_getFieldIndOfStruct(t, hdr, cg->compResult.types.c); 
+         print("registering array type with fieldInd  %d", fieldInd);
+         cg->fields.c[fieldInd] = field(nameOfStandard(strLen), cg->types[tokInt], cg);
+         cg->fields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[tokInt], cg);
+      } else if (hdr.name == nameOfStandard(strL)) {
+         Int fieldInd = libeyr_getFieldIndOfStruct(t, hdr, cg->compResult.types.c); 
+         cg->fields.c[fieldInd] = field(nameOfStandard(strLen), cg->types[tokInt], cg);
+         cg->fields.c[fieldInd + 1] = field(nameOfStandard(strCap), cg->types[tokInt], cg);
+         cg->fields.c[fieldInd + 2] = field(nameOfStandard(strCap), cg->types[tokInt], cg);
       }
    }
    return null;
@@ -807,10 +834,17 @@ createBuiltins(CG) {
       true,
       cg->md
    );
+   
+   TypeId array = cg->compResult.compStats.arrayType;
+   TypeHeader arrayHdr = libeyr_readTypeHeader(array, cg->compResult.types.c);
+   TypeId list = cg->compResult.compStats.listType;
+   TypeHeader listHdr = libeyr_readTypeHeader(list, cg->compResult.types.c);
 
    return (Builtins){
       .printer = printfFn, .cString = constCharPtrTp,
       .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
+      .fieldsArray = cg->compResult.types.c[array + TYPE_PREFIX_LEN + arrayHdr.arity],
+      .fieldsList = cg->compResult.types.c[list + TYPE_PREFIX_LEN + listHdr.arity],
       .formatInt = cStringConst("%d\n", cg),
       .formatDou = cStringConst("%f\n", cg),
       .formatStr = cStringConst("%s\n", cg)

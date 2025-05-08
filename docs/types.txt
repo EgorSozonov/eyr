@@ -19,8 +19,13 @@ Type header = sort, arity, depth, name
 
 II. Differing parts:
     
-Record:
-[name](member concrete types)|1 index into @fields|(type params, if any. count = tyrity)
+Record sorDeclare:
+[name](member concrete types)|1 index into @fields|
+(meta flags ?)
+
+
+Record sorTypeCall:
+[name](member concrete types)|1 index into @fields|(Parent type and type params, if any. count = tyrity)
 (meta flags ?)
 
 Enum:
