@@ -1,28 +1,12 @@
-NEW LAYOUT
+sorDeclare = original declarations of types, including concrete generic ones
+sorTypeCall = instantiations of sorDeclares. May be generic
+sorGenericParam = generic params. These are auxiliary types and are non-instantiable
+
+
+NEW LAYOUT OF TypeCall
 ___________
-[type length][type header][name of type][type params, if any][param names, if any]
+[type length][type header][type params, if any]
 type arity (in header) documents the number of [type params], while [type length] can be used to determin count of param names
-
-
-
-
-
-
-
-Examples:
-L = Rec len Int, cap Int, co Array $T,;
-(id1 tyrity = 1 arity = 3 isGeneric) // sorRecord
-
-
-ListInt = L Int;
-(id1 Int, tyrity = 0, arity = 3) // sorTypeCall
-
-Foo = Rec id Long, name Str,;
-(id2 tyrity = 0, arity = 2) // sorRecord
-
-
-
-
 
 
 
@@ -31,13 +15,13 @@ TYPE LAYOUT
 
 I. Common part = [type length][type header]
 Type length = number of ints that everything after this takes
-Type header = sort, arity, depth, nameLen
+Type header = sort, arity, depth, name
 
 II. Differing parts:
     
 Record:
-[name](Arities of type params, count = arity)
-(member names)(member types)|meta flags, 1 Int|
+[name](member concrete types)|1 index into @fields|(type params, if any. count = tyrity)
+(meta flags ?)
 
 Enum:
 [name](variant names)(variant types)|meta flags|
@@ -48,7 +32,7 @@ depth = count of func params + 1
 (function parameter types)(return type)
 
 TypeCall:
-(type arguments, which if negative are -1*(paramInd + 1), and if positive are TypeId)
+|typeId of parent|(type parameters)
 
 Concrete:
 (Full type expression in prefix form, with tyrities)

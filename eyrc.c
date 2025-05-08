@@ -647,7 +647,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
    if (hdr.sort == sorDeclare) {
       if (hdr.name == nameOfStandard(strF)) { // functions
          return createFnType(t.v, hdr, typeCounter, buffer, cg);
-      } else { // structs
+      } else if (hdr.name == nameOfStandard(strArray)) { // structs
          
       }
    }

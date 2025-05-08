@@ -404,7 +404,7 @@ defstruct(TExpr);
 defstruct(Scopes);
 void printLexer(LX);
 
-private void exprCopyFromScratch(Int startNodeInd, CM);
+private void eSaveNodes(Int startNodeInd, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
 private TypeId exprUpToWithFrame(ParseFrame fr, SourceLoc loc, TOKS, CM);
@@ -417,7 +417,7 @@ private Int typeGetTyrity(TypeId typeId, CM);
 private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
 private TypeId typecheckList(Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
-private TypeId tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM);
+private TypeId tCreateSingleParamTypeCall(NameId outerName, TypeId param, CM);
 private TypeId tFunctionReturnType(TypeId t, CM);
 private NameLoc nameOfHost(Int strId);
 
@@ -2976,7 +2976,6 @@ private TypeId exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM);
 private void eClose(Expr* s, CM);
 private void addBinding(NameId nameId, Int bindingId, Compiler* cm);
 private void mbCloseSpans(CM);
-//private FunctionId importActivateEntity(Function ent, CM);
 private void createBuiltins(Compiler* cm);
 private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 private void eParse(Int sentinel, TOKS, CM);
@@ -3094,8 +3093,8 @@ eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
    );
 }
 
-private void //:eSaveNodes
-eSaveNodes(Int startInd, LNode* scr, LSourceLoc* locsScr, CM) {
+private void //:eSaveDataAllocationNodes
+eSaveDataAllocationNodes(Int startInd, LNode* scr, LSourceLoc* locsScr, CM) {
 // Pushes the tail of scratch space (from a specified index onward) into the main AST
    Int const pushCount = scr->len - startInd;
    if (pushCount == 0)
@@ -3711,15 +3710,11 @@ subexDataAllocation(ExprFrame frame, Expr* e, CM) {
            rawLoc, cm);
 
    Int const mainNodeInd = cm->ast.len;
-   eSaveNodes(frame.startNode, scr, e->locsScr, cm);
+   eSaveDataAllocationNodes(frame.startNode, scr, e->locsScr, cm);
 
    if (countNodes > 0)  {
       TypeId eltType = typecheckList(mainNodeInd, cm);
-      TypeId collType = tCreateSingleParamTypeCall(
-         typeOf(cm->activeBindings[nameOfStandard(strL)]), eltType, cm
-      );
-      print("created list type %d for var %d", collType.v, newVarId);
-      dbgType(collType);
+      TypeId collType = tCreateSingleParamTypeCall(nameOfStandard(strArray), eltType, cm);
       cm->vars.c[newVarId].typeId = collType;
    }
 
@@ -3797,8 +3792,8 @@ eClose(Expr* restrict e, CM) {
    }
 }
 
-private void //:exprCopyFromScratch
-exprCopyFromScratch(Int startNodeInd, CM) {
+private void //:eSaveNodes
+eSaveNodes(Int startNodeInd, CM) {
 // Copy nodes from scratch into main AST
    Expr* restrict e = cm->expr;
    LNode* restrict scr = e->scr;
@@ -3974,7 +3969,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
       e->metAnAllocation = true;
       eBumpArgCount(e->frames);
       add(((ExprFrame) {
-            .tp = exfrDataAlloc, .name = nameOfStandard(strL),
+            .tp = exfrDataAlloc, .name = nameOfStandard(strArray),
             .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
             .loc = loc  }),
            e->frames
@@ -4030,7 +4025,7 @@ exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
    newNode((Node){ .tp = nodExpr}, loc, cm);
 
    eParse(frame.sentinel, toks, cm);
-   exprCopyFromScratch(startNodeInd, cm);
+   eSaveNodes(startNodeInd, cm);
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    mbCloseSpans(cm);
    return exprType;
@@ -4043,11 +4038,13 @@ exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
 // Starts from cm->i and goes up to the sentinel token. Emits a nodExpr and opens a corresponding
 // parse frame. Returns the expression's type
    Int startNodeInd = cm->ast.len;
-   add(((ParseFrame){
-      .startNodeInd = startNodeInd, .sentinel = sentinelToken }), cm->backtrack);
+   add(
+      ((ParseFrame){ .startNodeInd = startNodeInd, .sentinel = sentinelToken }), cm->backtrack
+   );
    newNode((Node){ .tp = nodExpr}, loc, cm);
    eParse(sentinelToken, toks, cm);
-   exprCopyFromScratch(startNodeInd, cm);
+   eSaveNodes(startNodeInd, cm);
+   
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    mbCloseSpans(cm);
    return exprType;
@@ -4470,42 +4467,29 @@ addConcrFnType(Int arity, Arr(Int) paramsAndReturn, CM) {
 }
 
 private void //:importGenericTypesList
-importGenericTypesList(OUT TypeId* addType, OUT TypeId* lengthType, CM) {
-// Types for the generic list's `add` function: `L $T, $T -> Void`
-// and the `#` function: `L $T -> Int`
-   // add $0 type
+importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT TypeId* listAdd, CM) {
+// Types for the generic array and its `#` function: `A $T -> Int`. Also for
+// generic list and its `add` function: `L $T, $T -> Void` as well as its `#` function
+   // the $0 type
    TypeId tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX_LEN - 1, cm);
    typeAddHeader(((TypeHeader){ .sort = sorGenericParam, .tyrity = 1, .arity = 0, .name = 0,
         .isGeneric = true }), cm);
    TypeId p0 = mergeType(tentativeType, cm);
 
-   // add L $0
+   // # (length): A $0 -> Int
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX_LEN + 1, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strL),
+      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strF),
          .isGeneric = true }),
-         cm
+      cm
    );
-   pushIntypes(cm->stats.listType, cm);
-   pushIntypes(p0.v, cm);
-   TypeId l0 = mergeType(tentativeType, cm);
-
-   // add L $0, $0 -> Void
-   tentativeType = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX_LEN + 2, cm);
-   typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStandard(strF),
-         .isGeneric = true }),
-         cm
-   );
-   pushIntypes(l0.v, cm);
-   pushIntypes(p0.v, cm);
-   pushIntypes(voidType, cm);
-   *addType = mergeType(tentativeType, cm);
-
-   // # L $0 -> Int
+   pushIntypes(cm->stats.arrayType, cm);
+   pushIntypes(tokInt, cm);
+   *arrayLength = mergeType(tentativeType, cm);
+   
+   // # (length) L $0 -> Int
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX_LEN + 1, cm);
    typeAddHeader(
@@ -4513,9 +4497,23 @@ importGenericTypesList(OUT TypeId* addType, OUT TypeId* lengthType, CM) {
          .isGeneric = true }),
          cm
    );
-   pushIntypes(l0.v, cm);
+   pushIntypes(cm->stats.listType, cm);
    pushIntypes(tokInt, cm);
-   *lengthType = mergeType(tentativeType, cm);
+   *listLength = mergeType(tentativeType, cm);
+   
+   // the type of add: L $0, $0 -> Void
+   tentativeType = typeOf(cm->types.len);
+   pushIntypes(TYPE_PREFIX_LEN + 2, cm);
+   typeAddHeader(
+      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStandard(strF),
+         .isGeneric = true }),
+         cm
+   );
+   pushIntypes(cm->stats.listType, cm);
+   pushIntypes(p0.v, cm);
+   pushIntypes(voidType, cm);
+   *listAdd = mergeType(tentativeType, cm);
+
 }
 
 //~private TypeId //:importGenericTypeLength
@@ -4579,30 +4577,36 @@ buildPreludeTypes(CM) {
       pushIntypes(0, cm);
    }
    pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
+   
+   // Array
+   Int typeIndA = cm->types.len;
+   pushIntypes(TYPE_PREFIX_LEN + 1, cm); // 1 = 2 - 1, since header size = TYPE_PREFIX_LEN - 1
+   NameId name = nameOfStandard(strArray);
+   typeAddHeader(((TypeHeader){
+      .sort = sorDeclare, .isGeneric = true, .arity = 1, .tyrity = 1, .name = name }), cm
+   );
+   pushIntypes(tokInt, cm);
+   pushIntypes(cm->fields.len, cm);
+   pushInfields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
+   cm->activeBindings[name] = typeIndA;
+   cm->stats.arrayType = typeIndA;
 
    // List
    Int typeIndL = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX_LEN - 1
-   NameId name = nameOfStandard(strL);
-   typeAddHeader((TypeHeader){.sort = sorDeclare, .arity = 1, .tyrity = 1,
-      .isGeneric = true, .name = nameOfStandard(strL)},
-      cm);
+   pushIntypes(TYPE_PREFIX_LEN + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX_LEN - 1
+   name = nameOfStandard(strL);
+   typeAddHeader(((TypeHeader){
+      .sort = sorDeclare, .arity = 1, .tyrity = 1, .isGeneric = true, .name = name }),
+      cm
+   );
    pushIntypes(tokInt, cm);
    pushIntypes(tokInt, cm);
-   pushIntypes(nameOfStandard(strLen), cm);
-   pushIntypes(nameOfStandard(strCap), cm);
+   pushIntypes(cm->fields.len, cm);
+   pushInfields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
+   pushInfields(((StructField){.name = nameOfStandard(strCap), .access = accessPubImm}), cm);
    cm->activeBindings[name] = typeIndL;
    cm->stats.listType = typeIndL;
-
-   // Array
-   Int typeIndA = cm->types.len;
-   pushIntypes(TYPE_PREFIX_LEN + 1, cm);
-   name = nameOfStandard(strArray);
-   typeAddHeader((TypeHeader){.sort = sorDeclare, .isGeneric = true,
-                         .arity = 1, .tyrity = 1, .name = nameOfStandard(strArray)}, cm);
-   pushIntypes(tokInt, cm);
-   pushIntypes(nameOfStandard(strLen), cm);
-   cm->activeBindings[name] = typeIndA;
+   // no need to merge the types as they are surely unique
 }
 
 private void //:buildOper
@@ -4731,16 +4735,23 @@ importPrelude(CM) {
    TypeId const douToVoid = addConcrFnType(1, (Int[]){ tokDouble, voidType }, cm);
 
    // Generic functions
-   TypeId listAdd, listLength;
-   importGenericTypesList(OUT &listAdd, OUT &listLength, cm);
-   Int const genericInd = listCreateMultiAssocList(cm->functionMonos);
-   Int const genericInd2 = listCreateMultiAssocList(cm->functionMonos);
+   TypeId arrayLength, listAdd, listLength;
+   importGenericTypesList(OUT& arrayLength, OUT &listLength, OUT &listAdd, cm);
 
-   // List length
+   // Array length
    Int lengthFnId = cm->functions.len;
    pushInfunctions(
-      (Function){ .name = opSize, .typeId = listLength, .genericInd = genericInd2, .tokenInd = -1,
-                  .access = accessPrivImm, .emit = emitParsed },
+      (Function){ .name = opSize, .typeId = arrayLength, .genericInd = -1, .tokenInd = -1,
+                  .access = accessPubImm, .emit = emitArrayLen },
+      cm
+   );
+   addRawOverload(opSize, arrayLength, lengthFnId, cm);
+
+   // List length
+   lengthFnId = cm->functions.len;
+   pushInfunctions(
+      (Function){ .name = opSize, .typeId = listLength, .genericInd = -1, .tokenInd = -1,
+                  .access = accessPubImm, .emit = emitListLen },
       cm
    );
    addRawOverload(opSize, listLength, lengthFnId, cm);
@@ -4755,6 +4766,8 @@ importPrelude(CM) {
          .name = nameOfStandard(strMathE), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
       },
    };
+   
+   Int const genericInd = listCreateMultiAssocList(cm->functionMonos); // for the generic list "add"
    Function fnImports[5] =  {
       (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
          .typeId = intToVoid },
@@ -4898,6 +4911,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
       if (ov[o] == prevOuter) {
          print("Overload intersection for name %d ov[k] %d prevOuter %d @o = %d countOvers %d",
             name, ov[o], prevOuter, o, countOverloads);
+         printf("Name: ");   
          printName(name, cm);
          dbgOverloads(name, cm);
       }
@@ -5282,7 +5296,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      printParser(cm);
+      //printParser(cm);
       //dbgAllTypes(cm);
    } else {
 #ifndef TEST
@@ -5363,9 +5377,10 @@ typeGetOuter(TypeId t, CM) {
    TypeHeader hdr = typeReadHeader(t, cm);
    if (hdr.sort == sorGenericParam)
       { return typeOf(outerTypeForTypeParam); }
-   return hdr.name == nameOfStandard(strF)
-      ? t
-      : typeOf(cm->types.c[t.v + TYPE_PREFIX_LEN]);
+   else if (hdr.name == nameOfStandard(strF) || hdr.sort == sorDeclare)
+      { return t; }
+   else
+      { return typeOf(cm->types.c[t.v + TYPE_PREFIX_LEN]); }
 }
 
 private TypeId //:typeGetGenericParam
@@ -5567,13 +5582,12 @@ tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM) {
 }
 
 private TypeId //:tCreateSingleParamTypeCall
-tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM) {
+tCreateSingleParamTypeCall(NameId nameOfOuter, TypeId param, CM) {
 // Creates a type like (L Int)
-   //TypeId listType = typeOf(cm->activeBindings[nameOfStandard(strL)]);
-   print("single param start len %d outer %d name %d", cm->types.len, outer.v, nameOfStandard(strL));
+   TypeId outer = typeOf(cm->activeBindings[nameOfOuter]);
    TYPE_CREATE_START(
       ((TypeHeader){.sort = sorTypeCall, .tyrity = 0, .arity = 2,
-         .name = nameOfStandard(strL), .isGeneric = false})
+         .name = nameOfOuter, .isGeneric = false})
    );
    pushIntypes(outer.v, cm);
    pushIntypes(param.v, cm);
@@ -5581,7 +5595,6 @@ tCreateSingleParamTypeCall(TypeId outer, TypeId param, CM) {
    TYPE_CREATE_END;
    TypeId res = mergeType(tentativeType, cm);
 
-   print("single param end len %d", cm->types.len);
    return res;
 }
 
@@ -5903,7 +5916,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 
       TypeId type1 = typeOf(exp->c[exp->len - 2]);
       TypeId outer1 = typeGetOuter(type1, cm);
-      VALIDATEP(outer1.v == cm->stats.listType, errTypeOfNotList)
+      VALIDATEP(outer1.v == cm->stats.listType || outer1.v == cm->stats.arrayType, errTypeOfNotList)
 
       TypeId type2 = typeOf(exp->c[exp->len - 1]);
       VALIDATEP(eq(type2, intTy), errTypeOfListIndex) // list index == Int
@@ -6087,13 +6100,12 @@ typeTryGetFieldType(NameId name, TypeId t, OUT NameId* mbAltName, CM) {
    Int const namesStart = rootType.v + TYPE_PREFIX_LEN + hdr.arity;
    Int const namesEnd = rootType.v + TYPE_PREFIX_LEN + 2*hdr.arity;
    Int nameInd = namesStart;
+   
    for (; nameInd < namesEnd; nameInd++) {
       if (name == cm->types.c[nameInd])
          { break; }
    }
    VALIDATEP(nameInd < namesEnd, errTypeFieldNotFound);
-   if (ratio == 3)
-      { *mbAltName = cm->types.c[nameInd + hdr.arity]; } // alternative name for codegen
    return typeOf(cm->types.c[nameInd - hdr.arity]);
 }
 

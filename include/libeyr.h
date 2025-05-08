@@ -183,9 +183,9 @@ libeyr_String str(const char* cent);
 #define nodCall         8  // pl1 =
                            //   index into @functions (after type resolution) when pl3 = callNormal,
                            //   into @monos if pl3 = callMonomorph,
-                           //   into @vars if pl3 = callVar
-                           //     pl2 = arg count, pl3 = one of "call" constants.
-                           // iff pl3 = callField, then pl1 = nameId, pl2 = 0
+                           //   into @vars if pl3 = callVar,
+                           //   into @fields if pl3 = callField
+                           // pl2 = arg count (or 0 iff pl3 = callField), pl3 = "call" constants.
 
 // Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
@@ -284,6 +284,8 @@ typedef enum {   // :EmitFn
    emitLessThan,
    emitGreaterThan,
    emitGreaterThanEq,
+   emitArrayLen,
+   emitListLen,
    emitPrintInt,
    emitPrintDou,
    emitPrintStr
@@ -468,6 +470,7 @@ typedef struct { //:CompStats
    Int astLen;
    Int typesLen;
    Int listType;
+   Int arrayType;
 
    Int standardTextLen; // length of standardText
    Int firstParsedName; // the name index for the first parsed word
