@@ -267,8 +267,8 @@ void dbgFutureBlocks(CG);
 //}}}
 //{{{ GCC wrapper functions
 
-private void //:assignment
-assignment(LValue* left, RValue* right, CodeBlock* block) {
+private void //:assign
+assign(LValue* left, RValue* right, CodeBlock* block) {
    gcc_jit_block_add_assignment(block, NULL, left, right);
 }
 
@@ -896,13 +896,26 @@ createBuiltins(CG) {
       cg->md
    );
    
+   CgType* voidPtr = builtinType(GCC_JIT_TYPE_VOID_PTR, cg->md);
+   CgType* sloppyUnt = builtinType(GCC_JIT_TYPE_SIZE_T, cg->md);
+   FnParam* paramAllocSize = paramFromChars("p", sloppyUnt, cg);
+   Fn* memAlloc = importFn(
+      "malloc",
+      1,
+      &paramAllocSize,
+      voidPtr,
+      false,
+      cg->md
+   );
+   
    Int array = cg->compResult.stats.arrayType;
    TypeHeader arrayHdr = libeyr_readTypeHeader(typeOf(array), cg->compResult.types.c);
    Int list = cg->compResult.stats.listType;
    TypeHeader listHdr = libeyr_readTypeHeader(typeOf(list), cg->compResult.types.c);
 
    return (Builtins){
-      .printer = printfFn, .cString = constCharPtrTp,
+      .printer = printfFn, .memAlloc = memAlloc,
+      .cString = constCharPtrTp,
       .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
       .fieldsArray = cg->compResult.types.c[array + TYPE_PREFIX + arrayHdr.arity],
       .fieldsList = cg->compResult.types.c[list + TYPE_PREFIX + listHdr.arity],
@@ -1019,16 +1032,25 @@ assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
    return null; // TODO
 }
 
+private //:subexDataAlloc
+subexDataAlloc() {
+   
+}
+
 private RValue* //:assignmentRight
 assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
 // Evaluates the right side of an expression
 // the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
 // assignments have been skipped).
    if (innerExprInd > rightNodeInd) {
-//~      for(; start < sentinel && ast[start].tp == nodAssignment;
-//~            start = calcNodeSentinel(ast[start], start)
-//~      ) {
-//~      }
+      for(  Int j = rightNodeInd;
+            j < sentinel && ast[j].tp == nodAssignment;
+            
+      ) {
+         Int assignSentinel = calcNodeSentinel(ast[j], start)
+         subexDataAlloc(j, sentinel, ast, cg);
+         j = sentinel;
+      }
    } else {
       return expr(innerExprInd, sentinel, ast, cg);
    }
@@ -1053,7 +1075,7 @@ assignmentWorker(Node nd, Int sentinel, AST, CG) {
 
    RValue* rValue = assignmentRight(rightNodeInd, innerExprInd, sentinel, ast, cg);
 
-   assignment(lValue, rValue, cg->cbl.c);
+   assign(lValue, rValue, cg->cbl.c);
    end:
    cg->i = sentinel;
 }
