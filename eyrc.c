@@ -55,6 +55,7 @@ DEFINE_LIST_HEADER(FieldPtr)
    LUlong*: addUlong,\
    LNode*: addNode,\
    LSourceLoc*: addSourceLoc,\
+   LFieldPtr*: addFieldPtr,\
    LFnParamPtr*: addFnParamPtr,\
    LRValuePtr*: addRValuePtr,\
    LCgTypePtr*: addCgTypePtr,\
@@ -68,6 +69,7 @@ DEFINE_LIST_HEADER(FieldPtr)
    LUlong*: removeLastUlong,\
    LNode*: removeLastNode,\
    LSourceLoc*: removeLastSourceLoc,\
+   LFieldPtr*: removeLastFieldPtr,\
    LFnParamPtr*: removeLastFnParamPtr,\
    LRValuePtr*: removeLastRValuePtr,\
    LCgTypePtr*: removeLastCgTypePtr,\
@@ -124,7 +126,7 @@ typedef struct { //:BtLoop
 
 typedef struct { //:TypeInfo
    CgType* c;
-   Int field;    // index into @concreteFields. null for function types
+   Int fieldInd; // index into @concreteFields. null for function types
 } TypeInfo;
 
 DEFINE_LIST_HEADER(CodeBlockPtr)
@@ -139,7 +141,8 @@ DEFINE_LIST(CgTypePtr)
 DEFINE_LIST(BtLoop)
 
 typedef struct { //:Builtins
-   Fn* printer; // the "printf" function
+   Fn* printer;  // the "printf" function from libc
+   Fn* memAlloc; // the "malloc" function from libc
    CgType* cString; // the zero-terminated array of chars
    CgType* sloppyInt; // the sloppy "int" type of C
    Int fieldsArray;
@@ -158,19 +161,19 @@ typedef struct { //:Codegen
 
    Module* md;
 
-   Int bufferLen;
-   Byte buffer[maxWordLength + 1]; // temporary buffer for name writing
+   Byte buffer[maxWordLength + 45]; // temporary buffer for name writing
 
    Arr(Fn*) functions; // same len as @compResult.functions
    Arr(LValue*) vars; // same len as @compResult.vars
 
-   LFnParamPtr* params; // temporary buffer for function params
-   LRValuePtr* exp; // temporary buffer for expression evaluation
-   LFieldPtr* concreteFields; // fields of concrete structs & unions
+   LFnParamPtr* params;       // temporary buffer for function params
+   LRValuePtr* exp;           // temporary buffer for expression evaluation
 
    Int countConcreteTypes;
    Arr(Int) typeRefs; // indices into @compResult.types, len = countTypes
    Arr(TypeInfo) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
+   
+   LFieldPtr concreteFields; // fields of concrete structs & unions
 
    CompResult compResult; // results of the compilation from libeyr
    Builtins builtins;
@@ -241,7 +244,7 @@ throwExcCodegen0(Int errInd, Int lineNumber, CG) {
 //{{{ Forward declarations
 
 private void prepareName(NameId name, CG);
-private CgType* cgType(TypeId tp, CG);
+private TypeInfo cgType(TypeId tp, CG);
 private CgType* longType(CG);
 private CgType* boolType(CG);
 private CgType* doubleType(CG);
@@ -390,13 +393,13 @@ ptrCast(RValue* v, CgType* tp, Module* md) {
 private LValue* //:localVar
 localVar(NameId name, TypeId tp, CG) {
    prepareName(name, cg);
-   return gcc_jit_function_new_local(cg->currFn, NULL, cgType(tp, cg), cg->buffer);
+   return gcc_jit_function_new_local(cg->currFn, NULL, cgType(tp, cg).c, cg->buffer);
 }
 
 private FnParam* //:param
 param(NameId nameId, TypeId tp, CG) {
    prepareName(nameId, cg);
-   return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg), cg->buffer);
+   return gcc_jit_context_new_param(cg->md, NULL, cgType(tp, cg).c, cg->buffer);
 }
 
 private FnParam* //:paramFromChars
@@ -412,12 +415,12 @@ createFnType(Int tp, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
    TypeId returnType = tFunctionReturnType(typeOf(tp), cr);
    buffer->len = 0;
    
-   if (countParams == 1 && cr->types.c[tp + TYPE_PREFIX_LEN] == voidType) { // nullary functions
+   if (countParams == 1 && cr->types.c[tp + TYPE_PREFIX] == voidType) { // nullary functions
       return gcc_jit_context_new_function_ptr_type(
          cg->md, null, searchCgTypePartiallyFilled(returnType, typeCounter, cg), 0, null, 0
       );
    } else {
-      for (Int j = tp + TYPE_PREFIX_LEN; j < tp + TYPE_PREFIX_LEN + countParams; j++) {
+      for (Int j = tp + TYPE_PREFIX; j < tp + TYPE_PREFIX + countParams; j++) {
          TypeId paramType = typeOf(cr->types.c[j]);
          add(searchCgTypePartiallyFilled(paramType, typeCounter, cg), buffer);
       }
@@ -452,8 +455,8 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
 // It returns null for void-returning functions. This is safe because the return value
 // is used only in assignments, where the type checker already validated the return type.
    Function fn = cg->compResult.functions.c[fnId];
-   Int eyrRetType = cg->compResult.types.c[fn.typeId.v + TYPE_PREFIX_LEN + countArgs];
-   CgType* retType = cgType(typeOf(eyrRetType), cg);
+   Int eyrRetType = cg->compResult.types.c[fn.typeId.v + TYPE_PREFIX + countArgs];
+   CgType* retType = cgType(typeOf(eyrRetType), cg).c;
 
    switch (fn.emit) {
    case emitParsed: {
@@ -565,6 +568,17 @@ newStruct(NameId nameId, Int countFields, Arr(Field*) fields, CG) {
    return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
 }
 
+Struct* //:newStructWithSuffix
+newStructWithSuffix(NameId nameId, Int suffix, Int countFields, Arr(Field*) fields, CG) {
+// Creates a new struct named like "foo_123"
+   prepareName(nameId, cg);
+   
+   Int lenName = strlen(cg->buffer);
+   Int suffixWritten = snprintf(cg->buffer + lenName, 50, "_%d", suffix);
+   cg->buffer[lenName + suffixWritten] = '\0';
+   return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
+}
+
 //}}}
 //{{{ Generation table
 
@@ -633,52 +647,98 @@ searchCgTypePartiallyFilled(TypeId tp, Int typeCounter, CG) {
 // Search for a type in a partially filled @typeRefs
    Int ind = binarySearch(tp.v, 0, typeCounter, cg->typeRefs);
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
-   CgType* res = cg->types[ind];
+   CgType* res = cg->types[ind].c;
    VALIDATEI(res != null, iErrorTypeNotRegisteredInCodegen);
    return res;
 }
 
-private CgType* //:cgType
+private TypeInfo //:cgType
 cgType(TypeId tp, CG) {
    Int ind = binarySearch(tp.v, 0, cg->countConcreteTypes, cg->typeRefs);
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
-   CgType* res = cg->types[ind];
-   VALIDATEI(res != null, iErrorTypeNotRegisteredInCodegen);
+   TypeInfo res = cg->types[ind];
+   VALIDATEI(res.c != null, iErrorTypeNotRegisteredInCodegen);
    return res;
 }
 
 private Int //:countTheConcreteTypes
-countTheConcreteTypes(CR) {
+countTheConcreteTypes(OUT Int* countFields, CR) {
    // +1 for outerTypeForTypeParam, +1 because it's the array length, not index
    Int res = topVerbatimType + 2;
+   *countFields = 0;
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
-      if (!hdr.isGeneric) {
-         res++;
-      }
+      if (hdr.isGeneric)
+         { continue; }
+      if (hdr.name != nameOfStandard(strF))
+         { (*countFields) += hdr.arity; }
+      res++;
    }
    return res;
 }
 
-private CgType* //:registerType
+private TypeInfo //:nonStructTypeInfo
+nonStructTypeInfo(CgType* t) {
+   return (TypeInfo){.c = t, .fieldInd = -1 };
+}
+
+private TypeInfo //:registerType
 registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
 // searches in @typeRefs interval [0; typeCounter)
    if (hdr.name == nameOfStandard(strF)) { // functions
-      return createFnType(t.v, hdr, typeCounter, buffer, cg);
-   } else if (hdr.sort == sorTypeCall) {
-      if (hdr.name == nameOfStandard(strArray)) {
-         Int fieldInd = libeyr_getFieldIndOfStruct(t, hdr, cg->compResult.types.c); 
-         print("registering array type with fieldInd  %d", fieldInd);
-         cg->fields.c[fieldInd] = field(nameOfStandard(strLen), cg->types[tokInt], cg);
-         cg->fields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[tokInt], cg);
-      } else if (hdr.name == nameOfStandard(strL)) {
-         Int fieldInd = libeyr_getFieldIndOfStruct(t, hdr, cg->compResult.types.c); 
-         cg->fields.c[fieldInd] = field(nameOfStandard(strLen), cg->types[tokInt], cg);
-         cg->fields.c[fieldInd + 1] = field(nameOfStandard(strCap), cg->types[tokInt], cg);
-         cg->fields.c[fieldInd + 2] = field(nameOfStandard(strCap), cg->types[tokInt], cg);
+      return nonStructTypeInfo(createFnType(t.v, hdr, typeCounter, buffer, cg));
+   } else if (hdr.name == nameOfStandard(strArray)) {
+      CompResult* cr = &(cg->compResult);
+      Int const fieldInd = cg->concreteFields.len;
+      char c[2] = {'c', '\0'};
+      cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
+         cg->md, null, 
+         gcc_jit_type_get_pointer(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
+         c
+      );
+      cg->concreteFields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[0].c, cg);
+      cg->concreteFields.len += 2;
+      
+      Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
+      return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd };
+   } else if (hdr.name == nameOfStandard(strL)) {
+      CompResult* cr = &(cg->compResult);
+      Int const fieldInd = cg->concreteFields.len;
+      char c[2] = {'c', '\0'};
+      cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
+         cg->md, null,
+         gcc_jit_type_get_pointer(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
+         c
+      );
+      cg->concreteFields.c[fieldInd + 1] =
+         field(cr->genericFields.c[fieldInd + 1].name, cg->types[0].c, cg);
+      cg->concreteFields.c[fieldInd + 2] =
+         field(cr->genericFields.c[fieldInd + 2].name, cg->types[0].c, cg);
+      cg->concreteFields.len += 3;
+      
+      Struct* s = newStructWithSuffix(hdr.name, t.v, 3, cg->concreteFields.c + fieldInd, cg);
+      return (TypeInfo){.c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd};
+   } else {
+      CompResult* cr = &(cg->compResult);
+      Int const genericFieldInd = libeyr_getStructFieldInd(t, hdr, cr->types.c); // in compResult
+      Int const concreteFieldInd = cg->concreteFields.len; // in codegen
+      Int j = genericFieldInd;
+      Int k = t.v + TYPE_PREFIX;
+      Int l = concreteFieldInd;
+      for (; j < genericFieldInd + hdr.arity; j++, k++, l++) {
+         NameId fldName = cr->genericFields.c[j].name;
+         Int fldType = cr->types.c[k];
+         cg->concreteFields.c[l] = field(fldName, cgType(typeOf(fldType), cg).c, cg);
       }
+      cg->concreteFields.c[cg->concreteFields.len + 1] =
+         field(nameOfStandard(strLen), cg->types[0].c, cg);
+      cg->concreteFields.len += 2;
+      
+      Struct* s =
+         newStructWithSuffix(hdr.name, t.v, hdr.arity, cg->concreteFields.c + concreteFieldInd, cg);
+      return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = concreteFieldInd };
    }
-   return null;
+   return nonStructTypeInfo(null);
 }
 
 private void //:registerPrimitiveTypes
@@ -686,22 +746,30 @@ registerPrimitiveTypes(CG) {
    for (Int j = 0; j <= tokMisc; j++) {
       cg->typeRefs[j] = j;
    }
-   cg->types[tokInt] = builtinType(GCC_JIT_TYPE_INT32_T, cg->md);
-   cg->types[tokLong] = builtinType(GCC_JIT_TYPE_INT64_T, cg->md);
-   cg->types[tokBool] = builtinType(GCC_JIT_TYPE_BOOL, cg->md);
-   cg->types[tokDouble] = builtinType(GCC_JIT_TYPE_DOUBLE, cg->md);
-   cg->types[tokMisc] = builtinType(GCC_JIT_TYPE_VOID, cg->md);
+   cg->types[tokInt] = nonStructTypeInfo(builtinType(GCC_JIT_TYPE_INT32_T, cg->md));
+   cg->types[tokLong] = nonStructTypeInfo(builtinType(GCC_JIT_TYPE_INT64_T, cg->md));
+   cg->types[tokBool] = nonStructTypeInfo(builtinType(GCC_JIT_TYPE_BOOL, cg->md));
+   cg->types[tokDouble] = nonStructTypeInfo(builtinType(GCC_JIT_TYPE_DOUBLE, cg->md));
+   cg->types[tokMisc] = nonStructTypeInfo(builtinType(GCC_JIT_TYPE_VOID, cg->md));
 
    // String type
    Field* stringFields[2];
-   stringFields[0] = field(nameOfStandard(strLen), cg->types[0], cg);
+   stringFields[0] = field(nameOfStandard(strLen), cg->types[0].c, cg);
    stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
    Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
-   cg->types[tokString] = gcc_jit_struct_as_type(stringStruct);
+   cg->types[tokString] = (TypeInfo){
+      .c = gcc_jit_struct_as_type(stringStruct), .fieldInd = cg->concreteFields.len
+   };
+   char c[2] = {'c', '\0'};
+   Field* content = gcc_jit_context_new_field(
+      cg->md, null, gcc_jit_type_get_const(builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md)), c
+   );
+   add(content, &(cg->concreteFields));
+   add(field(nameOfStandard(strLen), cg->types[0].c, cg), &(cg->concreteFields));
 
    cg->typeRefs[topVerbatimType + 1] = topVerbatimType + 1;
-   cg->types[topVerbatimType + 1] = null; // never to be used because it's a placeholder type!
+   cg->types[topVerbatimType + 1] = nonStructTypeInfo(null); // never to be used, it's a placeholder!
 }
 
 private void //:registerCompositeTypes
@@ -722,9 +790,12 @@ registerCompositeTypes(CG) {
 private void //:registerTypes
 registerTypes(CG) {
 // for every non-generic type in @cm.types, create an entry in @cg.typeRefs
-   cg->countConcreteTypes = countTheConcreteTypes(&(cg->compResult));
+   Int countFields;
+   cg->countConcreteTypes = countTheConcreteTypes(OUT &countFields, &(cg->compResult));
    cg->typeRefs = allocateArray(cg->countConcreteTypes, Int, cg->a);
-   cg->types = allocateArray(cg->countConcreteTypes, CgTypePtr, cg->a);
+   cg->types = allocateArray(cg->countConcreteTypes, TypeInfo, cg->a);
+   LFieldPtr* fields = createLFieldPtr(countFields, cg->a);
+   cg->concreteFields = *fields;
 
    registerPrimitiveTypes(cg);
    registerCompositeTypes(cg);
@@ -732,23 +803,23 @@ registerTypes(CG) {
 
 private CgType* //:longType
 longType(CG) {
-   return cg->types[tokLong];
+   return cg->types[tokLong].c;
 }
 
 private CgType* //:boolType
 boolType(CG) {
-   return cg->types[tokBool];
+   return cg->types[tokBool].c;
 }
 
 private CgType* //:doubleType
 doubleType(CG) {
-   return cg->types[tokDouble];
+   return cg->types[tokDouble].c;
 }
 
 private TypeId //:tFunctionReturnType
 tFunctionReturnType(TypeId funcTypeId, CR) {
    TypeHeader hdr = libeyr_readTypeHeader(funcTypeId, cr->types.c);
-   return typeOf(cr->types.c[funcTypeId.v + TYPE_PREFIX_LEN + hdr.arity - 1]);
+   return typeOf(cr->types.c[funcTypeId.v + TYPE_PREFIX + hdr.arity - 1]);
 }
 
 //}}}
@@ -757,7 +828,7 @@ tFunctionReturnType(TypeId funcTypeId, CR) {
 
 private RValue* //:intConst
 intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[0], val);
+   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[0].c, val);
 }
 
 
@@ -779,11 +850,11 @@ cStringConst(Arr(char const) val, Codegen* cg) {
    return gcc_jit_context_new_string_literal(cg->md, val);
 }
 
-private void //:prepareName Writes a name from source code to codegen buffer, zero-terminated
+private void //:prepareName
 prepareName(NameId nameId, CG) {
+// Writes a name from source code to codegen buffer, zero-terminated
    NameLoc name = cg->compResult.names.c[nameId];
    memcpy(&(cg->buffer), cg->compResult.sourceCode.c + (name & LOWER24BITS), name >> 24);
-   cg->bufferLen = (name & LOWER24BITS) + 1;
    cg->buffer[name >> 24] = '\0';
 }
 
@@ -795,16 +866,6 @@ reverseFutureBlocks(FutureBlock* bl, Int count) {
       bl[j] = tmp;
    }
 }
-
-//~private FutureBlock //:findFutureBlockAt
-//~findFutureBlockAt(Int j, CG) {
-//~   for (Int k = cg->futureBlocks->len - 1; k > -1; k--) {
-//~      if (cg->futureBlocks->c[k].start == j)
-//~         { return cg->futureBlocks->c[k]; }
-//~   }
-//~   // unreachable
-//~   return (FutureBlock){};
-//~}
 
 private CodeBlock* //:splitCurrentBlock
 splitCurrentBlock(Int sentinel, CG) {
@@ -835,16 +896,16 @@ createBuiltins(CG) {
       cg->md
    );
    
-   TypeId array = cg->compResult.compStats.arrayType;
-   TypeHeader arrayHdr = libeyr_readTypeHeader(array, cg->compResult.types.c);
-   TypeId list = cg->compResult.compStats.listType;
-   TypeHeader listHdr = libeyr_readTypeHeader(list, cg->compResult.types.c);
+   Int array = cg->compResult.stats.arrayType;
+   TypeHeader arrayHdr = libeyr_readTypeHeader(typeOf(array), cg->compResult.types.c);
+   Int list = cg->compResult.stats.listType;
+   TypeHeader listHdr = libeyr_readTypeHeader(typeOf(list), cg->compResult.types.c);
 
    return (Builtins){
       .printer = printfFn, .cString = constCharPtrTp,
       .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
-      .fieldsArray = cg->compResult.types.c[array + TYPE_PREFIX_LEN + arrayHdr.arity],
-      .fieldsList = cg->compResult.types.c[list + TYPE_PREFIX_LEN + listHdr.arity],
+      .fieldsArray = cg->compResult.types.c[array + TYPE_PREFIX + arrayHdr.arity],
+      .fieldsList = cg->compResult.types.c[list + TYPE_PREFIX + listHdr.arity],
       .formatInt = cStringConst("%d\n", cg),
       .formatDou = cStringConst("%f\n", cg),
       .formatStr = cStringConst("%s\n", cg)
@@ -863,13 +924,11 @@ createCodegen(CR, Arena* a) {
       .currFn = null,
       .futureBlocks = createLFutureBlock(16, a),
       .loops = createLBtLoop(16, a),
-      .bufferLen = 0,
       .functions = allocateArray(cr->functions.len, Fn*, a),
       .vars = allocateArray(cr->vars.len, LValue*, a),
       .params = createLFnParamPtr(16, a),
       .exp = createLRValuePtr(16, a),
-      .fields = createLFieldPtr(16, a),
-      // @types and @typeRefs will be filled in by {registerTypes}
+      // @types, @concreteFields and @typeRefs will be filled in by {registerTypes}
       .md = md,
       .compResult = *cr,
       .a = a,
@@ -886,31 +945,6 @@ void
 init() {
    populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
 }
-
-//~private void //:writeHostConstant
-//~writeHostConstant(Int indConst, Bool addSpace, CG) {
-//~   Int const len = hostStringLens[indConst] + (addSpace ? 1 : 0);
-//~   cgEnsureBufferLength(len, cg);
-//~   memcpy(cg->buffer + cg->len, hostText + hostOffsets[indConst], len);
-//~   cg->len += len;
-//~   if (addSpace) {
-//~      cg->buffer[cg->len - 1] = 32;
-//~   }
-//~}
-
-//~private void //:writeStr
-//~writeStr(String str, CG) {
-//~   cgEnsureBufferLength(str.len + 2, cg); // +2 for the quotation marks
-//~   cg->buffer[cg->len] = aQuote;
-//~   memcpy(cg->buffer + cg->len + 1, str.cont, str.len);
-//~   cg->len += (str.len + 2);
-//~   cg->buffer[cg->len - 1] = aQuote;
-//~}
-
-//~private void //:writeBytesFromSource
-//~writeBytesFromSource(SourceLoc loc, CG) {
-//~   writeBytes(cg->sourceCode.cont + loc.startBt, loc.lenBts, cg);
-//~}
 
 private RValue* //:expr
 expr(Int start, Int sentinel, AST, CG) {
@@ -937,10 +971,21 @@ expr(Int start, Int sentinel, AST, CG) {
             break;
          }
          case nodCall: {
-            Int countArgs = expNode.pl2;
-            RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
-            exp->len -= (countArgs - 1);
-            exp->c[exp->len - 1] = callResult;
+            switch (expNode.pl3) {
+            case callNormal: {
+               Int countArgs = expNode.pl2;
+               RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
+               exp->len -= (countArgs - 1);
+               exp->c[exp->len - 1] = callResult;
+            }
+            case callField: {
+               CgType* concreteColl = cgType(typeOf(expNode.pl1), cg).c;
+               Int indField = expNode.pl2;
+               RValue* callResult = fieldAccess(exp->c[exp->len - 2], fld, cg);
+               exp->len--;
+               exp->c[exp->len - 1] = callResult;
+            }
+            }
             break;
          }
       }
@@ -1218,37 +1263,6 @@ writeCatch(Node fr, Int sentinel, Arr(Node const) ast, CG) {
 
 private void //:writeFnDef
 writeFnDef(Node nd, Int sentinel, Arr(Node const) ast, CG) {
-//~   Compiler const* restrict cm = cg->cm;
-//~   SourceLoc loc = cr->sourceLocs->c[cg->i - 1];
-//~   openFrame(nd, cg);
-//~   writeNewline(cg);
-//~   Function fnEnt = cg->cr->functions.cont[nd.pl1];
-//~
-//~   writeBytesFromSource(loc, cg);
-//~   if (fnEnt.emit == emitPrefix)
-//~      { writeChar(aUnderscore, cg); }
-//~
-//~   writeChar(aParenLeft, cg);
-//~   Int sentinel = cg->i + nd.pl2;
-//~   Int j = cg->i + 2; // +2 to skip the function binding node and nodScope
-//~   // first param
-//~   if (nodes[j].tp == nodVar) {
-//~      SourceLoc bindingLoc = cr->sourceLocs->c[j];
-//~      writeBytes(cg->sourceCode.cont + bindingLoc.startBt, bindingLoc.lenBts, cg);
-//~      ++j;
-//~   }
-//~
-//~   // function params
-//~   print("params j %d", j)
-//~   while (j < sentinel && nodes[j].tp == nodVar && nodes[j].pl3 == assiFnParam) {
-//~      writeChar(aComma, cg);
-//~      writeChar(aSpace, cg);
-//~      SourceLoc bindingLoc = cr->sourceLocs->c[j];
-//~      writeBytes(cg->sourceCode.cont + bindingLoc.startBt, bindingLoc.lenBts, cg);
-//~      j++;
-//~   }
-//~   cg->i = j;
-//~   writeChars(((Byte[]){aParenRight, aSpace, aCurlyLeft, aNewline}), cg);
 }
 
 
@@ -1352,7 +1366,7 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
          VarId varId = cr->ast.c[eyrFn.nodeInd + n + 1].pl1;
          Var parVar = cr->vars.c[varId];
          FnParam* newParam = param(
-            parVar.name, typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX_LEN + n]), cg
+            parVar.name, typeOf(cr->types.c[eyrFn.typeId.v + TYPE_PREFIX + n]), cg
          );
          cg->vars[varId] = gcc_jit_param_as_lvalue(newParam);
          add(newParam, cg->params);

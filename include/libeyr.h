@@ -487,7 +487,7 @@ typedef struct { //:CompResult
    SliFunction functions;
    SliInt types;
    SliUnt names;
-   SliStructField fields;
+   SliStructField genericFields;
 
    SliInt publicFns; // indices into @functions
    SliInt publicConsts; // indices into @vars
@@ -505,7 +505,8 @@ Compiler* lexicallyAnalyzeFromFile(libeyr_String sourceCode, Arena* a);
 libeyr_String readSourceFile(libeyr_String fName, Arena* a);
 libeyr_CompResult* getCompResult(CM);
 TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
-Int libeyr_getFieldIndOfStruct(TypeId t, TypeHeader hdr, Arr(Int) types);
+Int libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types);
+TypeId libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int ind, Arr(Int) types);
 libeyr_CompResult* libeyr_compileFile(libeyr_String filename);
 libeyr_CompResult* libeyr_compile(libeyr_String sourceCode);
 

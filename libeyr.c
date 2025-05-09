@@ -426,7 +426,6 @@ private void tFreshState(TExpr* st);
 private TypeId teClause(TExpr* st, Int sentinel, TOKS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 
-private TypeId typeGetGenericParam(TypeId t, Int ind, CM);
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
@@ -3302,7 +3301,9 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
    Token rightTk = cm->tokens.c[assignment.rightTokenInd + 1];
    NameId fnName = rightTk.pl1;
 
-   FunctionId fnId = findOverload(fnName, typeGetGenericParam(leftType, 0, cm), cm);
+   FunctionId fnId = findOverload(
+      fnName, libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c), cm
+   );
    NameId varName = leftNameTk.pl1;
    VarId varId = createVarWithType(
       varName, cm->functions.c[fnId].typeId,
@@ -3412,7 +3413,11 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
          leftType = cm->vars.c[varId].typeId;
          if (tIsFunction(leftType, cm) > -1) { // reassignment of a function var
             NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
-            FunctionId newFnId = findOverload(fnName, typeGetGenericParam(leftType, 0, cm), cm);
+            FunctionId newFnId = findOverload(
+               fnName,
+               libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c),
+               cm
+            );
             cm->vars.c[varId].fnId = newFnId;
             cm->i = assignment.sentinel;
             goto closeSpans;
@@ -5370,9 +5375,24 @@ libeyr_readTypeHeader(TypeId t, Arr(Int) types) {
 }
 
 
-Int //:libeyr_getFieldIndOfStruct
-libeyr_getFieldIndOfStruct(TypeId t, TypeHeader hdr, Arr(Int) types) {
+Int //:libeyr_getStructFieldInd
+libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types) {
    return types[t.v + TYPE_PREFIX + hdr.arity];
+}
+
+TypeId //:libeyr_typeGetGenericArg
+libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int indArg, Arr(Int) types) {
+// (S Foo) => Foo. (F A -> B) => A
+   if (hdr.name == nameOfStandard(strF)) {
+      return typeOf(types[t.v + TYPE_PREFIX + indArg]);
+   } else if (hdr.sort == sorTypeCall) {
+      // need to skip the prefix, field types, and the index in @genericFields
+      // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type 
+      Int ind = t.v + TYPE_PREFIX + hdr.arity + 2 + indArg;
+      return typeOf(types[ind]);
+   } else {
+      return typeOf(-1);
+   }
 }
 
 private Int //:typeGetTyrity
@@ -5398,23 +5418,6 @@ typeGetOuter(TypeId t, CM) {
       Int ind = t.v + TYPE_PREFIX + hdr.arity + 1;
       return typeOf(cm->types.c[ind]);
    } 
-}
-
-private TypeId //:typeGetGenericParam
-typeGetGenericParam(TypeId t, Int indParam, CM) {
-// (S Foo) => Foo. (F A -> B) => A
-   TypeHeader hdr = typeReadHeader(t, cm);
-   
-   if (hdr.name == nameOfStandard(strF)) {
-      return typeOf(cm->types.c[t.v + TYPE_PREFIX + indParam]);
-   } else if (hdr.sort == sorTypeCall) {
-      // need to skip the prefix, field types, and the index in @genericFields
-      // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type 
-      Int ind = t.v + TYPE_PREFIX + hdr.arity + 2 + indParam;
-      return typeOf(cm->types.c[ind]);
-   } else {
-      throwExcInternal(iErrorOuterTypeOfParam);
-   }
 }
 
 private TypeId //:tGetIndexOfFnFirstParam
@@ -5963,7 +5966,8 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       TypeId typeInd = typeOf(exp->c[exp->len - 1]);
       VALIDATEP(eq(typeInd, intTy), errTypeOfListIndex) // list index == Int
 
-      TypeId typeElt = typeGetGenericParam(typeColl, 0, cm);
+      TypeId typeElt =
+         libeyr_typeGetGenericArg(typeColl, typeReadHeader(typeColl, cm), 0, cm->types.c);
       exp->len -= 2; // replace collection and its index type (Int) with element type
       add(typeElt.v, exp);
    } ei (nd.pl3 == callField) { // a field accessor
@@ -6134,7 +6138,7 @@ typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
 // (within the type, so 0-based), and its type.
    TypeHeader hdr = typeReadHeader(t, cm);
    
-   Int const indInGenericFields = libeyr_getFieldIndOfStruct(t, hdr, cm->types.c);
+   Int const indInGenericFields = libeyr_getStructFieldInd(t, hdr, cm->types.c);
    Int j = indInGenericFields;
    for (; j < indInGenericFields + hdr.arity; j++) {
       if (cm->genericFields.c[j].name == name)
@@ -7089,7 +7093,7 @@ libeyr_compileFile(String filename) {
    return cr;
 }
 
-private void
+private void //:fillInCompilationResult
 fillInCompilationResult(CM, OUT CompResult* cr) {
    *cr = (CompResult) {
       .sourceCode = (StringBuilder){
@@ -7106,6 +7110,7 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .publicFns = sliceOfInternal(cm->publicFns),
       .publicConsts = sliceOfInternal(cm->publicConsts),
       .types = sliceOfInternal(cm->types),
+      .genericFields = sliceOfInternal(cm->genericFields),
       .names = cm->names != null
             ? ((SliUnt){.len = cm->names->len, .c = cm->names->c})
             : ((SliUnt){.len = 0, .c = null}),
