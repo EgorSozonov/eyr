@@ -10,7 +10,7 @@ endif
 
 CC=gcc --std=gnu2x
 CONFIG=-g3
-WARN=-Wreturn-type -Wunused-variable -Wshadow -Wfatal-errors \
+WARN=-Werror=return-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
     -Wno-discarded-qualifiers \
     -Werror=int-conversion -fstrict-flex-arrays=3

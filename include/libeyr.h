@@ -389,7 +389,7 @@ typedef struct { //:TypeHeader
    NameLoc name;
 } TypeHeader;
 
-#define TYPE_PREFIX_LEN 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
+#define TYPE_PREFIX 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 
 #define typeOf(x) (TypeId){.v = x}
 
