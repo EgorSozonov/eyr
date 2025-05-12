@@ -116,6 +116,20 @@ DEFINE_LIST(FutureBlock)
 
 typedef CodeBlock* CodeBlockPtr;
 typedef RValue* RValuePtr;
+
+typedef enum {
+   leftValue,
+   rightValue
+} LRValue;
+
+typedef struct {
+   LRValue tp;
+   union {
+      LValue* left;
+      RValue* right;
+   };
+} LeftRightValue;
+
 typedef CgType* CgTypePtr;
 
 typedef struct { //:BtLoop
@@ -132,11 +146,13 @@ typedef struct { //:TypeInfo
 DEFINE_LIST_HEADER(CodeBlockPtr)
 DEFINE_LIST_HEADER(FnPtr)
 DEFINE_LIST_HEADER(RValuePtr)
+DEFINE_LIST_HEADER(LeftRightValue)
 DEFINE_LIST_HEADER(CgTypePtr)
 DEFINE_LIST_HEADER(BtLoop)
 DEFINE_LIST(CodeBlockPtr)
 DEFINE_LIST(FnPtr)
 DEFINE_LIST(RValuePtr)
+DEFINE_LIST(LeftRightValue)
 DEFINE_LIST(CgTypePtr)
 DEFINE_LIST(BtLoop)
 
@@ -167,6 +183,7 @@ typedef struct { //:Codegen
    Arr(LValue*) vars; // same len as @compResult.vars
 
    LFnParamPtr* params;       // temporary buffer for function params
+   LLeftRightValue* expLeft;   // temporary buffer for left-hand expression evaluation
    LRValuePtr* exp;           // temporary buffer for expression evaluation
 
    Int countConcreteTypes;
@@ -439,6 +456,11 @@ callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
 private RValue* //:fieldAccess
 fieldAccess(RValue* val, Field* fld, CG) {
    return gcc_jit_rvalue_access_field(val, null, fld);
+}
+
+private LValue* //:fieldAccessLeft
+fieldAccessLeft(LValue* val, Field* fld, CG) {
+   return gcc_jit_lvalue_access_field(val, null, fld);
 }
 
 #define builtinBinary(op, retType, arg1, arg2) gcc_jit_context_new_binary_op(\
@@ -940,6 +962,7 @@ createCodegen(CR, Arena* a) {
       .functions = allocateArray(cr->functions.len, Fn*, a),
       .vars = allocateArray(cr->vars.len, LValue*, a),
       .params = createLFnParamPtr(16, a),
+      .expLeft = createLLeftRightValue(16, a),
       .exp = createLRValuePtr(16, a),
       // @types, @concreteFields and @typeRefs will be filled in by {registerTypes}
       .md = md,
@@ -954,22 +977,136 @@ createCodegen(CR, Arena* a) {
    return cg;
 }
 
-void
+void //:init
 init() {
    populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
 }
 
-private RValue* //:expr
-expr(Int start, Int sentinel, AST, CG) {
-// Converts an Eyr expression into a Libgccjit one. Consumes no nodes. Returns the result of expr.
-// Does NOT handle complex expressions or void-returning functions
+private void //:simpleExprReduce
+simpleExprReduce(Int start, Int sentinel, Bool reduceFully, AST, CG) {
+// Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
+// one. Consumes no nodes. Returns the result of evaluation of the expr.
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
-// Precondition: we are looking 1 past the nodExpr/singular node.
+// Precondition: we are looking 1 past the nodExpr.
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
    for (Int j = start; j < sentinel; j++) {
       Node expNode = ast[j];
       switch (expNode.tp) {
+      case tokInt: {
+         Int value = expNode.pl2;
+         add(intConst(value, cg), exp);
+         break;
+      }
+      case tokString: {
+         add(stringConst(cg->compResult.sourceLocs.c[j], cg), exp);
+         break;
+      }
+      case nodVar: {
+         add(rValueOf(cg->vars[expNode.pl1]), exp);
+         break;
+      }
+      case nodCall: {
+         if (countArgs == exp->len && !reduceFully)
+            { return; }
+         switch (expNode.pl3) {
+         case callNormal: {
+            Int countArgs = expNode.pl2;
+            RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
+            exp->len -= (countArgs - 1);
+            exp->c[exp->len - 1] = callResult;
+         }
+         case callField: {
+            TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
+            Int indField = concreteColl.fieldInd + expNode.pl2;
+            RValue* callResult = fieldAccess(exp->c[exp->len - 2], cg->concreteFields.c[indField], cg);
+            exp->c[exp->len] = callResult;
+            exp->len--;
+         }
+         }
+         break;
+      }
+      }
+   }
+}
+
+private LValue* //:simpleExprLeft
+simpleExprLeft(Int start, Int sentinel, AST, CG) {
+// Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
+// l-value. Consumes no nodes. Returns the result of evaluation of the expr.
+// "start" = first node of the expression body (so, 1 past the nodExpr, if any)
+// Precondition: we are looking 1 past the nodExpr.
+   simpleExprReduce(start, sentinel, false, ast, cg); // reduce all but last 2 elements
+   
+   Node lastNode = ast[sentinel - 1];
+   LRValuePtr* exp = cg->exp;
+   switch (lastNode.pl3) {
+   case callGetElem:
+      return arrElem(exp->c[0], exp->c[1], cg->md);
+   default: { // callField.  the type checker guarantees this
+      TypeInfo concreteColl = cgType(typeOf(lastNode.pl1), cg);
+      Int indField = concreteColl.fieldInd + lastNode.pl2;
+      LValue* callResult = fieldAccessLeft(exp->c[0], cg->concreteFields.c[indField], cg);
+      return callResult;
+   }
+}
+
+private RValue* //:simpleExpr
+simpleExpr(Int start, Int sentinel, AST, CG) {
+// Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
+// one. Consumes no nodes. Returns the result of evaluation of the expr.
+// "start" = first node of the expression body (so, 1 past the nodExpr, if any)
+// Precondition: we are looking 1 past the nodExpr.
+   simpleExprReduce(start, sentinel, true, ast, cg);
+   return cg->exp->c[0]; // the type checker guarantees that there is only one element at this point
+}
+
+private RValue* //:dataAlloc
+dataAlloc(Node nd, Int sentinel, AST, CG) {
+// Precondition: we are 1 past the nodAssignment 
+}
+
+private RValue( //:simpleAssignment
+simpleAssignment(Node nd, Int sentinel, AST, CG) {
+// The right side is a simpleExpr  
+   print("simple assignment @%d", cg->i);
+   
+}
+
+private RValue* //:expr
+expr(Node nd, Int sentinel, AST, CG) {
+// Evaluates the right side of a complex expression: a simpleExpr, or a data allocation,
+// or a series of simpleAssignments followed by a simpleExpr.
+   for (; cg->i < sentinel && ast[cg->i].tp == nodAssignment; ) {
+      Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
+      simpleAssignment(ast[cg->i], assignSentinel, ast, cg);
+   }
+   
+   Node inner = ast[cg->i]; // now we are looking at the inner part of the expression
+   if (inner.tp == nodDataAlloc)
+      { return dataAlloc(inner, sentinel, ast, cg); }
+   } else
+      { return simpleExpr(inner, sentinel, ast, cg); }
+}
+
+private LValue* //:assignmentLeft
+assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
+// Creates a local variable or returns a pre-existing one for the left side of an assignment
+   Node leftNd = ast[cg->i];
+   if (leftNd.tp == nodVar) {
+      VarId varId = leftNd.pl1;
+      if (leftNd.pl3 == assiVarAssignment) {
+         Var v = cg->compResult.vars.c[varId];
+         cg->vars[varId] = localVar(v.name, v.typeId, cg);
+      }
+      return cg->vars[varId];
+   } else if (leftNd.tp == nodExpr) {
+      cg->i++; // CONSUME the nodExpr
+      LRValuePtr* exp = cg->exp;
+      exp->len = 0;
+      for (Int j = start; j < sentinel; j++) {
+         Node expNode = ast[j];
+         switch (expNode.tp) {
          case tokInt: {
             Int value = expNode.pl2;
             add(intConst(value, cg), exp);
@@ -1001,9 +1138,53 @@ expr(Int start, Int sentinel, AST, CG) {
             }
             break;
          }
-      }
+         }
    }
    return exp->c[0]; // the type checker guarantees that there is only one element at this point
+      
+      
+      
+      expr(cg->i, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
+   }
+
+   return null; // TODO
+}
+
+private RValue* //:assignmentRight
+assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
+// Evaluates the right side of an expression
+// the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
+// assignments have been skipped).
+   if (innerExprInd > rightNodeInd) { // complex expression, contains simpleAssignments
+      for(  Int j = rightNodeInd;
+            cg->i < sentinel;
+      ) { // ast[cg->i] is a nodAssignment;
+         Node assignmentNd = ast[cg->i];
+         Int assignSentinel = calcNodeSentinel(assignmentNd, cg->i)
+         simpleAssignment(sentinel, ast, cg);
+      }
+   } else {
+   cg->i = innerExprInd;
+   return expr(sentinel, ast, cg);
+}
+
+private void //:assignment
+assignment(Node nd, Int sentinel, AST, CG) {
+// Pre-condition: we are looking at the binding node, 1 past the assignment node
+// Consumes the whole assignment
+   if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
+      { goto end; } // a function-typed local var - nothing to codegen here
+
+   Int const rightNodeInd = cg->i + nd.pl3 - 1;
+
+
+   LValue* lValue = assignmentLeft(rightNodeInd, ast, cg);
+   cg->i = rightNodeInd + 1;
+
+   RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
+   assign(lValue, rValue, cg->cbl.c);
+   end:
+   cg->i = sentinel;
 }
 
 private void //:writeExpr
@@ -1013,77 +1194,10 @@ writeExpr(Node nd, Int sentinel, AST, CG) {
    cg->i = sentinel;
 }
 
-private LValue* //:assignmentLeft
-assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
-// Creates a local variable or returns a pre-existing one for the left side of an assignment
-   Node leftNd = ast[cg->i];
-   if (leftNd.tp == nodVar) {
-      VarId varId = leftNd.pl1;
-      if (leftNd.pl3 == assiVarAssignment) {
-         Var v = cg->compResult.vars.c[varId];
-         cg->vars[varId] = localVar(v.name, v.typeId, cg);
-      }
-      return cg->vars[varId];
-   } else if (leftNd.tp == nodExpr) {
-      cg->i++; // CONSUME the nodExpr
-      expr(cg->i, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
-   }
-
-   return null; // TODO
-}
-
-private //:subexDataAlloc
-subexDataAlloc() {
-   
-}
-
-private RValue* //:assignmentRight
-assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
-// Evaluates the right side of an expression
-// the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
-// assignments have been skipped).
-   if (innerExprInd > rightNodeInd) {
-      for(  Int j = rightNodeInd;
-            j < sentinel && ast[j].tp == nodAssignment;
-            
-      ) {
-         Int assignSentinel = calcNodeSentinel(ast[j], start)
-         subexDataAlloc(j, sentinel, ast, cg);
-         j = sentinel;
-      }
-   } else {
-      return expr(innerExprInd, sentinel, ast, cg);
-   }
-   return null;
-}
-
-private void //:assignmentWorker
-assignmentWorker(Node nd, Int sentinel, AST, CG) {
-// Pre-condition: we are looking at the binding node, 1 past the assignment node
-// Consumes the whole assignment
-   if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
-      { goto end; } // a function-typed local var - nothing to codegen here
-
-   Int const rightNodeInd = cg->i + nd.pl3 - 1;
-
-   Int innerExprInd = rightNodeInd; // for complex expressions
-   for (; innerExprInd < sentinel && ast[innerExprInd].tp == nodAssignment; innerExprInd++) {
-   }
-
-   LValue* lValue = assignmentLeft(rightNodeInd, ast, cg);
-   cg->i = innerExprInd;
-
-   RValue* rValue = assignmentRight(rightNodeInd, innerExprInd, sentinel, ast, cg);
-
-   assign(lValue, rValue, cg->cbl.c);
-   end:
-   cg->i = sentinel;
-}
-
 private void //:writeAssignment
 writeAssignment(Node nd, Int sentinel, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
-   assignmentWorker(nd, sentinel, ast, cg);
+   assignment(nd, sentinel, ast, cg);
 }
 
 private void //:writeDataAlloc
@@ -1197,7 +1311,7 @@ forWriteInitializers(Node nd, Int sentinel, AST, CG) {
       Node assign = ast[cg->i];
       Int assignSent = calcNodeSentinel(assign, cg->i);
       cg->i++;
-      assignmentWorker(assign, assignSent, ast, cg);
+      assignment(assign, assignSent, ast, cg);
    }
 }
 

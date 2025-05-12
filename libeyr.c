@@ -1722,7 +1722,6 @@ private void initCompiler();
 #define iErrorOuterTypeOfParam          11 // Tried to get an outer type of param or generic
 #define iErrorInconsistentTypeExpr      12 // Reduced type expression has != 1 elements
 #define iErrorNotAFunction              13 // Expected to find a function type here
-#define iErrorArrayElemButShouldBePtr   14 // An assignment with list accessor on left should be ptr
 #define iErrorIllegalEmit               15 // This entity cannot have this emit type in codegen
 
 //}}}
@@ -1843,9 +1842,12 @@ char const errOperatorWrongArity[] = "Wrong number of arguments for operator!";
 char const errUnknownBinding[]     = "Unknown binding!";
 char const errUnknownFunction[]    = "Unknown function!";
 char const errOperatorUsedInappropriately[] = "Operator used in an inappropriate location!";
-char const errAssignment[]         = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
-char const errListDifferentEltTypes[] = "A list's elements must all be of the same type";
-char const errMutation[]           = "Cannot parse mutation, it must look like `freshIdentifier` += `expression`";
+char const
+errAssignment[]           = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
+char const
+errListDifferentEltTypes[] = "A list's elements must all be of the same type";
+char const
+errMutation[]           = "Cannot parse mutation, it must look like `freshIdentifier` += `expression`";
 char const
 errAssignmentShadowing[] = "Assignment error: existing identifier is being shadowed";
 char const
@@ -3313,16 +3315,34 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
       locOf(leftNameTk), cm);
 }
 
+private void //:pAssignmentValidateLeftAccessors
+pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKS, CM) {
+// A complex left side must 1) have a variable as first node 2) have a field/array access as last
+// node 3) the first node must be consumed by the last
+// OK: `x.a.b[15] = ...`, `x[15].a.b = ...`
+// NOT OK: `(foo x)[15] = ...`, `(foo x).a.b = ...`
+   Node lastNode = cm->ast.c[sentinel - 1];
+   
+   VALIDATEP(cm->ast.c[start].tp == nodVar, errAssignmentLeftSide)
+   if (lastNode.tp == nodCall)  {
+      VALIDATEP(
+         lastNode.pl3 == callField || lastNode.pl3 == callGetElem, errAssignmentLeftSide
+      )
+   }
+   
+}
+
 private TypeId //:pAssignmentLeftAccessors
 pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
-// Complex left side in an assignment like `a[i][j] = ...`.
+// Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
-// arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElemPtr
+// arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElem
    LInt* sc = cm->expr->exp;
    sc->len = 0;
    Int const startBt = firstTok.startBt;
    Int const lastBt = toks[cm->i - 1].startBt + toks[cm->i - 1].lenBts;
    SourceLoc loc = (SourceLoc){.startBt = startBt, .lenBts = lastBt - startBt};
+   Int start = cm->ast.len + 1;
 
    VALIDATEP(toks[cm->i + 1].tp == tokWord, errAssignmentLeftSide)
    for (Int j = cm->i + 2; j < sentinel; ){
@@ -3336,28 +3356,25 @@ pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
       .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, loc, toks, cm
    );
 
-   Int lastNodeInd = cm->ast.len - 1;
-   Node lastNode = cm->ast.c[lastNodeInd];
-   if (lastNode.tp == nodCall)  {
-      VALIDATEI(lastNode.pl1 == opGetElem, iErrorArrayElemButShouldBePtr)
-      cm->ast.c[lastNodeInd].pl1 = opGetElemPtr;
-   }
+   pAssignmentValidateLeftAccessors(start, cm->ast.len, toks, cm);
    return leftType;
 }
 
 private TypeId //:pAssignmentLeftWithType
 pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT Bool* isAFnVar,
       TOKS, CM) {
-/* Typechecks a complex left side like `x Foo Int = ...` in an assignment, consumes tokens,
- inserts nodes. Returns the type of the left side.
- Precondition: we are looking right past tokDef or tokAssignment */
+// Typechecks a complex left side like `x Foo Int = ...` in an assignment, consumes tokens,
+// inserts nodes. Returns the type of the left side.
+// Precondition: we are looking right past tokDef or tokAssignment
    LInt* sc = cm->expr->exp;
    sc->len = 0;
    Token nextTk = toks[cm->i + 1]; // +1 is safe because we know left side is long
    // when the left side is a var definition with its type declared
    cm->tExpr->isGeneric = false;
+   
    TypeId leftType = teClause(cm->tExpr, sentinel, toks, cm);
    VALIDATEP(!cm->tExpr->isGeneric, errTypePolymorphicAssignment)
+   
    if (nextTk.pl1 == nameOfStandard(strF)) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
       *isAFnVar = true;
@@ -3666,10 +3683,11 @@ finishUp:
 
 private TypeId //:exprSingleItem
 exprSingleItem(Token tk, CM) {
-// A single-item expression, like "foo". Consumes no tokens.
+// A single-item expression, like "foo". Consumes no tokens, inserts 2 nodes.
 // Pre-condition: we are 1 token past the token we're parsing.
 // Returns the type of the single item
    TypeId typeId = ZERO_ARITY_TYPE;
+   
    if (tk.tp == tokWord) {
       Node node = createNodVarForName(tk.pl1, cm);
       typeId = cm->vars.c[node.pl1].typeId;
@@ -4722,7 +4740,6 @@ buildOperators(CM) {
    buildOper(opBoolOr,       douOfDou, emitLogicOr, cm);
    buildOper(opBoolNot,      boolOfBool, emitNegate, cm); // not
    buildOper(opGetElem,      douOfDou, emitNotEq, cm); // dummy
-   buildOper(opGetElemPtr,   douOfDou, emitNotEq, cm); // dummy
 }
 
 private void //:createBuiltinsForProto

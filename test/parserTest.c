@@ -326,7 +326,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,         .pl2 = 3 }, // a[1] on the left
             (Node){ .tp = nodVar,   .pl1 = 0,  .pl2 = 0 }, // a
             (Node){ .tp = tokInt,          .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = opGetElemPtr, .pl2 = 2, .pl3 = callGetElem },
+            (Node){ .tp = nodCall, .pl1 = opGetElem, .pl2 = 2, .pl3 = callGetElem },
 
             (Node){ .tp = nodExpr,         .pl2 = 11 },
             (Node){ .tp = nodVar,   .pl1 = 0,  .pl2 = 0 }, // a[0] on the right
@@ -367,7 +367,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,       .pl2 = 3  },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0  },
             (Node){ .tp = tokInt, .pl2 = 0         },
-            (Node){ .tp = nodCall, .pl1 = opGetElemPtr, .pl2 = 2, .pl3 = callGetElem },
+            (Node){ .tp = nodCall, .pl1 = opGetElem, .pl2 = 2, .pl3 = callGetElem },
             (Node){ .tp = tokInt,        .pl2 = 21 }
          }),
          ((Int[]) {}),
@@ -412,7 +412,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt,    .pl2 = 1 },
             (Node){ .tp = nodCall, .pl1 = opGetElem, .pl2 = 2, .pl3 = callGetElem },
             (Node){ .tp = tokInt,    .pl2 = 0 },
-            (Node){ .tp = nodCall, .pl1 = opGetElemPtr, .pl2 = 2, .pl3 = callGetElem },
+            (Node){ .tp = nodCall, .pl1 = opGetElem, .pl2 = 2, .pl3 = callGetElem },
             (Node){ .tp = tokInt,        .pl2 = 21 }
          }),
          ((Int[]) {}),
