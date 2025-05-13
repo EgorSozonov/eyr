@@ -189,7 +189,7 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
-                "IntLongDoubleBoolStrVoidFLArrayDRecEnumTulencapf1f2print"
+                "IntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
                 "printErrmath:pimath:eTUlengthaddmaincont"
 #ifdef TEST
                 "foobarinner"
@@ -211,7 +211,7 @@ standardStringLens[] = {
     3,
     // reserved words end here
     3, 4, 6, 4, 3, // Str(ing)
-    4, 1, 1, 5, 1, // D(ict)
+    4, 1, 1, 1, 1, // D(ict)
     3, 4, 2, 3,    // len
     3, 2, 2, 5, 8, // printErr
     7, 6, 1, 1, 6, // length
@@ -3318,22 +3318,41 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
 private void //:pAssignmentValidateLeftAccessors
 pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKS, CM) {
 // A complex left side must 1) have a variable as first node 2) have a field/array access as last
-// node 3) the first node must be consumed by the last
+// node 3) the first node must be consumed only by field/array accesses
 // OK: `x.a.b[15] = ...`, `x[15].a.b = ...`
 // NOT OK: `(foo x)[15] = ...`, `(foo x).a.b = ...`
    Node lastNode = cm->ast.c[sentinel - 1];
-   
+
    VALIDATEP(cm->ast.c[start].tp == nodVar, errAssignmentLeftSide)
-   if (lastNode.tp == nodCall)  {
-      VALIDATEP(
-         lastNode.pl3 == callField || lastNode.pl3 == callGetElem, errAssignmentLeftSide
-      )
+   VALIDATEP(
+      lastNode.tp == nodCall
+      && (lastNode.pl3 == callField || lastNode.pl3 == callGetElem), errAssignmentLeftSide
+   )
+   Int stackLen = 1; // for the leftmost nodVar which is the l-value of the expression
+   for (Int j = start + 1; j < sentinel; j++) {
+      Node nd = cm->ast.c[j];
+      if (nd.tp == nodCall) {
+         // only array and field accesses may affect our l-value
+         VALIDATEP(
+            nd.pl3 == callField || nd.pl3 == callGetElem || nd.pl2 < stackLen, errAssignmentLeftSide
+         )
+         switch (nd.pl3) {
+         case callField: break;
+         case callGetElem:  {
+            stackLen--; break;
+         }
+         default: {
+            stackLen -= (nd.pl2 - 1); break;
+         }
+         }
+      } else {
+         stackLen++;
+      }
    }
-   
 }
 
-private TypeId //:pAssignmentLeftAccessors
-pAssignmentLeftAccessors(Token firstTok, Int sentinel, TOKS, CM) {
+private TypeId //:pAssignmentLeftComplexExpr
+pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKS, CM) {
 // Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
 // arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElem
@@ -3371,10 +3390,10 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
    Token nextTk = toks[cm->i + 1]; // +1 is safe because we know left side is long
    // when the left side is a var definition with its type declared
    cm->tExpr->isGeneric = false;
-   
+
    TypeId leftType = teClause(cm->tExpr, sentinel, toks, cm);
    VALIDATEP(!cm->tExpr->isGeneric, errTypePolymorphicAssignment)
-   
+
    if (nextTk.pl1 == nameOfStandard(strF)) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
       *isAFnVar = true;
@@ -3445,14 +3464,14 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
             createVar(assignment.name, firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm);
       }
       newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort }, locOf(firstTok), cm);
-   } else if (firstTok.tp == tokAccessor) {
-      leftType = pAssignmentLeftAccessors(firstTok, assignment.rightTokenInd, toks, cm);
-   } else {
+   } else if (toks[cm->i + 1].tp == tokTypeName || toks[cm->i + 1].tp == tokTypeCall) {
       Bool isAFnVar = false;
       leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide,
             OUT &isAFnVar, toks, cm);
       if (isAFnVar)
          { goto closeSpans; }
+   } else {
+      leftType = pAssignmentLeftComplexExpr(firstTok, assignment.rightTokenInd, toks, cm);
    }
 
    cm->i = assignment.rightTokenInd + 1; // CONSUME everything up to body of right side
@@ -3687,7 +3706,7 @@ exprSingleItem(Token tk, CM) {
 // Pre-condition: we are 1 token past the token we're parsing.
 // Returns the type of the single item
    TypeId typeId = ZERO_ARITY_TYPE;
-   
+
    if (tk.tp == tokWord) {
       Node node = createNodVarForName(tk.pl1, cm);
       typeId = cm->vars.c[node.pl1].typeId;
@@ -3701,7 +3720,7 @@ exprSingleItem(Token tk, CM) {
    } ei (tk.tp <= topVerbatimType) {
       newNode((Node){.tp = tk.tp, .pl1 = tk.pl1, .pl2 = tk.pl2}, locOf(tk), cm);
       typeId = typeOf(tk.tp);
-   } ei (tk.tp == tokData)  {
+   } ei (tk.tp == tokData) { // TODO `[]`
       newNode((Node){.tp = nodDataAlloc, .pl2 = 0}, locOf(tk), cm);
    } else {
       throwExcParser(errUnexpectedToken);
@@ -3732,7 +3751,8 @@ subexDataAllocation(ExprFrame frame, Expr* e, CM) {
    SourceLoc const rawLoc = frame.loc;
    newNode((Node){.tp = nodAssignment, .pl1 = 0, .pl2 = countNodes + 2, .pl3 = 2}, rawLoc, cm);
    newNode((Node){.tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = assiVarAssignment}, rawLoc, cm);
-   newNode((Node){.tp = nodDataAlloc, .pl1 = frame.name, .pl2 = countNodes, .pl3 = countElements },
+   Int const allocInd = cm->ast.len;
+   newNode((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = countNodes, .pl3 = countElements },
            rawLoc, cm);
 
    Int const mainNodeInd = cm->ast.len;
@@ -3742,6 +3762,7 @@ subexDataAllocation(ExprFrame frame, Expr* e, CM) {
       TypeId eltType = typecheckList(mainNodeInd, cm);
       TypeId collType = tCreateSingleParamTypeCall(nameOfStandard(strArray), eltType, cm);
       cm->vars.c[newVarId].typeId = collType;
+      cm->ast.c[allocInd].pl1 = collType.v;
    }
 
    e->scr->c[frame.startNode] = (Node){ .tp = nodVar, .pl1 = newVarId, .pl2 = 0,
@@ -4070,7 +4091,7 @@ exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
    newNode((Node){ .tp = nodExpr}, loc, cm);
    eParse(sentinelToken, toks, cm);
    eSaveNodes(startNodeInd, cm);
-   
+
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    mbCloseSpans(cm);
    return exprType;
@@ -4511,7 +4532,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
    pushIntypes(cm->stats.arrayType, cm);
    pushIntypes(tokInt, cm);
    *arrayLength = mergeType(tentativeType, cm);
-   
+
    // # (length) L $0 -> Int
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
@@ -4523,7 +4544,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
    pushIntypes(cm->stats.listType, cm);
    pushIntypes(tokInt, cm);
    *listLength = mergeType(tentativeType, cm);
-   
+
    // the type of add: L $0, $0 -> Void
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 2, cm);
@@ -4600,7 +4621,7 @@ buildPreludeTypes(CM) {
       pushIntypes(0, cm);
    }
    pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
-   
+
    // Array
    Int typeIndA = cm->types.len;
    pushIntypes(TYPE_PREFIX + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX - 1
@@ -4613,7 +4634,7 @@ buildPreludeTypes(CM) {
    pushIntypes(cm->genericFields.len, cm);
    pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
    pushIngenericFields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
-   
+
    cm->activeBindings[name] = typeIndA;
    cm->stats.arrayType = typeIndA;
 
@@ -4793,7 +4814,7 @@ importPrelude(CM) {
          .name = nameOfStandard(strMathE), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
       },
    };
-   
+
    Int const genericInd = listCreateMultiAssocList(cm->functionMonos); // for the generic list "add"
    Function fnImports[5] =  {
       (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
@@ -4940,7 +4961,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
       if (ov[o] == prevOuter) {
          print("Overload intersection for name %d ov[k] %d prevOuter %d @o = %d countOvers %d",
             name, ov[o], prevOuter, o, countOverloads);
-         printf("Name: ");   
+         printf("Name: ");
          printName(name, cm);
          dbgOverloads(name, cm);
       }
@@ -5404,7 +5425,7 @@ libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int indArg, Arr(Int) types) {
       return typeOf(types[t.v + TYPE_PREFIX + indArg]);
    } else if (hdr.sort == sorTypeCall) {
       // need to skip the prefix, field types, and the index in @genericFields
-      // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type 
+      // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type
       Int ind = t.v + TYPE_PREFIX + hdr.arity + 2 + indArg;
       return typeOf(types[ind]);
    } else {
@@ -5434,7 +5455,7 @@ typeGetOuter(TypeId t, CM) {
       // need to skip the prefix, field types, and the index in @genericFields
       Int ind = t.v + TYPE_PREFIX + hdr.arity + 1;
       return typeOf(cm->types.c[ind]);
-   } 
+   }
 }
 
 private TypeId //:tGetIndexOfFnFirstParam
@@ -5640,7 +5661,7 @@ tCreateSingleParamTypeCall(NameId nameOfOuter, TypeId typeArg, CM) {
 // Creates a type like (L Int). Precondition: struct/union, not a function type!
    TypeId outer = typeOf(cm->activeBindings[nameOfOuter]);
    TypeHeader outerHdr = typeReadHeader(outer, cm);
-   
+
    TYPE_CREATE_START(
       ((TypeHeader){.sort = sorTypeCall, .tyrity = 0, .arity = 2,
          .name = nameOfOuter, .isGeneric = false})
@@ -5653,7 +5674,7 @@ tCreateSingleParamTypeCall(NameId nameOfOuter, TypeId typeArg, CM) {
    }
    pushIntypes(outer.v, cm);
    pushIntypes(typeArg.v, cm);
-   
+
    TYPE_CREATE_END;
    TypeId res = mergeType(tentativeType, cm);
    return res;
@@ -5990,10 +6011,10 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
    } ei (nd.pl3 == callField) { // a field accessor
       VALIDATEP(exp->len >= 1, errExpressionError)
       NameId name = nd.pl1;
-      
+
       Int prevType = exp->c[exp->len - 1];
       VALIDATEP(prevType > topVerbatimType, errTypeFieldNotFound);
-      
+
       Int fieldInd;
       TypeId fieldType = typeTryGetField(name, typeOf(prevType), OUT &fieldInd, cm);
 
@@ -6154,7 +6175,7 @@ typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
 // Searches for a field within a struct by its name. Returns the index of that field
 // (within the type, so 0-based), and its type.
    TypeHeader hdr = typeReadHeader(t, cm);
-   
+
    Int const indInGenericFields = libeyr_getStructFieldInd(t, hdr, cm->types.c);
    Int j = indInGenericFields;
    for (; j < indInGenericFields + hdr.arity; j++) {
@@ -6163,7 +6184,7 @@ typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
    }
    VALIDATEP(j < indInGenericFields + hdr.arity, errTypeFieldNotFound);
    *fieldInd = j - indInGenericFields;
-   
+
    return typeOf(cm->types.c[t.v + TYPE_PREFIX + (*fieldInd)]);
 }
 

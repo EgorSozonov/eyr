@@ -117,19 +117,6 @@ DEFINE_LIST(FutureBlock)
 typedef CodeBlock* CodeBlockPtr;
 typedef RValue* RValuePtr;
 
-typedef enum {
-   leftValue,
-   rightValue
-} LRValue;
-
-typedef struct {
-   LRValue tp;
-   union {
-      LValue* left;
-      RValue* right;
-   };
-} LeftRightValue;
-
 typedef CgType* CgTypePtr;
 
 typedef struct { //:BtLoop
@@ -146,13 +133,11 @@ typedef struct { //:TypeInfo
 DEFINE_LIST_HEADER(CodeBlockPtr)
 DEFINE_LIST_HEADER(FnPtr)
 DEFINE_LIST_HEADER(RValuePtr)
-DEFINE_LIST_HEADER(LeftRightValue)
 DEFINE_LIST_HEADER(CgTypePtr)
 DEFINE_LIST_HEADER(BtLoop)
 DEFINE_LIST(CodeBlockPtr)
 DEFINE_LIST(FnPtr)
 DEFINE_LIST(RValuePtr)
-DEFINE_LIST(LeftRightValue)
 DEFINE_LIST(CgTypePtr)
 DEFINE_LIST(BtLoop)
 
@@ -183,13 +168,13 @@ typedef struct { //:Codegen
    Arr(LValue*) vars; // same len as @compResult.vars
 
    LFnParamPtr* params;       // temporary buffer for function params
-   LLeftRightValue* expLeft;   // temporary buffer for left-hand expression evaluation
+   LValue* lValue;            // temporary pointer for generating complex assignment left sides
    LRValuePtr* exp;           // temporary buffer for expression evaluation
 
    Int countConcreteTypes;
    Arr(Int) typeRefs; // indices into @compResult.types, len = countTypes
    Arr(TypeInfo) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
-   
+
    LFieldPtr concreteFields; // fields of concrete structs & unions
 
    CompResult compResult; // results of the compilation from libeyr
@@ -431,7 +416,7 @@ createFnType(Int tp, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
    CompResult* cr = &(cg->compResult);
    TypeId returnType = tFunctionReturnType(typeOf(tp), cr);
    buffer->len = 0;
-   
+
    if (countParams == 1 && cr->types.c[tp + TYPE_PREFIX] == voidType) { // nullary functions
       return gcc_jit_context_new_function_ptr_type(
          cg->md, null, searchCgTypePartiallyFilled(returnType, typeCounter, cg), 0, null, 0
@@ -469,7 +454,7 @@ fieldAccessLeft(LValue* val, Field* fld, CG) {
    cg->md, null, op, retType, arg1)
 #define builtinCompare(op, arg1, arg2) gcc_jit_context_new_comparison(\
    cg->md, null, op, arg1, arg2)
-   
+
 
 private NULLABLE RValue* //:eCall
 eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
@@ -578,28 +563,42 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
    return null; // unreachable
 }
 
-Field* //:field
+private Field* //:field
 field(NameId nameId, CgType* tp, CG) {
    prepareName(nameId, cg);
    return gcc_jit_context_new_field(cg->md, null, tp, cg->buffer);
 }
 
-Struct* //:newStruct
+private Struct* //:newStruct
 newStruct(NameId nameId, Int countFields, Arr(Field*) fields, CG) {
    prepareName(nameId, cg);
    return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
 }
 
-Struct* //:newStructWithSuffix
+private Struct* //:newStructWithSuffix
 newStructWithSuffix(NameId nameId, Int suffix, Int countFields, Arr(Field*) fields, CG) {
 // Creates a new struct named like "foo_123"
    prepareName(nameId, cg);
-   
+
    Int lenName = strlen(cg->buffer);
    Int suffixWritten = snprintf(cg->buffer + lenName, 50, "_%d", suffix);
    cg->buffer[lenName + suffixWritten] = '\0';
    return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
 }
+
+private RValue* //:getSizeof
+getSizeof(CgType* t, CG) {
+   return gcc_jit_context_new_sizeof(cg->md, t);
+}
+
+private RValue* //:initializeStruct
+initializeStruct(CgType* t, LRValue* values, CG) {
+// The order and types of values must correspond to the fields in @concreteFields
+   return gcc_jit_context_new_struct_constructor(
+      cg->md, null, countFields, fields, values
+   );
+}
+
 
 //}}}
 //{{{ Generation table
@@ -714,13 +713,13 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       Int const fieldInd = cg->concreteFields.len;
       char c[2] = {'c', '\0'};
       cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
-         cg->md, null, 
+         cg->md, null,
          gcc_jit_type_get_pointer(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
          c
       );
       cg->concreteFields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[0].c, cg);
       cg->concreteFields.len += 2;
-      
+
       Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
       return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd };
    } else if (hdr.name == nameOfStandard(strL)) {
@@ -737,7 +736,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       cg->concreteFields.c[fieldInd + 2] =
          field(cr->genericFields.c[fieldInd + 2].name, cg->types[0].c, cg);
       cg->concreteFields.len += 3;
-      
+
       Struct* s = newStructWithSuffix(hdr.name, t.v, 3, cg->concreteFields.c + fieldInd, cg);
       return (TypeInfo){.c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd};
    } else {
@@ -755,7 +754,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       cg->concreteFields.c[cg->concreteFields.len + 1] =
          field(nameOfStandard(strLen), cg->types[0].c, cg);
       cg->concreteFields.len += 2;
-      
+
       Struct* s =
          newStructWithSuffix(hdr.name, t.v, hdr.arity, cg->concreteFields.c + concreteFieldInd, cg);
       return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = concreteFieldInd };
@@ -917,7 +916,7 @@ createBuiltins(CG) {
       true,
       cg->md
    );
-   
+
    CgType* voidPtr = builtinType(GCC_JIT_TYPE_VOID_PTR, cg->md);
    CgType* sloppyUnt = builtinType(GCC_JIT_TYPE_SIZE_T, cg->md);
    FnParam* paramAllocSize = paramFromChars("p", sloppyUnt, cg);
@@ -929,7 +928,7 @@ createBuiltins(CG) {
       false,
       cg->md
    );
-   
+
    Int array = cg->compResult.stats.arrayType;
    TypeHeader arrayHdr = libeyr_readTypeHeader(typeOf(array), cg->compResult.types.c);
    Int list = cg->compResult.stats.listType;
@@ -962,7 +961,7 @@ createCodegen(CR, Arena* a) {
       .functions = allocateArray(cr->functions.len, Fn*, a),
       .vars = allocateArray(cr->vars.len, LValue*, a),
       .params = createLFnParamPtr(16, a),
-      .expLeft = createLLeftRightValue(16, a),
+      .lValue = null,
       .exp = createLRValuePtr(16, a),
       // @types, @concreteFields and @typeRefs will be filled in by {registerTypes}
       .md = md,
@@ -983,14 +982,21 @@ init() {
 }
 
 private void //:simpleExprReduce
-simpleExprReduce(Int start, Int sentinel, Bool reduceFully, AST, CG) {
+simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
 // Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
 // one. Consumes no nodes. Returns the result of evaluation of the expr.
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr.
+// rightMode: if true, just normal RValue processin', otherwise the complex left side of assignment
+// mode (it sets and keeps track of @lValue)
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
-   for (Int j = start; j < sentinel; j++) {
+
+   Int realStart = rightMode ? start : start + 1;
+   if (!rightMode) {
+      cg->lValue = cg->vars[ast[start].pl1];
+   }
+   for (Int j = realStart; j < sentinel; j++) {
       Node expNode = ast[j];
       switch (expNode.tp) {
       case tokInt: {
@@ -1007,8 +1013,6 @@ simpleExprReduce(Int start, Int sentinel, Bool reduceFully, AST, CG) {
          break;
       }
       case nodCall: {
-         if (countArgs == exp->len && !reduceFully)
-            { return; }
          switch (expNode.pl3) {
          case callNormal: {
             Int countArgs = expNode.pl2;
@@ -1019,9 +1023,13 @@ simpleExprReduce(Int start, Int sentinel, Bool reduceFully, AST, CG) {
          case callField: {
             TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
             Int indField = concreteColl.fieldInd + expNode.pl2;
-            RValue* callResult = fieldAccess(exp->c[exp->len - 2], cg->concreteFields.c[indField], cg);
-            exp->c[exp->len] = callResult;
-            exp->len--;
+
+            if (!rightMode && exp->len == 0) {
+               cg->lValue = fieldAccessLeft(cg->lValue, cg->concreteFields.c[indField], cg);
+            } else {
+               RValue* callResult = fieldAccess(exp->c[exp->len - 1], cg->concreteFields.c[indField], cg);
+               exp->c[exp->len - 1] = callResult;
+            }
          }
          }
          break;
@@ -1036,19 +1044,8 @@ simpleExprLeft(Int start, Int sentinel, AST, CG) {
 // l-value. Consumes no nodes. Returns the result of evaluation of the expr.
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr.
-   simpleExprReduce(start, sentinel, false, ast, cg); // reduce all but last 2 elements
-   
-   Node lastNode = ast[sentinel - 1];
-   LRValuePtr* exp = cg->exp;
-   switch (lastNode.pl3) {
-   case callGetElem:
-      return arrElem(exp->c[0], exp->c[1], cg->md);
-   default: { // callField.  the type checker guarantees this
-      TypeInfo concreteColl = cgType(typeOf(lastNode.pl1), cg);
-      Int indField = concreteColl.fieldInd + lastNode.pl2;
-      LValue* callResult = fieldAccessLeft(exp->c[0], cg->concreteFields.c[indField], cg);
-      return callResult;
-   }
+   simpleExprReduce(start, sentinel, false, ast, cg);
+   return cg->lValue;
 }
 
 private RValue* //:simpleExpr
@@ -1063,14 +1060,28 @@ simpleExpr(Int start, Int sentinel, AST, CG) {
 
 private RValue* //:dataAlloc
 dataAlloc(Node nd, Int sentinel, AST, CG) {
-// Precondition: we are 1 past the nodAssignment 
+// Precondition: we are 1 past the nodAssignment
+
+   RValue* mallocArg =
+      builtinBinary(GCC_JIT_BINARY_OP_MULT, cg->types[tokInt].c, intConst(, cg), getSizeof(tp, cg));
+
+   // Array{.c = malloc(), .len = };
+   RValue* arr = callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md);
+   cg->vars[i] = gcc_jit_function_new_temp(cg->currFn, null, cgType(tp, cg).c);
+   assign(cg->vars[i], callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), cg->cbl.c);
+
+   for (Int j = 0; j < sentinel; j++) {
+      RValue* eltValue = simpleExpr();
+      assign(arrElem(arr, j, ));
+   }
+   // loop over the atoms or simpleExprs, setting the elements
 }
 
 private RValue( //:simpleAssignment
 simpleAssignment(Node nd, Int sentinel, AST, CG) {
-// The right side is a simpleExpr  
+// The right side is a simpleExpr
    print("simple assignment @%d", cg->i);
-   
+
 }
 
 private RValue* //:expr
@@ -1081,91 +1092,12 @@ expr(Node nd, Int sentinel, AST, CG) {
       Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
       simpleAssignment(ast[cg->i], assignSentinel, ast, cg);
    }
-   
+
    Node inner = ast[cg->i]; // now we are looking at the inner part of the expression
    if (inner.tp == nodDataAlloc)
       { return dataAlloc(inner, sentinel, ast, cg); }
    } else
       { return simpleExpr(inner, sentinel, ast, cg); }
-}
-
-private LValue* //:assignmentLeft
-assignmentLeft(Int leftSentinel, Arr(Node const) ast, CG) {
-// Creates a local variable or returns a pre-existing one for the left side of an assignment
-   Node leftNd = ast[cg->i];
-   if (leftNd.tp == nodVar) {
-      VarId varId = leftNd.pl1;
-      if (leftNd.pl3 == assiVarAssignment) {
-         Var v = cg->compResult.vars.c[varId];
-         cg->vars[varId] = localVar(v.name, v.typeId, cg);
-      }
-      return cg->vars[varId];
-   } else if (leftNd.tp == nodExpr) {
-      cg->i++; // CONSUME the nodExpr
-      LRValuePtr* exp = cg->exp;
-      exp->len = 0;
-      for (Int j = start; j < sentinel; j++) {
-         Node expNode = ast[j];
-         switch (expNode.tp) {
-         case tokInt: {
-            Int value = expNode.pl2;
-            add(intConst(value, cg), exp);
-            break;
-         }
-         case tokString: {
-            add(stringConst(cg->compResult.sourceLocs.c[j], cg), exp);
-            break;
-         }
-         case nodVar: {
-            add(rValueOf(cg->vars[expNode.pl1]), exp);
-            break;
-         }
-         case nodCall: {
-            switch (expNode.pl3) {
-            case callNormal: {
-               Int countArgs = expNode.pl2;
-               RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
-               exp->len -= (countArgs - 1);
-               exp->c[exp->len - 1] = callResult;
-            }
-            case callField: {
-               CgType* concreteColl = cgType(typeOf(expNode.pl1), cg).c;
-               Int indField = expNode.pl2;
-               RValue* callResult = fieldAccess(exp->c[exp->len - 2], fld, cg);
-               exp->len--;
-               exp->c[exp->len - 1] = callResult;
-            }
-            }
-            break;
-         }
-         }
-   }
-   return exp->c[0]; // the type checker guarantees that there is only one element at this point
-      
-      
-      
-      expr(cg->i, calcNodeSentinel(leftNd, cg->i - 1), ast, cg);
-   }
-
-   return null; // TODO
-}
-
-private RValue* //:assignmentRight
-assignmentRight(Int rightNodeInd, Int innerExprInd, Int sentinel, Arr(Node const) ast, CG) {
-// Evaluates the right side of an expression
-// the "innerExprInd" here is the actual expression start (so for complex expressions, the inner
-// assignments have been skipped).
-   if (innerExprInd > rightNodeInd) { // complex expression, contains simpleAssignments
-      for(  Int j = rightNodeInd;
-            cg->i < sentinel;
-      ) { // ast[cg->i] is a nodAssignment;
-         Node assignmentNd = ast[cg->i];
-         Int assignSentinel = calcNodeSentinel(assignmentNd, cg->i)
-         simpleAssignment(sentinel, ast, cg);
-      }
-   } else {
-   cg->i = innerExprInd;
-   return expr(sentinel, ast, cg);
 }
 
 private void //:assignment
@@ -1177,11 +1109,11 @@ assignment(Node nd, Int sentinel, AST, CG) {
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
 
+   LValue* lValue = simpleExprLeft(rightNodeInd, ast, cg);
 
-   LValue* lValue = assignmentLeft(rightNodeInd, ast, cg);
    cg->i = rightNodeInd + 1;
-
    RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
+
    assign(lValue, rValue, cg->cbl.c);
    end:
    cg->i = sentinel;
