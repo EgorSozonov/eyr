@@ -191,7 +191,7 @@ libeyr_String str(const char* cent);
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
 #define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  11  // Followed by binding or complex left side. pl3 = distance to the right
+#define nodAssignment  11  // Followed by nodVar or complex left side. pl3 = distance to the right
                            // side, which is always an atom, nodExpr or a nodDataAlloc
 #define nodDataAlloc   12  // pl1 = concrete collection type, pl3 = count of elements
 

@@ -398,6 +398,11 @@ localVar(NameId name, TypeId tp, CG) {
    return gcc_jit_function_new_local(cg->currFn, NULL, cgType(tp, cg).c, cg->buffer);
 }
 
+private LValue* //:localTempVar
+localTempVar(TypeId tp, CG) {
+   return gcc_jit_function_new_temp(cg->currFn, null, cgType(tp, cg).c);
+}
+
 private FnParam* //:param
 param(NameId nameId, TypeId tp, CG) {
    prepareName(nameId, cg);
@@ -592,10 +597,11 @@ getSizeof(CgType* t, CG) {
 }
 
 private RValue* //:initializeStruct
-initializeStruct(CgType* t, LRValue* values, CG) {
+initializeStruct(Int typeId, LRValue values, CG) {
 // The order and types of values must correspond to the fields in @concreteFields
+   TypeInfo ti = cg->types[typeId];
    return gcc_jit_context_new_struct_constructor(
-      cg->md, null, countFields, fields, values
+      cg->md, null, values->len, cg->concreteFields + ti.fieldInd, values->c
    );
 }
 
@@ -1064,24 +1070,57 @@ dataAlloc(Node nd, Int sentinel, AST, CG) {
 
    RValue* mallocArg =
       builtinBinary(GCC_JIT_BINARY_OP_MULT, cg->types[tokInt].c, intConst(, cg), getSizeof(tp, cg));
-
-   // Array{.c = malloc(), .len = };
-   RValue* arr = callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md);
-   cg->vars[i] = gcc_jit_function_new_temp(cg->currFn, null, cgType(tp, cg).c);
+   Int concreteType = nd.pl1;
+   Int countElements = nd.pl3;
+   
+   RValue* vals[2]; 
+   vals[0] = callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md);
+   vals[1] = intConst(countElements, cg);
+   // Array{ .c = malloc(...), .len = ... };
+   RValue* arr = initializeStruct(concreteType, ((LRValue){.c = vals, .len = 2}), CG);
+   
+   LValue* tempVariable = localTempVar(tp, cg);
+   
+   cg->vars[i] = localTempVar(tp, cg);
    assign(cg->vars[i], callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), cg->cbl.c);
 
-   for (Int j = 0; j < sentinel; j++) {
-      RValue* eltValue = simpleExpr();
-      assign(arrElem(arr, j, ));
+   for (Int j = 0; j < countElements; j++) {
+      Node nd = ast[cg->i];
+      Int eltSentinel = calcNodeSentinel(nd, cg->i);
+      cg->i++;
+      RValue* eltValue = simpleExpr(nd, eltSentinel, ast, cg);
+      assign(arrElem(arr, intConst(j, cg), cg->md));
    }
+   
    // loop over the atoms or simpleExprs, setting the elements
+   return arr;
 }
 
-private RValue( //:simpleAssignment
+private void //:simpleAssignment
 simpleAssignment(Node nd, Int sentinel, AST, CG) {
-// The right side is a simpleExpr
+// The left side is a single var, right side is a simpleExpr or a data alloc
    print("simple assignment @%d", cg->i);
-
+   Node varNode = ast[cg->i];
+   Int varId = varNode.pl1;
+   Var v = cg->compResult.vars[varId];
+   cg->i++;
+   Node rightSide = ast[cg->i];
+   Int sentinel = calcNodeSentinel(rightSide, cg->i);
+   cg->i++;
+   
+   if (varNode.pl3 == assiVarAssignment) {
+      if (v.name > -1) {
+         cg->vars[varId] = localVar(v.name, v.typeId.v, cg);
+      } else {
+         cg->vars[varId] = localTempVar(v.typeId.v, cg);
+      }
+   }
+   LValue* lValue = cg->vars[varId];
+   if (rightSide.tp == nodDataAlloc) {
+      assign(lValue, dataAlloc(rightSide, sentinel, ast, cg->cbl.c);
+   } else {
+      assign(lValue, simpleExpr(rightSide, sentinel, ast, cg->cbl.c);
+   }
 }
 
 private RValue* //:expr
