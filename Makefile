@@ -46,15 +46,15 @@ $(DEBUG_TGT):
 
 all: $(DEBUG_TGT) ## Build the whole compiler
 / clear
-/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c
+/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
-/ cd _target && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
-  PATH=$(GCC_PATH):$(PATH) \
-  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
-  ./$(APP)
-#/  _target/program
+#/ cd _target && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
+#  PATH=$(GCC_PATH):$(PATH) \
+#  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
+#  ./$(APP)
+/ cd _target && ./$(APP)
 
 
 clean: ## Delete cached build results

@@ -393,14 +393,14 @@ ptrCast(RValue* v, CgType* tp, Module* md) {
 }
 
 private LValue* //:localVar
-localVar(NameId name, TypeId tp, CG) {
+localVar(NameId name, CgType* tp, CG) {
    prepareName(name, cg);
-   return gcc_jit_function_new_local(cg->currFn, NULL, cgType(tp, cg).c, cg->buffer);
+   return gcc_jit_function_new_local(cg->currFn, NULL, tp, cg->buffer);
 }
 
 private LValue* //:localTempVar
-localTempVar(TypeId tp, CG) {
-   return gcc_jit_function_new_temp(cg->currFn, null, cgType(tp, cg).c);
+localTempVar(CgType* tp, CG) {
+   return gcc_jit_function_new_temp(cg->currFn, null, tp);
 }
 
 private FnParam* //:param
@@ -597,14 +597,13 @@ getSizeof(CgType* t, CG) {
 }
 
 private RValue* //:initializeStruct
-initializeStruct(Int typeId, LRValue values, CG) {
+initializeStruct(TypeId t, LRValuePtr values, CG) {
 // The order and types of values must correspond to the fields in @concreteFields
-   TypeInfo ti = cg->types[typeId];
+   TypeInfo ti = cg->types[t.v];
    return gcc_jit_context_new_struct_constructor(
-      cg->md, null, values->len, cg->concreteFields + ti.fieldInd, values->c
+      cg->md, null, ti.c, values.len, cg->concreteFields.c + ti.fieldInd, values.c
    );
 }
-
 
 //}}}
 //{{{ Generation table
@@ -822,6 +821,7 @@ registerTypes(CG) {
    cg->typeRefs = allocateArray(cg->countConcreteTypes, Int, cg->a);
    cg->types = allocateArray(cg->countConcreteTypes, TypeInfo, cg->a);
    LFieldPtr* fields = createLFieldPtr(countFields, cg->a);
+   print("count of all: concrete types %d fields %d", cg->countConcreteTypes, countFields)
    cg->concreteFields = *fields;
 
    registerPrimitiveTypes(cg);
@@ -987,6 +987,22 @@ init() {
    populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
 }
 
+private RValue* //:simpleExprAtom
+simpleExprAtom(Node nd, Int j, CG) {
+   switch (nd.tp) {
+   case tokInt: {
+      Int value = nd.pl2;
+      return intConst(value, cg);
+   }
+   case tokString: {
+      return stringConst(cg->compResult.sourceLocs.c[j], cg);
+   }
+   default: { //  nodVar
+      return rValueOf(cg->vars[nd.pl1]);
+   }
+   }
+}
+
 private void //:simpleExprReduce
 simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
 // Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
@@ -1005,17 +1021,10 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
    for (Int j = realStart; j < sentinel; j++) {
       Node expNode = ast[j];
       switch (expNode.tp) {
-      case tokInt: {
-         Int value = expNode.pl2;
-         add(intConst(value, cg), exp);
-         break;
-      }
-      case tokString: {
-         add(stringConst(cg->compResult.sourceLocs.c[j], cg), exp);
-         break;
-      }
+      case tokInt:
+      case tokString:
       case nodVar: {
-         add(rValueOf(cg->vars[expNode.pl1]), exp);
+         add(simpleExprAtom(expNode, j, cg), exp);
          break;
       }
       case nodCall: {
@@ -1060,83 +1069,93 @@ simpleExpr(Int start, Int sentinel, AST, CG) {
 // one. Consumes no nodes. Returns the result of evaluation of the expr.
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr.
-   simpleExprReduce(start, sentinel, true, ast, cg);
-   return cg->exp->c[0]; // the type checker guarantees that there is only one element at this point
+   if (start == sentinel - 1) {
+      return simpleExprAtom(ast[start], start, cg);
+   } else {
+      simpleExprReduce(start, sentinel, true, ast, cg);
+      return cg->exp->c[0]; // the type checker guarantees that there is only one element at this point
+   }
 }
 
-private RValue* //:dataAlloc
-dataAlloc(Node nd, Int sentinel, AST, CG) {
+private RValue* //:dataAllocAssignment
+dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
 // Precondition: we are 1 past the nodAssignment
-
-   RValue* mallocArg =
-      builtinBinary(GCC_JIT_BINARY_OP_MULT, cg->types[tokInt].c, intConst(, cg), getSizeof(tp, cg));
-   Int concreteType = nd.pl1;
-   Int countElements = nd.pl3;
+   TypeId concreteType = typeOf(nd.pl1);
+   Int len = nd.pl3;
+   RValue* lenR = intConst(nd.pl3, cg);
+   TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
+   TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
    
+   RValue* mallocArg = builtinBinary( // len * sizeof(Elt)
+      GCC_JIT_BINARY_OP_MULT,
+      cg->types[tokInt].c,
+      lenR,
+      getSizeof(cgType(eltType, cg).c, cg)
+   );
+      
    RValue* vals[2]; 
    vals[0] = callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md);
-   vals[1] = intConst(countElements, cg);
+   vals[1] = lenR;
    // Array{ .c = malloc(...), .len = ... };
-   RValue* arr = initializeStruct(concreteType, ((LRValue){.c = vals, .len = 2}), CG);
+   RValue* arr = initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
    
-   LValue* tempVariable = localTempVar(tp, cg);
+   assign(lValue, arr, cg->cbl.c);
    
-   cg->vars[i] = localTempVar(tp, cg);
-   assign(cg->vars[i], callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), cg->cbl.c);
+   Int fieldInd = cg->types[concreteType.v].fieldInd;
+   LValue* rawArr = fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg);
 
-   for (Int j = 0; j < countElements; j++) {
-      Node nd = ast[cg->i];
-      Int eltSentinel = calcNodeSentinel(nd, cg->i);
-      cg->i++;
-      RValue* eltValue = simpleExpr(nd, eltSentinel, ast, cg);
-      assign(arrElem(arr, intConst(j, cg), cg->md));
+   // loop over the atoms or simpleExprs, setting the array elements
+   for (Int j = 0; j < len; j++) {
+      Node elt = ast[cg->i];
+      Int eltSentinel = calcNodeSentinel(elt, cg->i);
+      RValue* eltValue = simpleExpr(cg->i, eltSentinel, ast, cg);
+      assign(arrElem(rValueOf(rawArr), intConst(j, cg), cg->md), eltValue, cg->cbl.c);
+      cg->i = eltSentinel;
    }
-   
-   // loop over the atoms or simpleExprs, setting the elements
    return arr;
 }
 
 private void //:simpleAssignment
 simpleAssignment(Node nd, Int sentinel, AST, CG) {
 // The left side is a single var, right side is a simpleExpr or a data alloc
+// Consumes the whole assignment
    print("simple assignment @%d", cg->i);
    Node varNode = ast[cg->i];
    Int varId = varNode.pl1;
-   Var v = cg->compResult.vars[varId];
-   cg->i++;
-   Node rightSide = ast[cg->i];
-   Int sentinel = calcNodeSentinel(rightSide, cg->i);
-   cg->i++;
+   Var v = cg->compResult.vars.c[varId];
+   Node rightSide = ast[cg->i + 1];
+   cg->i += 2;
    
    if (varNode.pl3 == assiVarAssignment) {
+      CgType* t = cgType(v.typeId, cg).c;
       if (v.name > -1) {
-         cg->vars[varId] = localVar(v.name, v.typeId.v, cg);
+         cg->vars[varId] = localVar(v.name, t, cg);
       } else {
-         cg->vars[varId] = localTempVar(v.typeId.v, cg);
+         cg->vars[varId] = localTempVar(t, cg);
       }
    }
    LValue* lValue = cg->vars[varId];
    if (rightSide.tp == nodDataAlloc) {
-      assign(lValue, dataAlloc(rightSide, sentinel, ast, cg->cbl.c);
+      dataAllocAssignment(lValue, rightSide, sentinel, ast, cg);
    } else {
-      assign(lValue, simpleExpr(rightSide, sentinel, ast, cg->cbl.c);
+      assign(lValue, simpleExpr(cg->i - 1, sentinel, ast, cg), cg->cbl.c);
    }
+   cg->i = sentinel;
 }
 
 private RValue* //:expr
 expr(Node nd, Int sentinel, AST, CG) {
 // Evaluates the right side of a complex expression: a simpleExpr, or a data allocation,
 // or a series of simpleAssignments followed by a simpleExpr.
+// Consumes all nodes
    for (; cg->i < sentinel && ast[cg->i].tp == nodAssignment; ) {
       Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
       simpleAssignment(ast[cg->i], assignSentinel, ast, cg);
    }
 
-   Node inner = ast[cg->i]; // now we are looking at the inner part of the expression
-   if (inner.tp == nodDataAlloc)
-      { return dataAlloc(inner, sentinel, ast, cg); }
-   } else
-      { return simpleExpr(inner, sentinel, ast, cg); }
+   RValue* result = simpleExpr(cg->i, sentinel, ast, cg);
+   cg->i = sentinel;
+   return result;
 }
 
 private void //:assignment
@@ -1148,7 +1167,7 @@ assignment(Node nd, Int sentinel, AST, CG) {
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
 
-   LValue* lValue = simpleExprLeft(rightNodeInd, ast, cg);
+   LValue* lValue = simpleExprLeft(cg->i, rightNodeInd, ast, cg);
 
    cg->i = rightNodeInd + 1;
    RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
@@ -1160,9 +1179,8 @@ assignment(Node nd, Int sentinel, AST, CG) {
 
 private void //:writeExpr
 writeExpr(Node nd, Int sentinel, AST, CG) {
-   RValue* exprResult = expr(cg->i, sentinel, ast, cg);
+   RValue* exprResult = expr(nd, sentinel, ast, cg);
    evalExpr(exprResult, cg->cbl.c);
-   cg->i = sentinel;
 }
 
 private void //:writeAssignment
@@ -1192,7 +1210,7 @@ writeReturn(Node fr, Int sentinel, AST, CG) {
    if (rightSide.tp == nodExpr)
       { cg->i++; } // CONSUME the expr node
 
-   RValue* returnValue = expr(cg->i, sentinel, ast, cg);
+   RValue* returnValue = expr(rightSide, sentinel, ast, cg);
    returnFromFn(returnValue, cg->cbl.c);
    cg->i = sentinel; // CONSUME the whole "return" statement
 }
@@ -1241,7 +1259,7 @@ ifWriteCondition(OUT Int* startIfBody, OUT Int* sentinelIfBranch, AST, CG) {
    Int const startIfCond = cond.tp == nodExpr ? cg->i + 1 : cg->i;
    *startIfBody = calcNodeSentinel(cond, cg->i);
 
-   return expr(startIfCond, *startIfBody, ast, cg);
+   return expr(ast[startIfCond], *startIfBody, ast, cg);
 }
 
 private void //:ifInitialCondition
@@ -1307,7 +1325,8 @@ forBranchOnCondition(Node forNode, Int stepNodeInd, Int sentinel, AST, CG) {
    cg->cbl = (CurrBlock) {
       .start = cg->i, .sentinel = loopBodyInd, .c = loopCondition, .after = null
    };
-   RValue* conditionValue = expr(startLoopCond, loopBodyInd, ast, cg);
+   cg->i++;
+   RValue* conditionValue = expr(ast[startLoopCond], loopBodyInd, ast, cg);
 
    CodeBlock* loopBody = newBlock(cg->currFn);
    conditional(loopCondition, conditionValue, loopBody, loopAfter);
@@ -1456,7 +1475,7 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
       freshFn = newFnReal(
          eyrFn.name,
          null,
-         cgType(returnType, cg),
+         cgType(returnType, cg).c,
          accessLevel,
          cg
       );
@@ -1481,7 +1500,7 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
       freshFn = newFnReal(
          eyrFn.name,
          cg->params,
-         cgType(returnType, cg),
+         cgType(returnType, cg).c,
          accessLevel,
          cg
       );
