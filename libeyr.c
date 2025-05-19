@@ -5346,7 +5346,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      //printParser(cm);
+      printParser(cm);
       //dbgAllTypes(cm);
    } else {
 #ifndef TEST

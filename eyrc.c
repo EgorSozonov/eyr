@@ -30,7 +30,7 @@ typedef gcc_jit_struct Struct;
 typedef enum gcc_jit_function_kind FnKind;
 typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
-#define pointerOf(x) gcc_jit_type_get_pointer(x)
+#define ptrOf(x) gcc_jit_type_get_pointer(x)
 
 
 //}}}
@@ -146,6 +146,7 @@ typedef struct { //:Builtins
    Fn* memAlloc; // the "malloc" function from libc
    CgType* cString; // the zero-terminated array of chars
    CgType* sloppyInt; // the sloppy "int" type of C
+   CgType* sizeT; 
    Int fieldsArray;
    Int fieldsList;
    RValue* formatInt; // "%d\n"
@@ -599,7 +600,7 @@ getSizeof(CgType* t, CG) {
 private RValue* //:initializeStruct
 initializeStruct(TypeId t, LRValuePtr values, CG) {
 // The order and types of values must correspond to the fields in @concreteFields
-   TypeInfo ti = cg->types[t.v];
+   TypeInfo ti = cgType(t, cg);
    return gcc_jit_context_new_struct_constructor(
       cg->md, null, ti.c, values.len, cg->concreteFields.c + ti.fieldInd, values.c
    );
@@ -681,6 +682,9 @@ searchCgTypePartiallyFilled(TypeId tp, Int typeCounter, CG) {
 private TypeInfo //:cgType
 cgType(TypeId tp, CG) {
    Int ind = binarySearch(tp.v, 0, cg->countConcreteTypes, cg->typeRefs);
+   if (ind == -1) {
+      print("couldn't find type %d", tp.v)
+   }
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
    TypeInfo res = cg->types[ind];
    VALIDATEI(res.c != null, iErrorTypeNotRegisteredInCodegen);
@@ -710,7 +714,7 @@ nonStructTypeInfo(CgType* t) {
 
 private TypeInfo //:registerType
 registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
-// searches in @typeRefs interval [0; typeCounter)
+// searches in @typeRefs interval [0; typeCounter). Adds to @concreteFields
    if (hdr.name == nameOfStandard(strF)) { // functions
       return nonStructTypeInfo(createFnType(t.v, hdr, typeCounter, buffer, cg));
    } else if (hdr.name == nameOfStandard(strArray)) {
@@ -719,10 +723,10 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       char c[2] = {'c', '\0'};
       cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
          cg->md, null,
-         gcc_jit_type_get_pointer(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
+         ptrOf(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
          c
       );
-      cg->concreteFields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[0].c, cg);
+      cg->concreteFields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[tokInt].c, cg);
       cg->concreteFields.len += 2;
 
       Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
@@ -733,13 +737,13 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       char c[2] = {'c', '\0'};
       cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
          cg->md, null,
-         gcc_jit_type_get_pointer(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
+         ptrOf(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
          c
       );
       cg->concreteFields.c[fieldInd + 1] =
-         field(cr->genericFields.c[fieldInd + 1].name, cg->types[0].c, cg);
+         field(cr->genericFields.c[fieldInd + 1].name, cg->types[tokInt].c, cg);
       cg->concreteFields.c[fieldInd + 2] =
-         field(cr->genericFields.c[fieldInd + 2].name, cg->types[0].c, cg);
+         field(cr->genericFields.c[fieldInd + 2].name, cg->types[tokInt].c, cg);
       cg->concreteFields.len += 3;
 
       Struct* s = newStructWithSuffix(hdr.name, t.v, 3, cg->concreteFields.c + fieldInd, cg);
@@ -757,7 +761,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
          cg->concreteFields.c[l] = field(fldName, cgType(typeOf(fldType), cg).c, cg);
       }
       cg->concreteFields.c[cg->concreteFields.len + 1] =
-         field(nameOfStandard(strLen), cg->types[0].c, cg);
+         field(nameOfStandard(strLen), cg->types[tokInt].c, cg);
       cg->concreteFields.len += 2;
 
       Struct* s =
@@ -780,7 +784,7 @@ registerPrimitiveTypes(CG) {
 
    // String type
    Field* stringFields[2];
-   stringFields[0] = field(nameOfStandard(strLen), cg->types[0].c, cg);
+   stringFields[0] = field(nameOfStandard(strLen), cg->types[tokInt].c, cg);
    stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
    Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
@@ -792,7 +796,7 @@ registerPrimitiveTypes(CG) {
       cg->md, null, gcc_jit_type_get_const(builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md)), c
    );
    add(content, &(cg->concreteFields));
-   add(field(nameOfStandard(strLen), cg->types[0].c, cg), &(cg->concreteFields));
+   add(field(nameOfStandard(strLen), cg->types[tokInt].c, cg), &(cg->concreteFields));
 
    cg->typeRefs[topVerbatimType + 1] = topVerbatimType + 1;
    cg->types[topVerbatimType + 1] = nonStructTypeInfo(null); // never to be used, it's a placeholder!
@@ -855,9 +859,17 @@ tFunctionReturnType(TypeId funcTypeId, CR) {
 
 private RValue* //:intConst
 intConst(int val, Codegen* cg) {
-   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[0].c, val);
+   return gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[tokInt].c, val);
 }
 
+private RValue* //:sizeTConst
+sizeTConst(int val, Codegen* cg) {
+   return gcc_jit_context_new_rvalue_from_int(
+      cg->md,
+      cg->builtins.sizeT,
+      val
+   );
+}
 
 private RValue* //:stringConst
 stringConst(SourceLoc loc, Codegen* cg) {
@@ -925,7 +937,10 @@ createBuiltins(CG) {
 
    CgType* voidPtr = builtinType(GCC_JIT_TYPE_VOID_PTR, cg->md);
    CgType* sloppyUnt = builtinType(GCC_JIT_TYPE_SIZE_T, cg->md);
-   FnParam* paramAllocSize = paramFromChars("p", sloppyUnt, cg);
+   
+   CgType* sizeT = gcc_jit_context_get_type(cg->md, GCC_JIT_TYPE_SIZE_T);
+   FnParam* paramAllocSize = paramFromChars("p", builtinType(GCC_JIT_TYPE_INT32_T, cg->md), cg);
+   
    Fn* memAlloc = importFn(
       "malloc",
       1,
@@ -943,7 +958,7 @@ createBuiltins(CG) {
    return (Builtins){
       .printer = printfFn, .memAlloc = memAlloc,
       .cString = constCharPtrTp,
-      .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md),
+      .sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md), .sizeT = sizeT,
       .fieldsArray = cg->compResult.types.c[array + TYPE_PREFIX + arrayHdr.arity],
       .fieldsList = cg->compResult.types.c[list + TYPE_PREFIX + listHdr.arity],
       .formatInt = cStringConst("%d\n", cg),
@@ -987,6 +1002,23 @@ init() {
    populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
 }
 
+private void //:mbRegisterNewVar
+mbRegisterNewVar(Node varNode, CG) {
+   if (varNode.pl3 == assiVarAssignment) {
+      Int const varId = varNode.pl1;
+      Var v = cg->compResult.vars.c[varId];
+      CgType* t = cgType(v.typeId, cg).c;
+      print("creating VAR id %d", varId);
+      if (v.name > -1) {
+         cg->vars[varId] = localVar(v.name, t, cg);
+      } else {
+         cg->vars[varId] = localTempVar(t, cg);
+      }
+      
+      print("creating VAR @2 %p", cg->vars[2]);
+   }
+}
+
 private RValue* //:simpleExprAtom
 simpleExprAtom(Node nd, Int j, CG) {
    switch (nd.tp) {
@@ -1015,9 +1047,8 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
    exp->len = 0;
 
    Int realStart = rightMode ? start : start + 1;
-   if (!rightMode) {
-      cg->lValue = cg->vars[ast[start].pl1];
-   }
+   if (!rightMode)
+      { cg->lValue = cg->vars[ast[start].pl1]; }
    for (Int j = realStart; j < sentinel; j++) {
       Node expNode = ast[j];
       switch (expNode.tp) {
@@ -1034,6 +1065,7 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
             RValue* callResult = eCall(expNode.pl1, countArgs, exp->c + exp->len - countArgs, cg);
             exp->len -= (countArgs - 1);
             exp->c[exp->len - 1] = callResult;
+            break;
          }
          case callField: {
             TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
@@ -1045,9 +1077,9 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
                RValue* callResult = fieldAccess(exp->c[exp->len - 1], cg->concreteFields.c[indField], cg);
                exp->c[exp->len - 1] = callResult;
             }
+            break;
          }
          }
-         break;
       }
       }
    }
@@ -1055,12 +1087,18 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
 
 private LValue* //:simpleExprLeft
 simpleExprLeft(Int start, Int sentinel, AST, CG) {
-// Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
-// l-value. Consumes no nodes. Returns the result of evaluation of the expr.
+// Converts a left-side (no assignments or data allocations) Eyr expression into a Libgccjit
+// l-value. Consumes no nodes. Returns the l-value being assigned to.
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr.
-   simpleExprReduce(start, sentinel, false, ast, cg);
-   return cg->lValue;
+   if (start == sentinel - 1) {
+      Node varNode = ast[start];
+      mbRegisterNewVar(varNode, cg);
+      return cg->vars[varNode.pl1];
+   } else {
+      simpleExprReduce(start, sentinel, false, ast, cg);
+      return cg->lValue;
+   }
 }
 
 private RValue* //:simpleExpr
@@ -1085,23 +1123,25 @@ dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
    RValue* lenR = intConst(nd.pl3, cg);
    TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
    TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
+   CgType* eltTypeCg = cgType(eltType, cg).c;
    
    RValue* mallocArg = builtinBinary( // len * sizeof(Elt)
       GCC_JIT_BINARY_OP_MULT,
       cg->types[tokInt].c,
-      lenR,
-      getSizeof(cgType(eltType, cg).c, cg)
+      getSizeof(eltTypeCg, cg),
+      lenR
    );
       
    RValue* vals[2]; 
-   vals[0] = callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md);
+   vals[0] =
+      ptrCast(callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), ptrOf(eltTypeCg), cg->md);
    vals[1] = lenR;
    // Array{ .c = malloc(...), .len = ... };
    RValue* arr = initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
    
    assign(lValue, arr, cg->cbl.c);
    
-   Int fieldInd = cg->types[concreteType.v].fieldInd;
+   Int fieldInd = cgType(concreteType, cg).fieldInd;
    LValue* rawArr = fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg);
 
    // loop over the atoms or simpleExprs, setting the array elements
@@ -1119,21 +1159,12 @@ private void //:simpleAssignment
 simpleAssignment(Node nd, Int sentinel, AST, CG) {
 // The left side is a single var, right side is a simpleExpr or a data alloc
 // Consumes the whole assignment
-   print("simple assignment @%d", cg->i);
    Node varNode = ast[cg->i];
    Int varId = varNode.pl1;
-   Var v = cg->compResult.vars.c[varId];
    Node rightSide = ast[cg->i + 1];
    cg->i += 2;
    
-   if (varNode.pl3 == assiVarAssignment) {
-      CgType* t = cgType(v.typeId, cg).c;
-      if (v.name > -1) {
-         cg->vars[varId] = localVar(v.name, t, cg);
-      } else {
-         cg->vars[varId] = localTempVar(t, cg);
-      }
-   }
+   mbRegisterNewVar(varNode, cg);
    LValue* lValue = cg->vars[varId];
    if (rightSide.tp == nodDataAlloc) {
       dataAllocAssignment(lValue, rightSide, sentinel, ast, cg);
@@ -1150,6 +1181,7 @@ expr(Node nd, Int sentinel, AST, CG) {
 // Consumes all nodes
    for (; cg->i < sentinel && ast[cg->i].tp == nodAssignment; ) {
       Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
+      cg->i++;
       simpleAssignment(ast[cg->i], assignSentinel, ast, cg);
    }
 
@@ -1171,7 +1203,6 @@ assignment(Node nd, Int sentinel, AST, CG) {
 
    cg->i = rightNodeInd + 1;
    RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
-
    assign(lValue, rValue, cg->cbl.c);
    end:
    cg->i = sentinel;
@@ -1325,7 +1356,7 @@ forBranchOnCondition(Node forNode, Int stepNodeInd, Int sentinel, AST, CG) {
    cg->cbl = (CurrBlock) {
       .start = cg->i, .sentinel = loopBodyInd, .c = loopCondition, .after = null
    };
-   cg->i++;
+   cg->i++; // CONSUME the first node of the condition
    RValue* conditionValue = expr(ast[startLoopCond], loopBodyInd, ast, cg);
 
    CodeBlock* loopBody = newBlock(cg->currFn);
@@ -1483,7 +1514,7 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
       CgType* sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md);
       FnParam* mainParams[2];
       mainParams[0] = paramFromChars("argc", sloppyInt, cg);
-      mainParams[1] = paramFromChars("argv", pointerOf(cg->builtins.cString), cg);
+      mainParams[1] = paramFromChars("argv", ptrOf(cg->builtins.cString), cg);
       freshFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
       *arity = 2;
    } else {
