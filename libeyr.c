@@ -96,7 +96,7 @@ typedef struct { // :Token
 
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
-#define tokWord         6  // pl1 = nameId (index in the string table). pl2 = 1 iff followed by '
+#define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
 #define tokTypeName     7  // pl1 same as tokWord
 #define tokTypeVar      8  // pl1 same as tokWord. The `$A`
 #define tokKwArg        9  // pl2 = same as tokWord. The ":argName"
@@ -108,7 +108,7 @@ typedef struct { // :Token
 #define tokClause      13  // Element of a comma-separated list
 #define tokDef         14  // Compile-time known constant's definition. pl1 == 2 iff type def
 #define tokParens      15  // subexpressions and struct/sum type instances
-#define tokTypeCall    16  // `(Tu Int Str)`
+#define tokTypeCall    16  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
 #define tokData        17  // []
 #define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
 #define tokAccessorIn  19  // The internal `[]` block inside an accessor
@@ -127,7 +127,7 @@ typedef struct { // :Token
 #define tokElseIf      30  // `eif ... {`
 #define tokElse        31  // `else { `
 #define tokMatch       32  // `(match ... ` pattern matching on sum type tag
-#define tokFn          33  // `{{ a Int -> Str } body)`. pl1 = entityId
+#define tokFn          33  // `{a b -> body}`. pl1 = entityId
 #define tokFnParams    34  //  `{ a Int -> Str }`. pl1 = entityId
 #define tokTry         35  // `(try`
 #define tokCatch       36  // `(catch e MyExc:`
@@ -150,6 +150,7 @@ typedef struct { // :Token
 #define slClauseList   4 // a comma-separated list
 #define slUnbraced     5 // A scope that hasn't met its first brace, like an "if" before its "{"
 #define slSingleBraced 6 // A "for" scope that has met exactly 1 curly brace
+#define slFn           7 // A `F(A -> B)` or `{a -> b}` when it has met exactly 1 arrow symbol
 
 // List of keywords that don't correspond directly to a token.
 // Must all be below "firstSpanTokenType"
@@ -343,11 +344,11 @@ defstruct(TypeLoc);
 
 //{{{ Parse table
 
-#define TOKS Arr(Token) restrict toks  // tokens that are used as input to the parser
-#define AST Arr(Node const) restrict ast  // tokens that are used as input to the parser
+#define TOKENS Arr(Token) restrict tokens // tokens that are used as input to the parser
+#define AST Arr(Node const) restrict ast  // nodes that are used as input to the library consumers
 typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
 
-#define PARSER_FN(name) private void name(Token tok, TOKS, CM);
+#define PARSER_FN(name) private void name(Token tok, TOKENS, CM);
 PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment) PARSER_FN(pDef)
 PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert) PARSER_FN(pBreakCont) PARSER_FN(pReturn)
 PARSER_FN(pIf) PARSER_FN(pElseIf) PARSER_FN(pElse) PARSER_FN(pFor)
@@ -407,7 +408,7 @@ void printLexer(LX);
 private void eSaveNodes(Int startNodeInd, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
-private TypeId exprUpToWithFrame(ParseFrame fr, SourceLoc loc, TOKS, CM);
+private TypeId exprUpToWithFrame(ParseFrame fr, SourceLoc loc, TOKENS, CM);
 private void typeAddHeader(TypeHeader hdr, CM);
 private TypeHeader typeReadHeader(TypeId typeId, CM);
 private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
@@ -423,7 +424,7 @@ private NameLoc nameOfHost(Int strId);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
 private void tFreshState(TExpr* st);
-private TypeId teClause(TExpr* st, Int sentinel, TOKS, CM);
+private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
@@ -1449,7 +1450,6 @@ struct BtToken { // :BtToken
 DEFINE_LIST(BtToken) //:createLBtToken
 DEFINE_LIST(Token) //:createLToken
 
-
 constexpr TypeId boolTy = { .v = tokBool };
 constexpr TypeId intTy = { .v = tokInt };
 constexpr TypeId ZERO_ARITY_TYPE = { .v = -1 };
@@ -1730,11 +1730,11 @@ private void initCompiler();
 char const
 errNonAscii[]               = "Non-ASCII symbols are not allowed in code - only inside comments & string literals!";
 char const
-errPrematureEndOfInput[]      = "Premature end of input";
+errPrematureEndOfInput[]    = "Premature end of input";
 char const
-errUnrecognizedByte[]         = "Unrecognized Byte in source code!";
+errUnrecognizedByte[]       = "Unrecognized Byte in source code!";
 char const
-errWordChunkStart[]          = "In an identifier, each word piece must start with a letter. Tilde may come only after an identifier";
+errWordChunkStart[]         = "In an identifier, each word piece must start with a letter. Tilde may come only after an identifier";
 char const
 errWordCapitalizationOrder[]   = "An identifier may not contain a capitalized piece after an uncapitalized one!";
 char const
@@ -1809,10 +1809,16 @@ char const
 errCoreFormInappropriate[]   = "Inappropriate reserved word!";
 char const
 errIfLeft[]                  = "A left-hand clause in an if can only contain variables, boolean literals and expressions!";
-char const errIfRight[]      = "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!";
-char const errIfEmpty[]      = "Empty `if` expression";
-char const errIfMalformed[]  = "Malformed `if` expression, should look like (if pred: `true case` else `default`)";
-char const errIfElseMustBeLast[] = "An `else` subexpression must be the last thing in an `if`";
+char const
+errIfRight[]      = "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!";
+char const
+errIfEmpty[]      = "Empty `if` expression";
+char const
+errIfMalformed[]  = "Malformed `if` expression, should look like (if pred: `true case` else `default`)";
+char const
+errIfElseMustBeLast[] = "An `else` subexpression must be the last thing in an `if`";
+char const
+errFnTypeArrows[]  = "A function type should contain exactly one arrow: `F(Par1 Par2 -> ReturnType)`";
 char const
 errFnNameAndParams[]  = "Function signature must look like this: `{x Type1 y Type 2 ->  ReturnType => body...}`";
 char const
@@ -1858,7 +1864,7 @@ char const
 errAssignmentAccessOnToplevel[] = "Accessor on the left side of an assignment at toplevel";
 char const
 errAssignmentToFunctionVar[]    = "Assignment to a function variable should look like "
-                                  "`fn F[Int -> Long] = overloadedName;`";
+                                  "`fn F(Int -> Long) = overloadedName;`";
 char const
 errReturn[]               = "Cannot parse return statement, it must look like `return ` {expression}";
 char const
@@ -2460,23 +2466,41 @@ private void //:wordNormal
 wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          Bool wasCapitalized, SRC, LX) {
 // RealStartBt is the word-initial "$", "." etc if any, startBt is the first letter of the word
-   Int lenBts = lx->i - realStartBt;
+// Consumes the word and, for some symbols, the following symbol
+   Int const lenBts = lx->i - realStartBt;
    Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId,
          .startBt = realStartBt, .lenBts = lenBts };
-   if (wordType == tokWord && wasCapitalized)
-      { newToken.tp = tokTypeName; }
-   if (lx->i < lx->stats.inpLength) {
-      if (CURR_BT == aBracketLeft && wordType == tokWord) {
+   if (wordType == tokWord && wasCapitalized) { // a type
+      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aParenLeft) {
+         newToken.tp = tokTypeCall;
+         add(((BtToken){ .tp = tokTypeCall, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
+               lx->lexBtrack
+         );
+         lx->i++; // CONSUME the `(`
+      } ei (lx->tokens.len > 0) {
+         Token prevToken = lx->tokens.c[lx->tokens.len - 1]; 
+         if (prevToken.tp == tokParens) {
+            lx->tokens.c[lx->tokens.len - 1] = (Token){
+               .tp = tokTypeCall, .pl1 = uniqueStringId, .startBt = prevToken.startBt
+            };
+            return;
+         }
+         newToken.tp = tokTypeName;
+      } else {
+         newToken.tp = tokTypeName;
+      }
+   } ei (lx->i < lx->stats.inpLength) {
+      if (CURR_BT == aBracketLeft && wordType == tokWord) { // `a[5]`
          openPunctuation(tokAccessor, slSubexpr, realStartBt, lx);
          pushIntokens(newToken, lx);
          openPunctuation(tokAccessorIn, slSubexpr, lx->i, lx);
          lx->i++; // CONSUME the `[`
          return;
-      } ei (CURR_BT == aApostrophe) {
+      } ei (CURR_BT == aApostrophe) { // mutable var definition
          newToken.pl2 = 1;
          lx->i++; // CONSUME the `'`
       }
-   }
+   } 
    pushIntokens(newToken, lx);
 }
 
@@ -2738,9 +2762,27 @@ lexComment(SRC, LX) {
    }
 }
 
+private void //:lexArrow
+lexArrow(SRC, LX) {
+   VALIDATEL(lx->lexBtrack->len > 0, errFnTypeArrows)
+   BtToken top = last(lx->lexBtrack);
+   if (top.tp == tokTypeCall) {
+      VALIDATEL(top.spanLevel == slSubexpr
+         && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows)
+      lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
+   } ei (top.tp == tokScope) {
+      VALIDATEL(top.spanLevel == slScope
+         && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows)
+      lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokFn;
+      lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
+      lx->tokens.c[top.tokenInd].tp = tokFn;
+   }
+   lx->i += 2; // CONSUME the `->`
+}
+
 private void //:lexMinus
 lexMinus(SRC, LX) {
-// Handles the binary operator as well as the unary negation operator
+// Handles the binary operator, the unary negation operator and the arrow
    VALIDATEL(lx->i < lx->stats.inpLength - 1, errPrematureEndOfInput)
    Byte nextBt = NEXT_BT;
    if (isDigit(nextBt)) {
@@ -2753,6 +2795,8 @@ lexMinus(SRC, LX) {
       lx->i += 2; // CONSUME the "-" and the space
    } ei (nextBt == aColon || nextBt == aEqual || nextBt == aMinus) {
       lexOperator(source, lx);
+   } ei (nextBt == aGT)  {
+      lexArrow(source, lx);
    } else {
       pushIntokens((Token){ .tp = tokOperator, .pl1 = opNegate, .pl2 = OPERATORS[opNegate].prec,
                             .startBt = lx->i, .lenBts = 1 }, lx);
@@ -2790,7 +2834,10 @@ lexParenRight(SRC, LX) {
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
 
-   VALIDATEL(top.spanLevel == slSubexpr, errPunctuationUnmatched)
+   VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFn, errPunctuationUnmatched)
+   if (top.tp == tokTypeCall && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF)) {
+      VALIDATEL(top.spanLevel == slFn, errFnTypeArrows)
+   }
    mbCloseAssignRight(&top, lx);
 
    setSpanLengthLexer(top.tokenInd, lx);
@@ -2902,7 +2949,7 @@ lexStringLiteral(SRC, LX) { //:lexStringLiteral
    Int j = lx->i + 1;
    for (; j < lx->stats.inpLength && source[j] != aBacktick; j++);
    VALIDATEL(j != lx->stats.inpLength, errPrematureEndOfInput)
-   pushIntokens((Token){.tp=tokString, .startBt=(lx->i), .lenBts=(j - lx->i + 1)}, lx);
+   pushIntokens((Token){.tp = tokString, .startBt = (lx->i), .lenBts = (j - lx->i + 1)}, lx);
    lx->i = j + 1; // CONSUME the string literal, including the closing quote character
 }
 
@@ -2976,15 +3023,15 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 
 #define VALIDATEP(cond, errMsg) if (!(cond)) { throwExcParser0(errMsg, __LINE__, cm); }
 
-private TypeId exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM);
+private TypeId exprUpTo(Int sentinelToken, SourceLoc loc, TOKENS, CM);
 private void eClose(Expr* s, CM);
 private void addBinding(NameId nameId, Int bindingId, Compiler* cm);
 private void mbCloseSpans(CM);
 private void createBuiltins(Compiler* cm);
 private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
-private void eParse(Int sentinel, TOKS, CM);
-private TypeId exprHeadless(Int sentinel, SourceLoc loc, TOKS, CM);
-private TypeId pExprWorker(Token tk, TOKS, CM);
+private void eParse(Int sentinel, TOKENS, CM);
+private TypeId exprHeadless(Int sentinel, SourceLoc loc, TOKENS, CM);
+private TypeId pExprWorker(Token tk, TOKENS, CM);
 
 #define TYPE_CREATE_START(typeHeader) TypeId const tentativeType = typeOf(cm->types.len);\
        pushIntypes(0, cm);\
@@ -3199,7 +3246,7 @@ updateStats(Compiler* restrict cm) {
 //}}}
 //{{{ Forward decls
 
-private TypeId pTypeDef(TOKS, CM);
+private TypeId pTypeDef(TOKENS, CM);
 
 #ifdef DEBUG
 void printIntArrayOff(Int startInd, Int count, Arr(Int) arr);
@@ -3232,12 +3279,12 @@ openFnScope(Int funcOrMonoId, TypeId fnType, Byte callSort, SourceLoc loc, Int s
 }
 
 private void //:pScope
-pScope(Token tok, TOKS, CM) {
+pScope(Token tok, TOKENS, CM) {
    openParsedScope(cm->i + tok.pl2, (Node){.tp = nodScope}, locOf(tok), cm);
 }
 
 private void //:parseTry
-parseTry(Token tok, TOKS, CM) {
+parseTry(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
@@ -3251,16 +3298,16 @@ ifOpenSpan(Unt tp, Int sentinel, Int ifcl, SourceLoc loc, CM) {
 }
 
 private Int //:pIfDetermineSentinel
-pIfDetermineSentinel(Int ifSentinel, TOKS, CM) {
+pIfDetermineSentinel(Int ifSentinel, TOKENS, CM) {
     Int j = ifSentinel;
     Int const toksLen = cm->stats.toksLen;
-    for (; j < toksLen && toks[j].tp == tokElseIf; j += (toks[j].pl2 + 1)) {}
-    if (j < toksLen && toks[j].tp == tokElse)    { j += (toks[j].pl2 + 1); }
+    for (; j < toksLen && tokens[j].tp == tokElseIf; j += (tokens[j].pl2 + 1)) {}
+    if (j < toksLen && tokens[j].tp == tokElse)    { j += (tokens[j].pl2 + 1); }
     return j;
 }
 
 private void //:pElse
-pElse(Token tok, TOKS, CM) {
+pElse(Token tok, TOKENS, CM) {
 // "Else" is a special case of "ElseIf" marked with .pl3 = 0
    mbCloseSpans(cm);
    Int const ifSentinel = cm->i + tok.pl2;
@@ -3268,31 +3315,31 @@ pElse(Token tok, TOKS, CM) {
 }
 
 private void //:pIfClause
-pIfClause(Token tok, Int ifcl, TOKS, CM) {
+pIfClause(Token tok, Int ifcl, TOKENS, CM) {
    Int const clauseSentinel = cm->i + tok.pl2;
    ifOpenSpan(nodIfClause, clauseSentinel, ifcl, locOf(tok), cm);
 
    // The condition
-   Token stmtTok = toks[cm->i];
+   Token stmtTok = tokens[cm->i];
    cm->i++; // CONSUME the stmt token
-   TypeId typeLeft = pExprWorker(stmtTok, toks, cm);
+   TypeId typeLeft = pExprWorker(stmtTok, tokens, cm);
    VALIDATEP(eq(typeLeft, boolTy), errTypeMustBeBool)
    mbCloseSpans(cm);
 }
 
 private void //:pElseIf
-pElseIf(Token tok, TOKS, CM) {
-   pIfClause(tok, ifclElseIf, toks, cm);
+pElseIf(Token tok, TOKENS, CM) {
+   pIfClause(tok, ifclElseIf, tokens, cm);
 }
 
 private void //:pIf
-pIf(Token tok, TOKS, CM) {
+pIf(Token tok, TOKENS, CM) {
 // Parses and "if" expression with any following else-if clauses and an ending else clause.
    Int const firstClauseSentinel = calcSentinel(tok, cm->i - 1);
-   Int const ifSentinel = pIfDetermineSentinel(firstClauseSentinel, toks, cm);
+   Int const ifSentinel = pIfDetermineSentinel(firstClauseSentinel, tokens, cm);
 
    ifOpenSpan(nodIf, ifSentinel, 0, locOf(tok), cm);
-   pIfClause(tok, ifclIf, toks, cm);
+   pIfClause(tok, ifclIf, tokens, cm);
 }
 
 private void //:pAssignmentFnVar
@@ -3316,7 +3363,7 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
 }
 
 private void //:pAssignmentValidateLeftAccessors
-pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKS, CM) {
+pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
 // A complex left side must 1) have a variable as first node 2) have a field/array access as last
 // node 3) the first node must be consumed only by field/array accesses
 // OK: `x.a.b[15] = ...`, `x[15].a.b = ...`
@@ -3352,46 +3399,46 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKS, CM) {
 }
 
 private TypeId //:pAssignmentLeftComplexExpr
-pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKS, CM) {
+pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 // Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
 // arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElem
    LInt* sc = cm->expr->exp;
    sc->len = 0;
    Int const startBt = firstTok.startBt;
-   Int const lastBt = toks[cm->i - 1].startBt + toks[cm->i - 1].lenBts;
+   Int const lastBt = tokens[cm->i - 1].startBt + tokens[cm->i - 1].lenBts;
    SourceLoc loc = (SourceLoc){.startBt = startBt, .lenBts = lastBt - startBt};
    Int start = cm->ast.len + 1;
 
-   VALIDATEP(toks[cm->i + 1].tp == tokWord, errAssignmentLeftSide)
+   VALIDATEP(tokens[cm->i + 1].tp == tokWord, errAssignmentLeftSide)
    for (Int j = cm->i + 2; j < sentinel; ){
-      Token accessorTk = toks[j];
+      Token accessorTk = tokens[j];
       VALIDATEP(accessorTk.tp == tokAccessorIn, errAssignmentLeftSide)
       j = calcSentinel(accessorTk, j);
       add(j, sc);
    }
 
    TypeId leftType = exprUpToWithFrame((ParseFrame){
-      .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, loc, toks, cm
+      .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, loc, tokens, cm
    );
 
-   pAssignmentValidateLeftAccessors(start, cm->ast.len, toks, cm);
+   pAssignmentValidateLeftAccessors(start, cm->ast.len, tokens, cm);
    return leftType;
 }
 
 private TypeId //:pAssignmentLeftWithType
 pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT Bool* isAFnVar,
-      TOKS, CM) {
+      TOKENS, CM) {
 // Typechecks a complex left side like `x Foo Int = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
 // Precondition: we are looking right past tokDef or tokAssignment
    LInt* sc = cm->expr->exp;
    sc->len = 0;
-   Token nextTk = toks[cm->i + 1]; // +1 is safe because we know left side is long
+   Token nextTk = tokens[cm->i + 1]; // +1 is safe because we know left side is long
    // when the left side is a var definition with its type declared
    cm->tExpr->isGeneric = false;
 
-   TypeId leftType = teClause(cm->tExpr, sentinel, toks, cm);
+   TypeId leftType = teClause(cm->tExpr, sentinel, tokens, cm);
    VALIDATEP(!cm->tExpr->isGeneric, errTypePolymorphicAssignment)
 
    if (nextTk.pl1 == nameOfStandard(strF)) {
@@ -3409,13 +3456,13 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
 }
 
 private TypeId //:pAssignmentRight
-pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKS, CM) {
+pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKENS, CM) {
 // The right side of an assignment
    if (rightTk.tp == tokFn) {
       return ZERO_ARITY_TYPE;
    } else {
       TypeId rightType = exprUpToWithFrame((ParseFrame){
-        .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, locOf(rightTk), toks, cm
+        .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, locOf(rightTk), tokens, cm
       );
       VALIDATEP(rightType.v != -2, errAssignment)
       return rightType;
@@ -3423,11 +3470,11 @@ pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKS, CM) {
 }
 
 private void //:pAssignmentWorker
-pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
+pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    Unt const tp = (tok.tp == tokDef) ? nodDef : nodAssignment;
    TypeId leftType = ZERO_ARITY_TYPE;
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
-   Token rightTk = toks[assignment.rightTokenInd];
+   Token rightTk = tokens[assignment.rightTokenInd];
    VALIDATEP(assignment.rightTokenInd < assignment.sentinel && rightTk.pl2 > 0,
            errAssignmentEmptyRight)
 
@@ -3439,7 +3486,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
    );
    newNode((Node){ .tp = tp}, locOf(tok), cm);
 
-   Token firstTok = toks[cm->i];
+   Token firstTok = tokens[cm->i];
    if (countLeftSide == 1)  {
       varId = cm->activeBindings[assignment.name];
       Byte assiSort = assiVarAssignment;
@@ -3464,20 +3511,20 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKS, CM) {
             createVar(assignment.name, firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm);
       }
       newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort }, locOf(firstTok), cm);
-   } else if (toks[cm->i + 1].tp == tokTypeName || toks[cm->i + 1].tp == tokTypeCall) {
+   } else if (tokens[cm->i + 1].tp == tokTypeName || tokens[cm->i + 1].tp == tokTypeCall) {
       Bool isAFnVar = false;
       leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide,
-            OUT &isAFnVar, toks, cm);
+            OUT &isAFnVar, tokens, cm);
       if (isAFnVar)
          { goto closeSpans; }
    } else {
-      leftType = pAssignmentLeftComplexExpr(firstTok, assignment.rightTokenInd, toks, cm);
+      leftType = pAssignmentLeftComplexExpr(firstTok, assignment.rightTokenInd, tokens, cm);
    }
 
    cm->i = assignment.rightTokenInd + 1; // CONSUME everything up to body of right side
    cm->ast.c[assignmentNodeInd].pl3 = cm->ast.len - assignmentNodeInd;
 
-   TypeId const rightType = pAssignmentRight(leftType, rightTk, assignment.sentinel, toks, cm);
+   TypeId const rightType = pAssignmentRight(leftType, rightTk, assignment.sentinel, tokens, cm);
    if (varId > -1 && rightType.v > -1 && eq(leftType, ZERO_ARITY_TYPE)) {
       cm->vars.c[varId].typeId = rightType; // inferring the type of left binding
    } ei (leftType.v > -1 && rightType.v > -1) {
@@ -3488,38 +3535,38 @@ closeSpans:
 }
 
 private Assignment //:pPreparseAssignment
-pPreparseAssignment(Token tok, Int tokInd, TOKS, CM) {
+pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
 // Looks at a tokDef or tokAssignment to determine its key points: where is the right side,
 // is it a func definition, is the right side empty etc. Consumes no tokens.
 // Precondition: tokInd is 1 past the "tok"
    Int const sentinel = calcSentinel(tok, tokInd - 1);
    Int indRight = tokInd;
-   NameId firstTokenName = toks[tokInd].pl1;
+   NameId firstTokenName = tokens[tokInd].pl1;
    for (;
-       indRight < sentinel && toks[indRight].tp != tokAssignRight;
+       indRight < sentinel && tokens[indRight].tp != tokAssignRight;
        indRight++) {}
 
-   VALIDATEP((indRight < sentinel && toks[indRight].pl2 > 0), errAssignmentEmptyRight);
+   VALIDATEP((indRight < sentinel && tokens[indRight].pl2 > 0), errAssignmentEmptyRight);
 
    return (Assignment){
       .nameTokenInd = tokInd, .rightTokenInd = indRight, .sentinel = sentinel, .name = firstTokenName,
-      .isDef = (tok.tp == tokDef), .isFunction = toks[indRight + 1].tp == tokFn
+      .isDef = (tok.tp == tokDef), .isFunction = tokens[indRight + 1].tp == tokFn
    };
 }
 
 private void //:pAssignment
-pAssignment(Token tok, TOKS, CM) {
+pAssignment(Token tok, TOKENS, CM) {
 // Parses both assignments and compile-time defs
    if (tok.pl1 == assiTypeDefinition) {
-      pTypeDef(toks, cm);
+      pTypeDef(tokens, cm);
    } else {
-      Assignment assi = pPreparseAssignment(tok, cm->i, toks, cm);
-      pAssignmentWorker(tok, assi, toks, cm);
+      Assignment assi = pPreparseAssignment(tok, cm->i, tokens, cm);
+      pAssignmentWorker(tok, assi, tokens, cm);
    }
 }
 
 private void //:reorderFor
-reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int sentinel, TOKS, CM) {
+reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int sentinel, TOKENS, CM) {
 // Reorders tokens in a "for" loop. Preconditions: we are looking at (tokFor + 2),
 // one or both of stepIndInitial, bodyInd is positive.
 // BEFORE: tokFor misc (scope inits cond steps) body
@@ -3527,8 +3574,8 @@ reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int 
    Int totalLen = sentinel - scopeStart + 1; // +1 for the tokMisc which is before the scope
    Int scopeLen = minPositiveOf(2, stepInd, bodyInd) - scopeStart - 1;
    LToken* const buf = cm->expr->reorderBuf;
-   Token stepMarker = toks[cm->i];
-   Token scope = toks[scopeStart];
+   Token stepMarker = tokens[cm->i];
+   Token scope = tokens[scopeStart];
    scope.pl2 = scopeLen;
 
    ensureCapacityTokenBuf(totalLen, buf, cm);
@@ -3543,28 +3590,28 @@ reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int 
 
    // shifting piece 1 (initializers and condition) by one token back
    buf->c[0] = scope;
-   memcpy(buf->c + 1, toks + piece1Start, piece1Len*sizeof(Token));
+   memcpy(buf->c + 1, tokens + piece1Start, piece1Len*sizeof(Token));
    if (piece3Len > 0) {
-      memcpy(buf->c + 1 + piece1Len, toks + piece3Start, piece3Len*sizeof(Token));
+      memcpy(buf->c + 1 + piece1Len, tokens + piece3Start, piece3Len*sizeof(Token));
    }
    buf->c[1 + piece1Len + piece3Len] = (Token){
       .tp = tokMisc, .pl1 = miscForStep, .startBt = stepMarker.startBt
    };
    if (piece2Len > 0) {
-      memcpy(buf->c + 1 + piece1Len + piece3Len + 1, toks + piece2Start, piece2Len*sizeof(Token));
+      memcpy(buf->c + 1 + piece1Len + piece3Len + 1, tokens + piece2Start, piece2Len*sizeof(Token));
    }
 
-   memcpy(toks + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
+   memcpy(tokens + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
 
    Int const newStart = scopeStart - 1;
-   toks[newStart].pl2 = scopeLen;
+   tokens[newStart].pl2 = scopeLen;
    (*condInd)--;
    (*bodyInd) = newStart + 1 + piece1Len;
 }
 
 private void //:preambleFor
 preambleFor(Int scopeStart, Int sentinel,
-   OUT Int* condInd, OUT Int* bodyInd, OUT Int* stepInd, TOKS, CM
+   OUT Int* condInd, OUT Int* bodyInd, OUT Int* stepInd, TOKENS, CM
 ) {
 // Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
 // Consumes no tokens
@@ -3575,17 +3622,17 @@ preambleFor(Int scopeStart, Int sentinel,
 // 4) loop body (arbitrary syntax forms).
 // Precondition: looking at the tokScope right after tokFor.
 // Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
-   Int const scopeSentinel = calcSentinel(toks[scopeStart], scopeStart);
+   Int const scopeSentinel = calcSentinel(tokens[scopeStart], scopeStart);
    Int j = scopeStart + 1;
-   for (Token currTok = toks[j];
+   for (Token currTok = tokens[j];
         (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
-        currTok = toks[j]) {
+        currTok = tokens[j]) {
       j = calcSentinel(currTok, j);
       VALIDATEP(j < sentinel, errLoopEmptyStepBody)
    }
    VALIDATEP(j < scopeSentinel, errLoopNoCondition)
 
-   Token condTok = toks[j];
+   Token condTok = tokens[j];
    VALIDATEP((condTok.tp == tokStmt && condTok.pl2 > 0) || condTok.tp == tokBool,
              errLoopNoCondition)
    *condInd = j;
@@ -3593,7 +3640,7 @@ preambleFor(Int scopeStart, Int sentinel,
    j = calcSentinel(condTok, j); // skipping the cond
    VALIDATEP(j < sentinel, errLoopEmptyStepBody);
    *stepInd = j;
-   for (Token currTok = toks[j]; j < scopeSentinel; currTok = toks[j]) {
+   for (Token currTok = tokens[j]; j < scopeSentinel; currTok = tokens[j]) {
       VALIDATEP(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
                 errLoopWrongFormInStepper);
       j = calcSentinel(currTok, j);
@@ -3604,7 +3651,7 @@ preambleFor(Int scopeStart, Int sentinel,
 }
 
 private void //:pFor
-pFor(Token forTk, TOKS, CM) {
+pFor(Token forTk, TOKENS, CM) {
 // For loops. Look like "for x' = 0;  x < 100; x++ {  ... }"
 //                           ^initInd ^condInd ^stepInd ^bodyInd
 // At least a step or a body is syntactically required.
@@ -3625,37 +3672,37 @@ pFor(Token forTk, TOKS, CM) {
    Int stepInd = 0; // index of stepping code (or 0 if there was none)
    Int const forNodeInd = cm->ast.len;
 
-   VALIDATEP(toks[scopeStart].tp == tokScope, errLoopSyntaxError)
+   VALIDATEP(tokens[scopeStart].tp == tokScope, errLoopSyntaxError)
 
    // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
-   preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, toks, cm);
-   reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, toks, cm);
+   preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, tokens, cm);
+   reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, tokens, cm);
 
    Int const newScopeStart = scopeStart - 1;
    openParsedScope(sentinel, (Node){.tp = nodFor }, locOf(forTk), cm);
 
    // variable initializations
    for (cm->i = newScopeStart + 1; cm->i < condInd;) {
-      Token tok = toks[cm->i];
+      Token tok = tokens[cm->i];
       cm->i++; // CONSUME the assignment span marker
-      pAssignment(tok, toks, cm);
+      pAssignment(tok, tokens, cm);
    }
 
    // loop condition
-   Token condTok = toks[condInd];
+   Token condTok = tokens[condInd];
    cm->i = condInd + 1; // +1 cause the expression parser needs to be 1 past the exprToken
    Int const condNodeInd = cm->ast.len;
    TypeId condType = exprUpToWithFrame((ParseFrame){
          .level = 0, .startNodeInd = cm->ast.len,
          .sentinel = minPositiveOf(2, bodyInd, sentinel)
       },
-      locOf(condTok), toks, cm
+      locOf(condTok), tokens, cm
    );
    VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
 
    Int sndInd = minPositiveOf(2, stepInd, bodyInd);
    // readying to parse the body + step statements
-   Int bodyStartBt = toks[sndInd].startBt;
+   Int bodyStartBt = tokens[sndInd].startBt;
 
    cm->ast.c[forNodeInd].pl1 = condNodeInd - forNodeInd; // distance to the condition
    openParsedScope(
@@ -3667,7 +3714,7 @@ pFor(Token forTk, TOKS, CM) {
 }
 
 private void //:pForStep
-pForStepMarker(Token tok, TOKS, CM) {
+pForStepMarker(Token tok, TOKENS, CM) {
 // tokMisc as a span token must be the marker for stepping code in for loops
    VALIDATEI(tok.pl1 == miscForStep, iErrorInconsistentSpans);
 
@@ -3682,7 +3729,7 @@ pForStepMarker(Token tok, TOKS, CM) {
 }
 
 private void //:parseErrorBareAtom
-parseErrorBareAtom(Token tok, TOKS, CM) {
+parseErrorBareAtom(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
@@ -3872,44 +3919,44 @@ eSaveNodes(Int startNodeInd, CM) {
 }
 
 Int //:subexSkipFirstThing
-subexSkipFirstThing(Int const start, Int const subSentinel, TOKS, CM) {
+subexSkipFirstThing(Int const start, Int const subSentinel, TOKENS, CM) {
 // Skips a lump of tokens consisting of:
 // - possibly unary operator calls with definitely, an atom or a span
 // - OR
 // - an atom or a span with possibly field accessors.
 // Examples: `$a`, `a.b.c` but NOT `$a.b.c`
    Int j = start;
-   for (; j < subSentinel && toks[j].tp == tokOperator && toks[j].pl2 == precUnary;
+   for (; j < subSentinel && tokens[j].tp == tokOperator && tokens[j].pl2 == precUnary;
          j++
    ) {}
    Bool foundPrefix = j > start;
 
    VALIDATEP(j < subSentinel, errExpressionError); // expression consisting solely of unary opers
-   j = calcSentinel(toks[j], j);
+   j = calcSentinel(tokens[j], j);
 
    if (foundPrefix)
       { return j; }
-   for (; j < subSentinel && toks[j].tp == tokFieldAcc; j++) {
+   for (; j < subSentinel && tokens[j].tp == tokFieldAcc; j++) {
    }
    return j;
 }
 
 void //:subexProcessFirstTokenIfItsACall
-subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKS, CM) {
+subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKENS, CM) {
 // Pre-parses the start of a complex subexpression. Consumes 0 or 1 tokens.
 // Iff the second thing is a non-prefix operator or .call, returns false; otherwise the first
 // token must be a word and is processed.
-   Int j = subexSkipFirstThing(start, subSentinel, toks, cm);
+   Int j = subexSkipFirstThing(start, subSentinel, tokens, cm);
    if (j == subSentinel)
       { return; } // the `(call)` case
 
-   Token secondThing = toks[j];
+   Token secondThing = tokens[j];
    if (secondThing.tp == tokOperator && secondThing.pl2 != precUnary) {
       // the `a + b` or `(..) .func b` case
       return;
    } else {
       // the `foo a b c` case
-      Token theCall = toks[start];
+      Token theCall = tokens[start];
       VALIDATEP(theCall.tp == tokWord, errExpressionFunctionless);
       add(
          ((ExprFrame) {
@@ -3923,13 +3970,13 @@ subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKS, CM) {
 }
 
 private void //:eParens
-eParens(Token cTk, ExprFrame parent, Expr* e, TOKS, CM) {
+eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
 // Precondition: we are pointing at tokParens
 // Consumes 0 or 1 tokens.
    Int parensSentinel = calcSentinel(cTk, cm->i);
    SourceLoc loc = locOf(cTk);
    if (parensSentinel == cm->i + 2) { // A nullary call like `(call)`
-      Token callTk = toks[cm->i + 1];
+      Token callTk = tokens[cm->i + 1];
       SourceLoc callLoc = locOf(callTk);
       if (parent.tp == exfrDataAlloc) {
          // inside a data allocator, subexprs need to be wrapped in nodExpr for t-checking & codegen
@@ -3953,12 +4000,12 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKS, CM) {
       add(((ExprFrame){
             .tp = tp, .startNode = e->scr->len, .sentinel = parensSentinel,
             .argCount = 0, .loc = loc }), e->frames);
-      subexProcessFirstTokenIfItsACall(cm->i + 1, parensSentinel, toks, cm);
+      subexProcessFirstTokenIfItsACall(cm->i + 1, parensSentinel, tokens, cm);
    }
 }
 
 private void //:eProcessToken
-eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
+eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    ExprFrame parent = last(e->frames);
    SourceLoc loc = locOf(cTk);
    NameId name = cTk.pl1;
@@ -3983,7 +4030,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
          e->frames
       );
       cm->i++; // CONSUME the tokAccessor
-      Token varTk = toks[cm->i];
+      Token varTk = tokens[cm->i];
       VALIDATEP(varTk.tp == tokWord, errExpressionError);
       Node node = createNodVarForName(varTk.pl1, cm);
       add(node, e->scr);
@@ -4011,7 +4058,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
       eBumpArgCount(e->frames);
       break;
    case tokParens:
-      eParens(cTk, parent, e, toks, cm); break;
+      eParens(cTk, parent, e, tokens, cm); break;
    case tokData:
       e->metAnAllocation = true;
       eBumpArgCount(e->frames);
@@ -4028,7 +4075,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKS, CM) {
 }
 
 private void //:eParse
-eParse(Int sentinel, TOKS, CM) {
+eParse(Int sentinel, TOKENS, CM) {
 // The core code of the general, long expression parse. Starts at cm->i and parses until
 // "sentinel". Produces a linear sequence of operands and calls with arg counts in
 // Reverse Polish Notation. Handles data allocations, too. But not single-item exprs.
@@ -4042,25 +4089,25 @@ eParse(Int sentinel, TOKS, CM) {
    frames->len = 0;
    scr->len = 0;
    locsScr->len = 0;
-   if (toks[cm->i].tp != tokParens || calcSentinel(toks[cm->i], cm->i) < sentinel)
+   if (tokens[cm->i].tp != tokParens || calcSentinel(tokens[cm->i], cm->i) < sentinel)
       { add(((ExprFrame){ .tp = exfrParen, .sentinel = sentinel}), frames); }
 
-   subexProcessFirstTokenIfItsACall(cm->i, sentinel, toks, cm);
+   subexProcessFirstTokenIfItsACall(cm->i, sentinel, tokens, cm);
    for (; cm->i < sentinel; cm->i++) { // CONSUME any expression token
       eClose(e, cm);
-      eProcessToken(toks[cm->i], sentinel, e, toks, cm);
+      eProcessToken(tokens[cm->i], sentinel, e, tokens, cm);
    }
    eClose(e, cm);
 }
 
 private TypeId //:exprUpToWithFrame
-exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
+exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKENS, CM) {
 // The main "big" expression parser. Parses an expression whether there is a
 // token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
 // Precondition: we are looking 1 past the tokExpr or tokParens
 // CONSUMES the whole expression
    if (cm->i + 1 == frame.sentinel) { // the [stmt 1, tokInt] case
-      Token singleToken = toks[cm->i];
+      Token singleToken = tokens[cm->i];
       if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord
             || singleToken.tp == tokData) {
          cm->i++;
@@ -4071,7 +4118,7 @@ exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
    add(frame, cm->backtrack);
    newNode((Node){ .tp = nodExpr}, loc, cm);
 
-   eParse(frame.sentinel, toks, cm);
+   eParse(frame.sentinel, tokens, cm);
    eSaveNodes(startNodeInd, cm);
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    mbCloseSpans(cm);
@@ -4079,7 +4126,7 @@ exprUpToWithFrame(ParseFrame frame, SourceLoc loc, TOKS, CM) {
 }
 
 private TypeId //:exprUpTo
-exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
+exprUpTo(Int sentinelToken, SourceLoc loc, TOKENS, CM) {
 // The main "big" expression parser. Parses an expression whether there is a token or not.
 // Precondition: we are looking 1 past the tokExpr or tokParens.
 // Starts from cm->i and goes up to the sentinel token. Emits a nodExpr and opens a corresponding
@@ -4089,7 +4136,7 @@ exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
       ((ParseFrame){ .startNodeInd = startNodeInd, .sentinel = sentinelToken }), cm->backtrack
    );
    newNode((Node){ .tp = nodExpr}, loc, cm);
-   eParse(sentinelToken, toks, cm);
+   eParse(sentinelToken, tokens, cm);
    eSaveNodes(startNodeInd, cm);
 
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
@@ -4098,28 +4145,28 @@ exprUpTo(Int sentinelToken, SourceLoc loc, TOKS, CM) {
 }
 
 private TypeId //:exprHeadless
-exprHeadless(Int sentinel, SourceLoc loc, TOKS, CM) {
+exprHeadless(Int sentinel, SourceLoc loc, TOKENS, CM) {
 // Precondition: we are looking at the first token of expr which does not have a
 // tokStmt/tokParens header. If "omitSpan" is set, this function will not emit a nodExpr nor
 // create a ParseFrame.
 // Consumes 1 or more tokens. Returns the type of parsed expression
    if (cm->i + 1 == sentinel) { // the [stmt 1, tokInt] case
-      Token singleToken = toks[cm->i];
+      Token singleToken = tokens[cm->i];
       if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord) {
          cm->i++; // CONSUME the single literal
          return exprSingleItem(singleToken, cm);
       }
    }
-   return exprUpTo(sentinel, loc, toks, cm);
+   return exprUpTo(sentinel, loc, tokens, cm);
 }
 
 private TypeId //:pExprWorker
-pExprWorker(Token tok, TOKS, CM) {
+pExprWorker(Token tok, TOKENS, CM) {
 // Precondition: we are looking 1 past the first token of expr, which is the first parameter.
 // Consumes 1 or more tokens. Handles single items also Returns the type of parsed expression
    if (tok.tp == tokStmt || tok.tp == tokParens) {
       if (tok.pl2 == 1) {
-         Token singleToken = toks[cm->i];
+         Token singleToken = tokens[cm->i];
          if (singleToken.tp <= topVerbatimTokenVariant || singleToken.tp == tokWord) {
             // [stmt 1, tokInt]
             cm->i++; // CONSUME the single literal token
@@ -4127,14 +4174,14 @@ pExprWorker(Token tok, TOKS, CM) {
          }
       }
 
-      return exprUpTo(cm->i + tok.pl2, locOf(tok), toks, cm);
+      return exprUpTo(cm->i + tok.pl2, locOf(tok), tokens, cm);
    } else {
       return exprSingleItem(tok, cm);
    }
 }
 
 private void //:pExpr
-pExpr(Token tok, TOKS, CM) { pExprWorker(tok, toks, cm); }
+pExpr(Token tok, TOKENS, CM) { pExprWorker(tok, tokens, cm); }
 
 
 private void //:mbCloseSpans
@@ -4160,28 +4207,28 @@ mbCloseSpans(CM) {
 }
 
 private void //:parseUpTo
-parseUpTo(Int sentinelToken, TOKS, CM) {
+parseUpTo(Int sentinelToken, TOKENS, CM) {
 // Parses anything from current cm->i to "sentinelToken"
    while (cm->i < sentinelToken) {
-      Token currTok = toks[cm->i];
+      Token currTok = tokens[cm->i];
       cm->i++;
-      (PARSE_TABLE[currTok.tp])(currTok, toks, cm);
+      (PARSE_TABLE[currTok.tp])(currTok, tokens, cm);
       mbCloseSpans(cm);
    }
 }
 
 private void //:pAlias
-pAlias(Token tok, TOKS, CM) {
+pAlias(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 private void
-parseAssert(Token tok, TOKS, CM) {
+parseAssert(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 private Node //:breakContinue
-breakContinue(Token tok, TOKS, CM) {
+breakContinue(Token tok, TOKENS, CM) {
 // Returns the number of levels to break/continue to, or 1 if there weren't any specified
 // For continue, the number is increased by BIG. Consumes no nodes.
    VALIDATEP(tok.pl2 <= 1, errBreakContinueTooComplex);
@@ -4189,7 +4236,7 @@ breakContinue(Token tok, TOKS, CM) {
 
    Int unwindDepth = 1;
    if (tok.pl2 > 0) {
-      Token nextTok = toks[cm->i];
+      Token nextTok = tokens[cm->i];
       VALIDATEP(nextTok.tp == tokInt && nextTok.pl1 == 0 && nextTok.pl2 > 0,
                 errBreakContinueInvalidDepth)
       unwindDepth = nextTok.pl2;
@@ -4216,53 +4263,53 @@ breakContinue(Token tok, TOKS, CM) {
 }
 
 private void //:pBreakCont
-pBreakCont(Token tok, TOKS, CM) {
-   Node breakContNode = breakContinue(tok, toks, cm);
+pBreakCont(Token tok, TOKENS, CM) {
+   Node breakContNode = breakContinue(tok, tokens, cm);
    newNode(breakContNode, locOf(tok), cm);
    cm->i = calcSentinel(tok, cm->i - 1); // CONSUME the whole break statement
 }
 
 private void
-parseCatch(Token tok, TOKS, CM) {
+parseCatch(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
-private void parseDefer(Token tok, TOKS, CM) {
-   throwExcParser(errTemp);
-}
-
-
-private void pTrait(Token tok, TOKS, CM) {
+private void parseDefer(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 
-private void parseImpl(Token tok, TOKS, CM) {
+private void pTrait(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 
-private void parseLambda(Token tok, TOKS, CM) {
+private void parseImpl(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 
-private void parseLambda1(Token tok, TOKS, CM) {
+private void parseLambda(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 
-private void parseLambda2(Token tok, TOKS, CM) {
+private void parseLambda1(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 
-private void parsePackage(Token tok, TOKS, CM) {
+private void parseLambda2(Token tok, TOKENS, CM) {
+   throwExcParser(errTemp);
+}
+
+
+private void parsePackage(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
 private void //:pReturn
-pReturn(Token tok, TOKS, CM) {
+pReturn(Token tok, TOKENS, CM) {
    Int lenTokens = tok.pl2;
    Int sentinelToken = cm->i + lenTokens;
    if (lenTokens == 0) {
@@ -4279,9 +4326,9 @@ pReturn(Token tok, TOKS, CM) {
                   .sentinel = sentinelToken }), cm->backtrack);
    newNode((Node){.tp = nodReturn}, locOf(tok), cm);
 
-   Token rTk = toks[cm->i];
+   Token rTk = tokens[cm->i];
    SourceLoc loc = {.startBt = rTk.startBt, .lenBts = tok.lenBts - rTk.startBt + tok.startBt};
-   TypeId const exprTy = exprHeadless(sentinelToken, loc, toks, cm);
+   TypeId const exprTy = exprHeadless(sentinelToken, loc, tokens, cm);
    VALIDATEP(exprTy.v > -1, errReturn)
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
    VALIDATEP(eq(returnType, exprTy), errTypeWrongReturnType);
@@ -5138,15 +5185,15 @@ pFnCreateType(TExpr* te, CM) {
 }
 
 private void //:pFnSignature
-pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
+pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKENS, CM) {
 // Parses a function signature. Emits no nodes, adds data to @toplevels, @functions, @overloads.
 // Pre-condition: we are at tokFnParams
    TExpr* te = cm->tExpr;
    Int const indParams = cm->i;
 
-   VALIDATEI(toks[cm->i].tp == tokFnParams, iErrorInconsistentSpans);
+   VALIDATEI(tokens[cm->i].tp == tokFnParams, iErrorInconsistentSpans);
 
-   Token paramListTk = toks[cm->i];
+   Token paramListTk = tokens[cm->i];
    Int paramsSentinel = calcSentinel(paramListTk, cm->i);
    TypeId newFnType = voidToVoid; // default for nullary functions
    Bool const hasReturnType = fnAssign.rightTokenInd - fnAssign.nameTokenInd > 1;
@@ -5160,7 +5207,7 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
    TypeId returnType = typeOf(voidType);
    if (hasReturnType) {
       cm->i = fnAssign.nameTokenInd; // To function name token
-      returnType = teClause(te, fnAssign.rightTokenInd, toks, cm);
+      returnType = teClause(te, fnAssign.rightTokenInd, tokens, cm);
    }
 
    Int arity = 0;
@@ -5169,11 +5216,11 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
 
    tFreshState(te);
    for (cm->i = indParams + 1; cm->i < paramsSentinel;) {
-      Token clause = toks[cm->i];
+      Token clause = tokens[cm->i];
       VALIDATEP(clause.tp == tokClause, errTypeDefCannotContain)
       Int const clauseSentinel = calcSentinel(clause, cm->i);
       cm->i++; // CONSUME the tokStmt
-      TypeId paramType = teClause(te, clauseSentinel, toks, cm);
+      TypeId paramType = teClause(te, clauseSentinel, tokens, cm);
 
       add(paramType.v, te->fnScratch);
       cm->i = clauseSentinel; // CONSUME the statement
@@ -5206,15 +5253,15 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKS, CM) {
 }
 
 private void //:pToplevelBodyWorker
-pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte callSort, TOKS, CM) {
+pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte callSort, TOKENS, CM) {
    cm->i = tokenInd; // tokFn
-   Token fnTk = toks[tokenInd];
+   Token fnTk = tokens[tokenInd];
    Int const fnSentinel = calcSentinel(fnTk, tokenInd);
 
    openFnScope(funcOrMonoId, concreteType, callSort, locOf(fnTk), fnSentinel, cm);
 
    cm->i++; // CONSUME the tokFn token
-   Token paramsTk = toks[cm->i]; // tokFnParams
+   Token paramsTk = tokens[cm->i]; // tokFnParams
    Int const paramsSentinel = calcSentinel(paramsTk, cm->i);
    if (paramsTk.pl2 == 0)
       { goto bodyParsing; }
@@ -5223,13 +5270,13 @@ pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte ca
    for (
       Int j = tGetIndexOfFnFirstParam(concreteType, cm).v;
       cm->i < paramsSentinel;
-      cm->i = calcSentinel(toks[cm->i], cm->i), // CONSUME the tokens of param clause
+      cm->i = calcSentinel(tokens[cm->i], cm->i), // CONSUME the tokens of param clause
       j++
    ) {
       // must get params type from the concrete function type we got, not
       // from tokens (where they may be generic)
 
-      Token paramNameTk = toks[cm->i + 1];
+      Token paramNameTk = tokens[cm->i + 1];
       TypeId paramType = typeOf(cm->types.c[j]);
       NameId name = paramNameTk.pl1;
       VarId newVarId = createVarWithType(
@@ -5242,11 +5289,11 @@ pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte ca
    }
    bodyParsing:
    cm->i = paramsSentinel;
-   parseUpTo(fnSentinel, toks, cm);
+   parseUpTo(fnSentinel, tokens, cm);
 }
 
 private void //:pToplevelBody
-pToplevelBody(FunctionId fnId, TOKS, CM) {
+pToplevelBody(FunctionId fnId, TOKENS, CM) {
 // Parses a top-level function. The result is the AST [ FnDef ParamList body... ]
 // Uses the function's type to introduce local vars for the function params
    cm->functions.c[fnId].nodeInd = cm->ast.len;
@@ -5256,11 +5303,11 @@ pToplevelBody(FunctionId fnId, TOKS, CM) {
    if (hdr.isGeneric) // generic functions arn't parsed, only their monomorphizations
       { return; }
 
-   pToplevelBodyWorker(fn.tokenInd, fnId, fnType, callNormal, toks, cm);
+   pToplevelBodyWorker(fn.tokenInd, fnId, fnType, callNormal, tokens, cm);
 }
 
 void //:generateMonomorphizations
-generateMonomorphizations(TOKS, CM) {
+generateMonomorphizations(TOKENS, CM) {
 // Generate monomorphizations for any code in @genericCalls
    for (Monomorphization* m = cm->monos->c; m < cm->monos->c + cm->monos->len; m++) {
       Int const newFnId = cm->functions.len;
@@ -5274,7 +5321,8 @@ generateMonomorphizations(TOKS, CM) {
          pushIntoplevels(newFnId, cm);
          m->fnId = newFnId;
          pToplevelBodyWorker(m->tokenInd, m - cm->monos->c, m->concrete, callMonomorph,
-            toks, cm);
+            tokens, cm
+         );
       } else { // imported host functions
          pushInfunctions(
             ((Function){ .name = m->name, .typeId = m->concrete,
@@ -5289,15 +5337,15 @@ generateMonomorphizations(TOKS, CM) {
 }
 
 private void //:pFunctionBodies
-pFunctionBodies(TOKS, CM) {
+pFunctionBodies(TOKENS, CM) {
 // Parses top-level function params and bodies
    for (int j = 0; j < cm->toplevels.len; j++) {
-      pToplevelBody(cm->toplevels.c[j], toks, cm);
+      pToplevelBody(cm->toplevels.c[j], tokens, cm);
    }
 }
 
 private void //:pToplevelSignatures
-pToplevelSignatures(TOKS, CM) {
+pToplevelSignatures(TOKENS, CM) {
 // Walks the top-level functions' signatures (but not bodies). Increments counts of overloads
 // Result: the overload counts and the list of toplevel functions to parse. No nodes emitted
    cm->i = 0;
@@ -5306,15 +5354,15 @@ pToplevelSignatures(TOKS, CM) {
    TypeId const voidToVoid = addConcrFnType(1, (Int[]){ voidType, voidType}, cm);
 
    Int nextI = 0;
-   for (Token tok = toks[cm->i]; cm->i < len; cm->i = nextI, tok = toks[cm->i]) {
+   for (Token tok = tokens[cm->i]; cm->i < len; cm->i = nextI, tok = tokens[cm->i]) {
       nextI = calcSentinel(tok, cm->i);
       if (tok.tp != tokDef)
          { continue; }
-      Assignment fnAssign = pPreparseAssignment(tok, cm->i + 1, toks, cm);
+      Assignment fnAssign = pPreparseAssignment(tok, cm->i + 1, tokens, cm);
       if (!fnAssign.isFunction)
          { continue; }
 
-      Token nameTk = toks[cm->i + 1];
+      Token nameTk = tokens[cm->i + 1];
       VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errAssignmentToplevelFn)
 
       // since this is an immutable definition tokDef, its pl1 is the nameId
@@ -5322,7 +5370,7 @@ pToplevelSignatures(TOKS, CM) {
       cm->i = fnAssign.rightTokenInd + 2; // CONSUME the left side, tokAssignmentRight and tokFn
       fnAssign.name = name;
 
-      pFnSignature(fnAssign, voidToVoid, toks, cm);
+      pFnSignature(fnAssign, voidToVoid, tokens, cm);
    }
 }
 
@@ -5757,7 +5805,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, LTypeFrame* frames, CM) {
 }
 
 private TypeId //:teClauseComplexType
-teClauseComplexType(TExpr* te, Int sentinel, TOKS, CM) {
+teClauseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
 // For a clause like `lst L Double`, parses the `L Double` part.
 // Precondition: we are looking JUST PAST the first type token (`Double` in this example),
 // while the first one has been added as a type call.
@@ -5765,7 +5813,7 @@ teClauseComplexType(TExpr* te, Int sentinel, TOKS, CM) {
    LTypeFrame* frames = te->frames;
    while (cm->i < sentinel) {
       teClose(te, cm);
-      Token cTk = toks[cm->i];
+      Token cTk = tokens[cm->i];
       cm->i++; // CONSUME the current token
 
       VALIDATEP(frames->len > 0, errTypeDefError)
@@ -5810,11 +5858,11 @@ teClauseComplexType(TExpr* te, Int sentinel, TOKS, CM) {
 }
 
 private TypeId //:tExpr
-tExpr(TExpr* te, Int sentinel, TOKS, CM) {
+tExpr(TExpr* te, Int sentinel, TOKENS, CM) {
 // Parses `L Double`.
 // Precondition: we are looking at the first type token (e.g. `L`).
 // Produces a linear, RPN sequence. Populates @te.exp
-   Token firstTypeTk = toks[cm->i];
+   Token firstTypeTk = tokens[cm->i];
    VALIDATEP(firstTypeTk.tp == tokTypeName || firstTypeTk.tp == tokTypeVar, errTypeDefError)
    if (cm->i + 1 == sentinel) { // single-name type
       if (firstTypeTk.tp == tokTypeName)  {
@@ -5828,25 +5876,25 @@ tExpr(TExpr* te, Int sentinel, TOKS, CM) {
 
       teOpenTypeCall(firstTypeTk.pl1, sentinel, te->frames, cm);
       cm->i++; // CONSUME the first type name (which is actually a call)
-      return teClauseComplexType(te, sentinel, toks, cm);
+      return teClauseComplexType(te, sentinel, tokens, cm);
    }
 }
 
 private TypeId //:teClause
-teClause(TExpr* te, Int sentinel, TOKS, CM) {
+teClause(TExpr* te, Int sentinel, TOKENS, CM) {
 // Parses `lst S Double`.
 // Precondition: we are looking at the name token (e.g. `lst`).
 // @te.frames, @te.exp etc must be empty. Produces a linear, RPN sequence.
    tFreshState(te);
-   Token nameTk = toks[cm->i];
+   Token nameTk = tokens[cm->i];
    VALIDATEP(nameTk.tp == tokWord, errTypeDefError)
    add(nameTk.pl1, te->names);
    cm->i++; // CONSUME the name of the clause
-   return tExpr(te, sentinel, toks, cm);
+   return tExpr(te, sentinel, tokens, cm);
 }
 
 private TypeId //:pTypeDef
-pTypeDef(TOKS, CM) {
+pTypeDef(TOKENS, CM) {
 // Builds a type expression from a type definition or a function signature.
 // Example 1: `Foo = (Rec id Int; name String;)`
 // Example 2: `(F a Double; b Bool; String;)`
@@ -5857,15 +5905,15 @@ pTypeDef(TOKS, CM) {
 // Consumes the whole type assignment right side, or the whole function signature
 // Data format: see "Type expression data format"
 // Precondition: we are 1 past the tokAssignmentRight token, or tokFnParams token
-   VALIDATEP(toks[cm->i + 1].tp == tokAssignRight, errAssignmentLeftSide)
+   VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, errAssignmentLeftSide)
    cm->tExpr->frames->len = 0;
 
-   Int sentinel = cm->i + toks[cm->i - 1].pl2; // we get the length from the tokAssignmentRight
-   Token nameTk = toks[cm->i];
+   Int sentinel = cm->i + tokens[cm->i - 1].pl2; // we get the length from the tokAssignmentRight
+   Token nameTk = tokens[cm->i];
    cm->i += 2; // CONSUME the type name and the tokAssignmentRight
 
    VALIDATEP(cm->i < sentinel, errTypeDefError)
-   TypeId newType = tExpr(cm->tExpr, sentinel, toks, cm);
+   TypeId newType = tExpr(cm->tExpr, sentinel, tokens, cm);
    NameId name = nameTk.pl1;
    cm->activeBindings[name] = newType.v;
    cm->types.c[newType.v + 1] = name;

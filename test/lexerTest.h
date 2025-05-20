@@ -136,6 +136,7 @@ extern char const errCoreNotInsideStmt[];
 extern char const errCoreMisplacedElse[];
 extern char const errCoreMissingParen[];
 extern char const errIndentation[];
+extern char const errFnTypeArrows[];
 
 // Span levels, must all be more than 0
 #define slScope        1 // scopes (denoted by brackets): newlines and commas have no effect there

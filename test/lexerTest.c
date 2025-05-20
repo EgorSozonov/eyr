@@ -1081,6 +1081,31 @@ LexerTestSet* typeTests(Arena* a) {
                  (Token){ .tp = tokWord,  .pl1 = strPrint + S, .startBt = 19, .lenBts = 5 },
                  (Token){ .tp = tokWord,     .pl1 = 2, .startBt = 25, .lenBts = 1 },
          }))},
+         (LexerTest) { .name = s("Function type"),
+             .input = s("F(From -> To)"),
+             .expectedOutput = expect(((Token[]) {
+                 (Token){ .tp = tokStmt, .pl2 = 3,  .lenBts = 13 },
+                 (Token){ .tp = tokTypeCall, .pl1 = nameOfStandard(strF), .pl2 = 2, .lenBts = 13 },
+                 (Token){ .tp = tokTypeName, .pl1 = 0, .startBt = 2, .lenBts = 4 },
+                 (Token){ .tp = tokTypeName, .pl1 = 1, .startBt = 10, .lenBts = 2 }
+         }))},
+         (LexerTest) { .name = s("Function type error: multiple arrows"),
+             .input = s("F(Aa -> B -> C)"),
+             .expectedOutput = buildLexerWithError(s(errFnTypeArrows), ((Token[]) {
+                 (Token){ .tp = tokStmt, .pl2 = 0,  .lenBts = 0 },
+                 (Token){ .tp = tokTypeCall, .pl1 = nameOfStandard(strF), .pl2 = 0, .lenBts = 1 },
+                 (Token){ .tp = tokTypeName, .pl1 = 0, .startBt = 2, .lenBts = 2 },
+                 (Token){ .tp = tokTypeName, .pl1 = 1, .startBt = 8, .lenBts = 1 }
+         }))},
+         (LexerTest) { .name = s("Function type error: no arrows"),
+             .input = s("F(Aa B C)"),
+             .expectedOutput = buildLexerWithError(s(errFnTypeArrows), ((Token[]) {
+                 (Token){ .tp = tokStmt, .pl2 = 0,  .lenBts = 0 },
+                 (Token){ .tp = tokTypeCall, .pl1 = nameOfStandard(strF), .pl2 = 0, .lenBts = 1 },
+                 (Token){ .tp = tokTypeName, .pl1 = 0, .startBt = 2, .lenBts = 2 },
+                 (Token){ .tp = tokTypeName, .pl1 = 1, .startBt = 5, .lenBts = 1 },
+                 (Token){ .tp = tokTypeName, .pl1 = 2, .startBt = 7, .lenBts = 1 }
+         }))},
          (LexerTest) { .name = s("Data allocations"),
              .input = s("[[1 2 3] [-3 4 5]];"),
              .expectedOutput = expect(((Token[]) {
