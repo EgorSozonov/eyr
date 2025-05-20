@@ -97,43 +97,42 @@ typedef struct { // :Token
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
-#define tokTypeName     7  // pl1 same as tokWord
-#define tokTypeVar      8  // pl1 same as tokWord. The `$A`
-#define tokKwArg        9  // pl2 = same as tokWord. The ":argName"
-#define tokOperator    10  // pl1 = nameId = operId, pl2 = precedence. `+`
-#define tokFieldAcc    11  // pl2 = nameId
+#define tokTypeVar      7  // pl1 same as tokWord. The `$A`
+#define tokKwArg        8  // pl2 = same as tokWord. The ":argName"
+#define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
+#define tokFieldAcc    10  // pl2 = nameId
 
 // Statement or subexpr span types. pl2 = count of inner tokens
-#define tokStmt        12  // firstSpanTokenType
-#define tokClause      13  // Element of a comma-separated list
-#define tokDef         14  // Compile-time known constant's definition. pl1 == 2 iff type def
-#define tokParens      15  // subexpressions and struct/sum type instances
-#define tokTypeCall    16  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
-#define tokData        17  // []
-#define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
-#define tokAccessorIn  19  // The internal `[]` block inside an accessor
-#define tokAssignment  20
-#define tokAssignRight 21  // Right-hand side of assignment
-#define tokAlias       22
-#define tokAssert      23
-#define tokBreakCont   24  // pl1 = 1 iff it's a continue
-#define tokTrait       25
-#define tokImport      26  // For test files and package decls
-#define tokReturn      27
+#define tokStmt        11  // firstSpanTokenType
+#define tokClause      12  // Element of a comma-separated list
+#define tokDef         13  // Compile-time known constant's definition. pl1 == 2 iff type def
+#define tokParens      14  // subexpressions and struct/sum type instances
+#define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
+#define tokData        16  // []
+#define tokAccessor    17  // The umbrella around an accessor subexpression like `x[i][j][k]`
+#define tokAccessorIn  18  // The internal `[]` block inside an accessor
+#define tokAssignment  19
+#define tokAssignRight 20  // Right-hand side of assignment
+#define tokAlias       21
+#define tokAssert      22
+#define tokBreakCont   23  // pl1 = 1 iff it's a continue
+#define tokTrait       24
+#define tokImport      25  // For test files and package decls
+#define tokReturn      26
 
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       28  // `(do ...)` firstScopeTokenType
-#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      30  // `eif ... {`
-#define tokElse        31  // `else { `
-#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
-#define tokFn          33  // `{a b -> body}`. pl1 = entityId
-#define tokFnParams    34  //  `{ a Int -> Str }`. pl1 = entityId
-#define tokTry         35  // `(try`
-#define tokCatch       36  // `(catch e MyExc:`
-#define tokImpl        37
-#define tokFor         38
-#define tokEach        39
+#define tokScope       27  // `(do ...)` firstScopeTokenType
+#define tokIf          28  // `if ... { `. The If, ElseIf and Else tokens must be in that order
+#define tokElseIf      29  // `eif ... {`
+#define tokElse        30  // `else { `
+#define tokMatch       31  // `(match ... ` pattern matching on sum type tag
+#define tokFn          32  // `{a b -> body}`. pl1 = entityId
+#define tokFnParams    33  //  `{ a Int -> Str }`. pl1 = entityId
+#define tokTry         34  // `(try`
+#define tokCatch       35  // `(catch e MyExc:`
+#define tokImpl        36
+#define tokFor         37
+#define tokEach        38
 
 #define topVerbatimTokenVariant tokString
 #define firstSpanTokenType  tokStmt
@@ -361,7 +360,6 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokString]     = &parseErrorBareAtom,
    [tokMisc]       = &pForStepMarker,
    [tokWord]       = &parseErrorBareAtom,
-   [tokTypeName]   = &parseErrorBareAtom,
    [tokTypeVar]    = &parseErrorBareAtom,
    [tokKwArg]      = &parseErrorBareAtom,
    [tokOperator]   = &parseErrorBareAtom,
@@ -2374,7 +2372,7 @@ private void //:lexProcessSyntaxForm
 lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
 // Lexer action for a paren-type or statement-type syntax form.
 // Precondition: we are looking at the character immediately after the keyword
-// We must NOT consume any characters here - that's been done in {{wordInternal}}
+// We must NOT consume any characters here - that's been done in {wordInternal}
    LBtToken* bt = lx->lexBtrack;
    if (reservedWordType >= tokIf && reservedWordType <= tokElse) {
       lexIf(reservedWordType, startBt, source, lx);
@@ -2386,10 +2384,10 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
       // A reserved word must be the first inside parentheses, but parentheses are always
       // wrapped in statements, so we need to check the TWO last tokens and two top BtTokens
       VALIDATEL(bt->len >= 2 && last(bt).tp == tokParens
-        && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
+         && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
       Int const indLastToken = lx->tokens.len - 1;
       VALIDATEL(lx->tokens.c[indLastToken].tp == tokParens
-        && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
+         && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
       lx->tokens.c[indLastToken - 1].tp = reservedWordType;
       lx->tokens.c[indLastToken - 1].pl1 = slScope;
       lx->tokens.len--;
@@ -2468,12 +2466,13 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
 // RealStartBt is the word-initial "$", "." etc if any, startBt is the first letter of the word
 // Consumes the word and, for some symbols, the following symbol
    Int const lenBts = lx->i - realStartBt;
-   Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId,
+   Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId, .pl2 = 0,
          .startBt = realStartBt, .lenBts = lenBts };
    if (wordType == tokWord && wasCapitalized) { // a type
-      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aParenLeft) {
-         newToken.tp = tokTypeCall;
-         add(((BtToken){ .tp = tokTypeCall, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
+      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aParenLeft
+         && uniqueStringId == nameOfStandard(strF)
+      ) { // `F(...)`
+         add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
                lx->lexBtrack
          );
          lx->i++; // CONSUME the `(`
@@ -2481,14 +2480,13 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          Token prevToken = lx->tokens.c[lx->tokens.len - 1]; 
          if (prevToken.tp == tokParens) {
             lx->tokens.c[lx->tokens.len - 1] = (Token){
-               .tp = tokTypeCall, .pl1 = uniqueStringId, .startBt = prevToken.startBt
+               .tp = tokType, .pl1 = uniqueStringId, .startBt = prevToken.startBt
             };
             return;
          }
-         newToken.tp = tokTypeName;
-      } else {
-         newToken.tp = tokTypeName;
       }
+      
+      newToken.tp = tokType;
    } ei (lx->i < lx->stats.inpLength) {
       if (CURR_BT == aBracketLeft && wordType == tokWord) { // `a[5]`
          openPunctuation(tokAccessor, slSubexpr, realStartBt, lx);
@@ -2499,6 +2497,12 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
       } ei (CURR_BT == aApostrophe) { // mutable var definition
          newToken.pl2 = 1;
          lx->i++; // CONSUME the `'`
+      } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {
+         // function body `f{ ... -> }`
+         openPunctuation(tokFn, slScope, lx->i, lx);
+         openPunctuation(tokFnParams, slStmt, lx->i, lx);
+         lx->i++; // CONSUME the `{`
+         return;
       }
    } 
    pushIntokens(newToken, lx);
@@ -2627,7 +2631,7 @@ lexAssignment(Int const opType, LX) { //:lexAssignment
       lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokAssignment;
    } else {
       VALIDATEL(opType == -1, errOperatorMutationInDef)
-      if (lx->tokens.c[assignmentStartInd + 1].tp == tokTypeName){
+      if (lx->tokens.c[assignmentStartInd + 1].tp == tokType){
          // type definition
          tok->pl1 = assiTypeDefinition;
       }
@@ -2766,16 +2770,15 @@ private void //:lexArrow
 lexArrow(SRC, LX) {
    VALIDATEL(lx->lexBtrack->len > 0, errFnTypeArrows)
    BtToken top = last(lx->lexBtrack);
-   if (top.tp == tokTypeCall) {
+   if (top.tp == tokType) { // `F(G -> H)`
       VALIDATEL(top.spanLevel == slSubexpr
          && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows)
       lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
-   } ei (top.tp == tokScope) {
-      VALIDATEL(top.spanLevel == slScope
-         && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows)
-      lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokFn;
-      lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
-      lx->tokens.c[top.tokenInd].tp = tokFn;
+   } ei (top.tp == tokFnParams) { // `f{ a -> ...}`
+      top = removeLast(lx->lexBtrack);  
+      setSpanLengthLexer(top.tokenInd, lx);
+   } else {
+      throwExcLexer(errPunctuationUnmatched);
    }
    lx->i += 2; // CONSUME the `->`
 }
@@ -2835,7 +2838,7 @@ lexParenRight(SRC, LX) {
    BtToken top = removeLast(bt);
 
    VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFn, errPunctuationUnmatched)
-   if (top.tp == tokTypeCall && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF)) {
+   if (top.tp == tokType && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF)) {
       VALIDATEL(top.spanLevel == slFn, errFnTypeArrows)
    }
    mbCloseAssignRight(&top, lx);
@@ -2870,6 +2873,7 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
          // process the first curly brace in an "if ... {" form. If all is right,
          // updates its span level to slScope, so further curly braces work as usual
          Int const len = lx->lexBtrack->len;
+         dbgLexBtrack(lx);
          VALIDATEL(len > 1 && lx->lexBtrack->c[len - 2].spanLevel == slUnbraced,
                  errPunctuationScope)
          removeLast(lx->lexBtrack); // pop the top statement (if cond) because it's over
@@ -2904,7 +2908,7 @@ lexCurlyRight(SRC, LX) {
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
 
-   VALIDATEL(top.spanLevel == slScope || top.tp == tokFnParams, errPunctuationUnmatched)
+   VALIDATEL(top.spanLevel == slScope || top.tp == tokFn, errPunctuationUnmatched)
    setSpanLengthLexer(top.tokenInd, lx);
    lx->i++; // CONSUME the "}"
 }
@@ -3429,7 +3433,7 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 private TypeId //:pAssignmentLeftWithType
 pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT Bool* isAFnVar,
       TOKENS, CM) {
-// Typechecks a complex left side like `x Foo Int = ...` in an assignment, consumes tokens,
+// Typechecks a complex left side like `x (Foo Int) = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
 // Precondition: we are looking right past tokDef or tokAssignment
    LInt* sc = cm->expr->exp;
@@ -3471,6 +3475,7 @@ pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKENS, CM) {
 
 private void //:pAssignmentWorker
 pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
+// Main assignment parsing function
    Unt const tp = (tok.tp == tokDef) ? nodDef : nodAssignment;
    TypeId leftType = ZERO_ARITY_TYPE;
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
@@ -3511,7 +3516,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
             createVar(assignment.name, firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm);
       }
       newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort }, locOf(firstTok), cm);
-   } else if (tokens[cm->i + 1].tp == tokTypeName || tokens[cm->i + 1].tp == tokTypeCall) {
+   } ei (tokens[cm->i + 1].tp == tokType) {
       Bool isAFnVar = false;
       leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide,
             OUT &isAFnVar, tokens, cm);
@@ -4009,8 +4014,8 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    ExprFrame parent = last(e->frames);
    SourceLoc loc = locOf(cTk);
    NameId name = cTk.pl1;
-   Byte tokType = cTk.tp;
-   switch (tokType) {
+   Byte tokTp = cTk.tp;
+   switch (tokTp) {
    case tokOperator:
       Int precedence = OPERATORS[name].prec;
       if (precedence == precUnary) {
@@ -5823,30 +5828,27 @@ teClauseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
          VALIDATEP(ctxType == sorDeclare, errTypeDefError)
 
          Token nextTk = cm->tokens.c[cm->i];
-         VALIDATEP(nextTk.tp == tokTypeName || nextTk.tp == tokTypeCall, errTypeDefError)
+         VALIDATEP(nextTk.tp == tokType, errTypeDefError)
          add(cTk.pl1, te->names);
          continue;
       }
 
       frames->c[frames->len - 1].countArgs++;
 
-      if (cTk.tp == tokTypeName) {
-         add(typeGetTypeByName(cTk.pl1, cm).v, exp);
+      if (cTk.tp == tokType) {
+         if (cTk.pl2 == 0) {
+            add(typeGetTypeByName(cTk.pl1, cm).v, exp);
+         } else {
+            Int const typeCallSent = calcSentinel(cTk, cm->i - 1);
+
+            teOpenTypeCall(cTk.pl1, typeCallSent, frames, cm);
+            cm->i++; // CONSUME the type function's name
+         }
       } ei (cTk.tp == tokTypeVar) {
          // create/reuse a type of sorGenericParam for a newly encountered type param
          NameId name = cTk.pl1;
          teMergeParam(name, te, cm);
-      } ei (cTk.tp == tokParens) {
-         VALIDATEP(cm->i < sentinel, errTypeDefError)
-         Token typeFuncTk = cm->tokens.c[cm->i];
-         VALIDATEP(typeFuncTk.tp == tokTypeName, errTypeDefError)
-
-         Int const typeCallSent = calcSentinel(cTk, cm->i - 1);
-
-         teOpenTypeCall(typeFuncTk.pl1, typeCallSent, frames, cm);
-         cm->i++; // CONSUME the type function's name
       } else {
-         print("erroneous type %d", cTk.tp)
          throwExcParser(errTypeDefError);
       }
    }
@@ -5863,9 +5865,9 @@ tExpr(TExpr* te, Int sentinel, TOKENS, CM) {
 // Precondition: we are looking at the first type token (e.g. `L`).
 // Produces a linear, RPN sequence. Populates @te.exp
    Token firstTypeTk = tokens[cm->i];
-   VALIDATEP(firstTypeTk.tp == tokTypeName || firstTypeTk.tp == tokTypeVar, errTypeDefError)
+   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, errTypeDefError)
    if (cm->i + 1 == sentinel) { // single-name type
-      if (firstTypeTk.tp == tokTypeName)  {
+      if (firstTypeTk.tp == tokType)  {
          TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
          add(simpleType.v, te->exp);
          return simpleType;
@@ -6495,9 +6497,9 @@ printNameNoLn(NameId nameId, CM) {
 // Must agree in order with Token types in eyr.internal.h
 char const* tokNames[] = {
    "Int", "Long", "Double", "Bool", "String", "misc",
-   "word", "Type", "@TVar", ":kwarg", "oper", ".field",
+   "word", "@TVar", ":kwarg", "oper", ".field",
    "stmt", "clause", "def", "()",
-   "(T ...)", "data", "a[b][c]", "[]",
+   "Type", "data", "a[b][c]", "[]",
    "=", "=...", "alias", "assert", "breakCont",
    "trait", "import", "return",
    "{", "if...", "eif ...", "else {", "match", "{{fn", "{fn params}",
@@ -6515,6 +6517,7 @@ void
 dbgLexBtrack(LX) { //:dbgLexBtrack
    LBtToken* bt = lx->lexBtrack;
 
+   printf("[");
    for (Int k = 0; k < bt->len; k++) {
       printf("%s ", tokNames[bt->c[k].tp]);
    }

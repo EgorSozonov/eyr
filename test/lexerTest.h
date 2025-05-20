@@ -31,44 +31,43 @@ typedef struct {
 
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
-#define tokWord         6  // pl1 = nameId (index in the string table). pl2 = 1 iff followed by $
-#define tokTypeName     7  // pl1 same as tokWord
-#define tokTypeVar      8  // pl1 same as tokWord. The `$A`
-#define tokKwArg        9  // pl2 = same as tokWord. The ":argName"
-#define tokOperator    10  // pl1 = nameId = operId, pl2 = precedence. `+`
-#define tokFieldAcc    11  // pl2 = nameId
+#define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
+#define tokTypeVar      7  // pl1 same as tokWord. The `$A`
+#define tokKwArg        8  // pl2 = same as tokWord. The ":argName"
+#define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
+#define tokFieldAcc    10  // pl2 = nameId
 
 // Statement or subexpr span types. pl2 = count of inner tokens
-#define tokStmt        12  // firstSpanTokenType
-#define tokClause      13  // Element of a comma-separated list
-#define tokDef         14  // Compile-time known constant's definition. pl1 == 2 iff type def
-#define tokParens      15  // subexpressions and struct/sum type instances
-#define tokTypeCall    16  // `(Tu Int Str)`
-#define tokData        17  // []
-#define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
-#define tokAccessIn    19  // The internal `[]` block inside an accessor
-#define tokAssignment  20
-#define tokAssignRight 21  // Right-hand side of assignment
-#define tokAlias       22
-#define tokAssert      23
-#define tokBreakCont   24  // pl1 = 1 iff it's a continue
-#define tokTrait       25
-#define tokImport      26  // For test files and package decls
-#define tokReturn      27
+#define tokStmt        11  // firstSpanTokenType
+#define tokClause      12  // Element of a comma-separated list
+#define tokDef         13  // Compile-time known constant's definition. pl1 == 2 iff type def
+#define tokParens      14  // subexpressions and struct/sum type instances
+#define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
+#define tokData        16  // []
+#define tokAccessor    17  // The umbrella around an accessor subexpression like `x[i][j][k]`
+#define tokAccessorIn  18  // The internal `[]` block inside an accessor
+#define tokAssignment  19
+#define tokAssignRight 20  // Right-hand side of assignment
+#define tokAlias       21
+#define tokAssert      22
+#define tokBreakCont   23  // pl1 = 1 iff it's a continue
+#define tokTrait       24
+#define tokImport      25  // For test files and package decls
+#define tokReturn      26
 
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       28  // `(do ...)` firstScopeTokenType
-#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      30  // `eif ... {`
-#define tokElse        31  // `else { `
-#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
-#define tokFn          33  // `{{ a Int -> Str } body)`. pl1 = entityId
-#define tokFnParams    34  //  `{ a Int -> Str }`. pl1 = entityId
-#define tokTry         35  // `(try`
-#define tokCatch       36  // `(catch e MyExc:`
-#define tokImpl        37
-#define tokFor         38
-#define tokEach        39
+#define tokScope       27  // `(do ...)` firstScopeTokenType
+#define tokIf          28  // `if ... { `. The If, ElseIf and Else tokens must be in that order
+#define tokElseIf      29  // `eif ... {`
+#define tokElse        30  // `else { `
+#define tokMatch       31  // `(match ... ` pattern matching on sum type tag
+#define tokFn          32  // `{a b -> body}`. pl1 = entityId
+#define tokFnParams    33  //  `{ a Int -> Str }`. pl1 = entityId
+#define tokTry         34  // `(try`
+#define tokCatch       35  // `(catch e MyExc:`
+#define tokImpl        36
+#define tokFor         37
+#define tokEach        38
 
 #define topVerbatimTokenVariant tokString
 #define topVerbatimType     tokMisc
