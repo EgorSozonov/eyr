@@ -200,20 +200,19 @@ libeyr_String str(const char* cent);
                            // pl3 = 1 iff it's a "continue"
 #define nodCatch       15  // `catch e {`
 #define nodImport      16  // This is for test files only, no need to import anything in main
-#define nodFnDef       17  // pl1 = index into @functions
-#define nodDef         18  // pl1 = entityId, pl3 = nameId. For non-function compile-time consts
-#define nodTrait       19
-#define nodReturn      20
-#define nodTry         21
-#define nodFor         22  // pl1 = number of nodes to skip to get to the condition. Loops that get
+#define nodToplevelFn  17  // pl1 = index into @functions
+#define nodTrait       18
+#define nodReturn      19
+#define nodTry         20
+#define nodFor         21  // pl1 = number of nodes to skip to get to the condition. Loops that get
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
-#define nodIf          23
-#define nodIfClause    24  // pl3 = "ifcl" constants
-#define nodImpl        25
-#define nodMatch       26  // pattern matching on sum type tag
-#define countAstForms  27  // sentinel
+#define nodIf          22
+#define nodIfClause    23  // pl3 = "ifcl" constants
+#define nodImpl        24
+#define nodMatch       25  // pattern matching on sum type tag
+#define countAstForms  26  // sentinel
 
 #define countSpanForms (countAstForms - nodScope)
 
@@ -232,8 +231,8 @@ constexpr Int outerTypeForTypeParam = topVerbatimType + 1;
 typedef struct Compiler Compiler;
 
 struct Node { // :Node
-   Unt tp : 6;
-   Unt pl3: 26;
+   Unt tp : 5;
+   Unt pl3: 27;
    Int pl1;
    Int pl2;
 };
@@ -400,11 +399,11 @@ typedef struct { //:TypeHeader
 #define strBreak     2
 #define strCatch     3
 #define strContinue  4
-#define strDef       5
-#define strEach      6
-#define strElseIf    7
-#define strElse      8
-#define strFalse     9
+#define strEach      5
+#define strElseIf    6
+#define strElse      7
+#define strFalse     8
+#define strFn        9 // `fn`
 #define strFor      10
 #define strIf       11
 #define strImpl     12

@@ -105,7 +105,7 @@ typedef struct { // :Token
 // Statement or subexpr span types. pl2 = count of inner tokens
 #define tokStmt        11  // firstSpanTokenType
 #define tokClause      12  // Element of a comma-separated list
-#define tokDef         13  // Compile-time known constant's definition. pl1 == 2 iff type def
+#define tokToplevelFn  13  // Toplevel function definition
 #define tokParens      14  // subexpressions and struct/sum type instances
 #define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
 #define tokData        16  // []
@@ -185,7 +185,7 @@ constexpr char
 standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 
                 // reserved words: must be sorted alphabetically!
-                "aliasassertbreakcatchcontinuedefeacheifelsefalsefor"
+                "aliasassertbreakcatchcontinueeacheifelsefalsefnfor"
                 "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
@@ -205,7 +205,7 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 private constexpr Byte
 standardStringLens[] = {
     5, 6, 5, 5, 8,
-    3, 4, 3, 4, 5,
+    4, 3, 4, 5, 2,
     3, 2, 4, 6, 5,
     3, 6, 5, 4, 3,
     3,
@@ -227,7 +227,7 @@ standardOffsets[sizeof(standardStringLens)]; // filled in by "populateStringOffs
 private constexpr Int
 standardKeywords[] = {
    tokAlias,    tokAssert,  keywBreak,  tokCatch,   keywContinue,
-   tokDef,      tokEach,    tokElseIf,  tokElse,    keywFalse,
+   tokEach,     tokElseIf,  tokElse,    keywFalse,  tokToplevelFn,
    tokFor,      tokIf,      tokImpl,    tokImport,  tokMatch,
    tokMisc,     tokReturn,  tokTrait,   keywTrue,   tokTry,
    keywNot
@@ -1576,10 +1576,9 @@ struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
 
 typedef struct { //:Assignment
 // Info about an assignment or a definition (functions, variables, types)
-   Int nameTokenInd;     // index of the tokWord after tokDef
+   Int nameTokenInd;     // index of the tokWord after tokToplevelFn
    Int rightTokenInd; // index of the tokAssignRight
    Int sentinel;
-   Bool isDef;      // Is it a compile-time definition? Or a runtime var assignment?
    Bool isFunction;
    NameId name;
    Int entityId; // n < 0 => -n - 1 is an index into @functions, otherwise n => @vars
@@ -2092,7 +2091,9 @@ wrapInAStatement(Int startBt, Arr(char const) source, LX) {
 // Sets the startBt to a specific value
    if (lx->lexBtrack->len > 0) {
       BtToken const top = last(lx->lexBtrack);
-      if (top.spanLevel == slScope || top.spanLevel == slUnbraced) {
+      if (top.tp == tokToplevelFn) {
+         return;
+      } ei (top.spanLevel == slScope || top.spanLevel == slUnbraced) {
          // the second case is for the conditions of "if" statements
          addStatementSpan(tokStmt, startBt, lx);
       } ei (top.spanLevel == slClauseList) {
@@ -2357,11 +2358,6 @@ lexIf(Unt reservedWordType, Int startBt, SRC, LX) {
    }
 }
 
-private void //:lexDef
-lexDef(Int startBt, SRC, LX) {
-   openPunctuation(tokDef, slStmt, startBt, lx);
-}
-
 private void //:lexFor
 lexFor(Int startBt, SRC, LX) {
    openPunctuation(tokFor, slUnbraced, startBt, lx);
@@ -2376,8 +2372,8 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    if (reservedWordType >= tokIf && reservedWordType <= tokElse) {
       lexIf(reservedWordType, startBt, source, lx);
-   } ei (reservedWordType == tokDef) {
-      lexDef(startBt, source, lx);
+   } ei (reservedWordType == tokToplevelFn) {
+      openPunctuation(tokToplevelFn, slScope, startBt, lx);
    } ei (reservedWordType == tokFor)  {
       lexFor(startBt, source, lx);
    } ei (reservedWordType >= firstScopeTokenType) {
@@ -2427,7 +2423,7 @@ mbCloseAssignRight(BtToken* top, CM) { //:mbCloseAssignRight
       { return; }
    setStmtSpanLength(top->tokenInd, cm);
    VALIDATEI(cm->lexBtrack->len > 0 &&
-             (last(cm->lexBtrack).tp == tokAssignment || last(cm->lexBtrack).tp == tokDef),
+             (last(cm->lexBtrack).tp == tokAssignment || last(cm->lexBtrack).tp == tokToplevelFn),
            iErrorInconsistentSpans
    )
    *top = removeLast(cm->lexBtrack);
@@ -2622,7 +2618,8 @@ lexAssignment(Int const opType, LX) { //:lexAssignment
 // tokens from the left side). Changes existing stmt token into tokAssignment and opens up a new
 // tokAssignRight span. Doesn't consume anything
    BtToken currSpan = last(lx->lexBtrack);
-   VALIDATEL(currSpan.tp == tokStmt || currSpan.tp == tokDef, errOperatorAssignmentPunct);
+   
+   VALIDATEL(currSpan.tp == tokStmt || currSpan.tp == tokToplevelFn, errOperatorAssignmentPunct);
 
    Int assignmentStartInd = currSpan.tokenInd;
    Token* tok = (lx->tokens.c + assignmentStartInd);
@@ -2772,7 +2769,8 @@ lexArrow(SRC, LX) {
    BtToken top = last(lx->lexBtrack);
    if (top.tp == tokType) { // `F(G -> H)`
       VALIDATEL(top.spanLevel == slSubexpr
-         && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows)
+         && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows
+      )
       lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
    } ei (top.tp == tokFnParams) { // `f{ a -> ...}`
       top = removeLast(lx->lexBtrack);  
@@ -2873,7 +2871,6 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
          // process the first curly brace in an "if ... {" form. If all is right,
          // updates its span level to slScope, so further curly braces work as usual
          Int const len = lx->lexBtrack->len;
-         dbgLexBtrack(lx);
          VALIDATEL(len > 1 && lx->lexBtrack->c[len - 2].spanLevel == slUnbraced,
                  errPunctuationScope)
          removeLast(lx->lexBtrack); // pop the top statement (if cond) because it's over
@@ -3279,7 +3276,7 @@ openFnScope(Int funcOrMonoId, TypeId fnType, Byte callSort, SourceLoc loc, Int s
       .level = pfrFn, .startNodeInd = cm->ast.len, .sentinel = sentinel,
       .typeId = fnType }), cm->backtrack);
    scopesNewLexicalScope(cm); // a function body is also a lexical scope
-   newNode((Node){ .tp = nodFnDef, .pl1 = funcOrMonoId, .pl3 = callSort}, loc, cm);
+   newNode((Node){ .tp = nodToplevelFn, .pl1 = funcOrMonoId, .pl3 = callSort}, loc, cm);
 }
 
 private void //:pScope
@@ -3435,7 +3432,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
       TOKENS, CM) {
 // Typechecks a complex left side like `x (Foo Int) = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
-// Precondition: we are looking right past tokDef or tokAssignment
+// Precondition: we are looking right past tokToplevelFn or tokAssignment
    LInt* sc = cm->expr->exp;
    sc->len = 0;
    Token nextTk = tokens[cm->i + 1]; // +1 is safe because we know left side is long
@@ -3476,7 +3473,7 @@ pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKENS, CM) {
 private void //:pAssignmentWorker
 pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
 // Main assignment parsing function
-   Unt const tp = (tok.tp == tokDef) ? nodDef : nodAssignment;
+   Unt const tp = (tok.tp == tokToplevelFn) ? nodToplevelFn : nodAssignment;
    TypeId leftType = ZERO_ARITY_TYPE;
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
    Token rightTk = tokens[assignment.rightTokenInd];
@@ -3541,8 +3538,8 @@ closeSpans:
 
 private Assignment //:pPreparseAssignment
 pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
-// Looks at a tokDef or tokAssignment to determine its key points: where is the right side,
-// is it a func definition, is the right side empty etc. Consumes no tokens.
+// Looks at a tokToplevelFn or tokAssignment to determine its key points: where is the right side,
+// is it a function definition, is the right side empty etc. Consumes no tokens.
 // Precondition: tokInd is 1 past the "tok"
    Int const sentinel = calcSentinel(tok, tokInd - 1);
    Int indRight = tokInd;
@@ -3555,7 +3552,7 @@ pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
 
    return (Assignment){
       .nameTokenInd = tokInd, .rightTokenInd = indRight, .sentinel = sentinel, .name = firstTokenName,
-      .isDef = (tok.tp == tokDef), .isFunction = tokens[indRight + 1].tp == tokFn
+      .isFunction = tokens[indRight + 1].tp == tokFn
    };
 }
 
@@ -4413,7 +4410,7 @@ finalizeLexer(LX) {
    BtToken top = removeLast(lx->lexBtrack);
    setStmtSpanLength(top.tokenInd, lx);
    mbCloseAssignRight(&top, lx);
-   VALIDATEL(top.spanLevel != slScope && lx->lexBtrack->len == 0, errPunctuationExtraOpening)
+   VALIDATEL(lx->lexBtrack->len == 0, errPunctuationExtraOpening)
 }
 
 private Compiler* //:lexicallyAnalyzeInner
@@ -5105,7 +5102,7 @@ pToplevelTypes(CM) {
    Int const len = cm->tokens.len;
    while (cm->i < len) {
       Token tok = toks[cm->i];
-      if (tok.tp == tokDef && tok.pl1 == assiTypeDefinition) {
+      if (tok.tp == tokAssignment && tok.pl1 == assiTypeDefinition) {
          cm->i++; // CONSUME the def token
          pTypeDef(toks, cm);
       } else {
@@ -5122,15 +5119,11 @@ pToplevelConstants(CM) {
    Int const len = cm->tokens.len;
    while (cm->i < len) {
       Token tok = toks[cm->i];
-      if (tok.tp == tokDef) {
+      if (tok.tp == tokAssignment) {
          Assignment assi = pPreparseAssignment(tok, cm->i + 1, toks, cm);
-         if (assi.isFunction)
-            { cm->i = assi.sentinel; } // CONSUME the top-level function definition
-         else {
-            cm->i++; // CONSUME the tokDef
-            pAssignmentWorker(tok, assi, toks, cm);
-         }
-      } else {
+         cm->i++; // CONSUME the tokDef
+         pAssignmentWorker(tok, assi, toks, cm);
+      } else { // tokToplevelFn
          cm->i = calcSentinel(tok, cm->i);
       }
    }
@@ -5361,7 +5354,7 @@ pToplevelSignatures(TOKENS, CM) {
    Int nextI = 0;
    for (Token tok = tokens[cm->i]; cm->i < len; cm->i = nextI, tok = tokens[cm->i]) {
       nextI = calcSentinel(tok, cm->i);
-      if (tok.tp != tokDef)
+      if (tok.tp != tokToplevelFn)
          { continue; }
       Assignment fnAssign = pPreparseAssignment(tok, cm->i + 1, tokens, cm);
       if (!fnAssign.isFunction)
@@ -6615,7 +6608,7 @@ char const* nodeNames[] = {
    "var", "call",
    "{", "Expr", "=", "[]",
    "assert", "breakCont", "catch", "import",
-   "{{ fn }}", "value def", "trait", "return", "try",
+   "f{ }", "trait", "return", "try",
    "for", "if", "if clause", "impl", "match"
 };
 

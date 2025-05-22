@@ -1,4 +1,4 @@
-def multiply L (L Int) = {{ a L (L Int), b L (L Int), }
+fn multiply F((L (L Int)) (L (L Int)) -> (L (L Int)) = f{a b ->
    rows = a.len;
    cols = b[0].len;
    middle = a[0].len;
@@ -18,9 +18,9 @@ def multiply L (L Int) = {{ a L (L Int), b L (L Int), }
    return res;
 };
 
-def main = {{}
-   a L (L Int) = [[1 2 3 4 5] [10 9 8 7 6]];
-   b L (L Int) = [[10] [10] [10] [10] [10]];
+fn main F(-> Int) = f{->
+   a (L (L Int)) = [[1 2 3 4 5] [10 9 8 7 6]];
+   b (L (L Int)) = [[10] [10] [10] [10] [10]];
    product = multiply a b;
    print `[`; 
    for { i' = 0; i < product.len; i++; } {
@@ -31,4 +31,5 @@ def main = {{}
       print `]`; 
    }
    print `]`; 
+   return 0;
 };

@@ -40,7 +40,7 @@ typedef struct {
 // Statement or subexpr span types. pl2 = count of inner tokens
 #define tokStmt        11  // firstSpanTokenType
 #define tokClause      12  // Element of a comma-separated list
-#define tokDef         13  // Compile-time known constant's definition. pl1 == 2 iff type def
+#define tokToplevelFn  13  // Toplevel function definition
 #define tokParens      14  // subexpressions and struct/sum type instances
 #define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
 #define tokData        16  // []
