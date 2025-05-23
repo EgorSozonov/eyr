@@ -206,7 +206,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("Assignment test set"), a, ((ParserTest[]){
 //~      createTestWithLocs(
 //~         s("Simple top-level definition"),
-//~         s("def x = 12;"),
+//~         s("x = 12;"),
 //~         ((Node[]) {
 //~            (Node){ .tp = nodDef, .pl2 = 2, .pl3 = 2 }, // x
 //~            (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment },
@@ -222,7 +222,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ),
 //~      createTestWithLocs(
 //~         s("Double top-level constant"),
-//~         s("def x = 12;\n"
+//~         s("x = 12;\n"
 //~           "def second = x;"
 //~         ),
 //~         ((Node[]) {
@@ -247,8 +247,8 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      createTestWithError(
 //~         s("Assignment shadowing error"),
 //~         s(errCannotMutateImmutable),
-//~         s("def x = 12;\n"
-//~           "def x = 7;"
+//~         s("x = 12;\n"
+//~           "x = 7;"
 //~         ),
 //~         ((Node[]) {
 //~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 },
@@ -261,8 +261,8 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ),
 //~      createTest(
 //~         s("Assignment with declared type"),
-//~         s("def main = {{}\n"
-//~           "   x A Str = [`foo`];\n"
+//~         s("fn main F(->) = f{->\n"
+//~           "   x (A Str) = [`foo`];\n"
 //~           "}"
 //~         ),
 //~         ((Node[]) {
@@ -281,7 +281,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ),
 //~      createTest(
 //~         s("Reassignment"),
-//~         s("def main = {{}\n"
+//~         s("fn main F(->) = f{->\n"
 //~           "   x' = `foo`;\n"
 //~           "   x = `bar`;\n"
 //~           "}"
@@ -300,7 +300,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ),
       createTest(
          s("Mutation simple"),
-         s("main F() = f{ a b foo c ->\n"
+         s("fn main F() = f{ ->\n"
            "   x' = 12;\n"
            "   x += 55;\n"
            "}"
@@ -322,7 +322,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
       ),
 //~      createTest(
 //~         s("Mutation complex"),
-//~         s("def main = {{}\n"
+//~         s("fn main = f{->\n"
 //~           "   a = [1 2 3];\n"
 //~           "   a[1] *= (a[0] + a[2]);\n"
 //~           "}"
@@ -366,7 +366,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ),
 //~      createTest(
 //~         s("Complex left side"),
-//~         s("def main = {{}\n"
+//~         s("fn main = f{->\n"
 //~           "arr = [1 2];\n"
 //~           "arr[0] = 21;\n"
 //~           "}"
@@ -395,7 +395,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ),
 //~      createTest(
 //~         s("Very complex left side"),
-//~         s("def main = {{}\n"
+//~         s("fn main = f{->\n"
 //~           "arr = [[1 2] [4 3]];\n"
 //~           "arr[1][0] = 21;\n"
 //~           "}"
@@ -441,7 +441,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      createTestWithError(
 //~         s("Illegal left side in assignment"),
 //~         s(errAssignmentLeftSide),
-//~         s("def main = {{}\n"
+//~         s("fn main = f{->\n"
 //~           "b' = 12;\n"
 //~           "b + 1 = 10;\n"
 //~           "}"
@@ -459,7 +459,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
 //~      ), 
 //~      createTest(
 //~         s("Assignment to a function var from a function overload"),
-//~         s("def plus F Double Void = print;"),
+//~         s("plus F(Double ->) = print;"),
 //~         ((Node[]) {
 //~            (Node){ .tp = nodDef,           .pl2 = 1 },
 //~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = I - 4, .pl3 = assiFnVarDef } // {importPrelude}
@@ -477,7 +477,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("Expression test set"), a, ((ParserTest[]){
       createTestWithLocs(
          s("Simple function call"),
-         s("def x = foo 10 2 `hw`;"),
+         s("x = foo 10 2 `hw`;"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 6, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
@@ -501,7 +501,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Data allocation"),
-         s("def x = [1 2 3];"),
+         s("x = [1 2 3];"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 9, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
@@ -522,7 +522,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("Data allocation type error"),
          s(errListDifferentEltTypes),
-         s("def x = [1 true];"),
+         s("x = [1 true];"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
@@ -540,7 +540,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Data allocation with expression inside"),
-         s("def x = [4 (2 * 7)];"),
+         s("x = [4 (2 * 7)];"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
@@ -562,7 +562,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Nested data allocation with expression inside"),
-         s("def x = [[1] [4 (2 - 7)] [2 3]];"),
+         s("x = [[1] [4 (2 - 7)] [2 3]];"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 26, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
@@ -602,7 +602,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Nested function call 1"),
-         s("def x = foo 10 (bar) 3;"),
+         s("x = foo 10 (bar) 3;"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl2 = 6, .pl3 = 2},
             (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment },
@@ -620,7 +620,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Nested function call 2"),
-         s("def x = foo 10 (bar);"),
+         s("x = foo 10 (bar);"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment  },
@@ -638,7 +638,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Nested function call 3"),
-         s("def x = foo #($(bar));"),
+         s("x = foo #($(bar));"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl2 = 6, .pl3 = 2},
             (Node){ .tp = nodVar, .pl1 = 0, .pl3 = assiVarAssignment },
@@ -656,7 +656,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Triple function call"),
-         s("def x = foo (foo (bar 2 `hw`));"),
+         s("x = foo (foo (bar 2 `hw`));"),
          (((Node[]) {
             (Node){ .tp = nodDef,    .pl2 = 7, .pl3 = 2 },
             (Node){ .tp = nodVar,      .pl1 = 0, .pl3 = assiVarAssignment },
@@ -674,7 +674,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Operators simple"),
-         s("def x = 1 + 9 / 3;"),
+         s("x = 1 + 9 / 3;"),
          (((Node[]) {
             (Node){ .tp = nodDef, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
             (Node){ .tp = nodVar,      .pl1 = 0, .pl3 = assiVarAssignment  },
@@ -690,7 +690,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Unary operator precedence"),
-         s("def x = `12` + $ # -3;"),
+         s("x = `12` + $ # -3;"),
          ((Node[]) {
             (Node){ .tp = nodDef, .pl2 = 7, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment  },
@@ -707,7 +707,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("Operator arity error"),
          s(errTypeNoMatchingOverload),
-         s("def x = 1 + 20 100;"),
+         s("x = 1 + 20 100;"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl3 = assiVarAssignment  },
@@ -723,7 +723,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       createTest(
          s("Array accessor"),
          s("def arr = [true false true];\n"
-           "def x = arr[1];"
+           "x = arr[1];"
           ),
          ((Node[]) {
             (Node){ .tp = nodDef, .pl2 = 9, .pl3 = 2 },
@@ -749,8 +749,8 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Field accessors"),
-         s("def arr = [true false true];\n"
-           "def x = arr.len + arr.len;"
+         s("arr = [true false true];\n"
+           "x = arr.len + arr.len;"
           ),
          ((Node[]) {
             (Node){ .tp = nodDef,          .pl2 = 9, .pl3 = 2 },
@@ -786,7 +786,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("Functions test set"), a, ((ParserTest[]){
       createTestWithLocs(
          s("Simple function definition 1"),
-         s("def newFn = {{x Int, y L Bool, } a = x;};"),
+         s("fn newFn F(Int (L Bool) ->) = f{x y -> a = x;};"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 5 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam  },  // param x
@@ -808,7 +808,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Simple function definition 2"),
-         s("def newFn Str = {{x Str, y Double, }\n"
+         s("fn newFn F(Str Double -> Str) = f{x y ->\n"
            "   a = x;\n"
            "   return a;\n"
            "};"
@@ -828,7 +828,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Simple function definition 3"),
-         s("def main = {{}\n"
+         s("fn main = f{->\n"
            "   print `asdf`;\n"
            "};"
          ),
@@ -844,7 +844,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("Function definition wrong return type"),
          s(errTypeWrongReturnType),
-         s("def newFn Str = {{x Double, y Double,}\n"
+         s("fn newFn F(Double Double -> Str) = f{x y ->\n"
            "   a = x;\n"
            "   return a;\n"
            "};"
@@ -864,7 +864,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Function definition with complex return"),
-         s("def newFn Str = {{x Int, y Double,}\n"
+         s("fn newFn F(Int Double -> Str) = f{x y ->\n"
            "   return $(foo x - y);};"
          ),
          ((Node[]) {
@@ -884,11 +884,11 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Mutually recursive function definitions"),
-         s("def func1 Int = {{x Int, y Double,}\n"
+         s("fn func1 F(Int Double -> Int) = f{x y ->\n"
            "   a = x;\n"
            "   return func2 y a;\n"
            "};\n"
-           "def func2 Int = {{x Double, y Int,}\n"
+           "fn func2 F(Double Int -> Int) = f{x y ->\n"
            "   return func1 y x;\n"
            "};"
          ),
@@ -919,7 +919,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Function definition with nested scope"),
-         s("def main = {{x Int, y Double,}\n"
+         s("fn main F(Int Double->) = f{x y ->\n"
            "   {\n"
            "      a = 5;\n"
            "   }\n"
@@ -955,8 +955,8 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Local variable being called"),
-         s("def main Str = {{fn  F Int Str, }"
-           "    return fn 5;"
+         s("fn main F(F(Int -> Str) -> Str) = f{fun ->"
+           "    return fun 5;"
            "}"
          ),
          (((Node[]) {
@@ -981,7 +981,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("If test set"), a, ((ParserTest[]){
       createTestWithLocs(
          s("Simple if"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   if 5 == 5 { print `5`; }\n"
            "};"
            ),
@@ -1019,7 +1019,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("If with else"),
-         s("def f Str = {{}\n"
+         s("fn f F(->Str) = f{->\n"
            "   if 5 > 3 { `5`; } else { `=)`; }\n"
            "}"
            ),
@@ -1043,7 +1043,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("If with elseif"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   if 5 > 3 { 11; }\n"
            "   eif 5 == 3 { 4; }\n"
            "}"
@@ -1072,7 +1072,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("If with elseif and else"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   if 5 > 3 { print `11`; } \n"
            "   eif 5 == 3 { print `4`; } \n"
            "   else { print `100`; }\n"
@@ -1112,7 +1112,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("If error: must be bool"),
          s(errTypeMustBeBool),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   if 5 + 5 { print `5`; }\n"
            "};"
            ),
@@ -1139,7 +1139,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("For loop test set"), a, ((ParserTest[]){
       createTest(
          s("Simple loop"),
-         s("def f = {{} for {x' = 1; x < 101; x += 1;} { print $x; } };"),
+         s("fn f = f{-> for {x' = 1; x < 101; x += 1;} { print $x; } };"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 19, .pl3 = 0 },
             (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 18, .pl3 = 13 },
@@ -1169,7 +1169,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For with two complex initializers"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   for {x' = 17; y' = x / 5; y < 101; x--; y++;}{\n"
            "      print $x;}\n"
            "}"
@@ -1213,7 +1213,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For without initializers"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   x = 4;\n"
            "   for {x < 101;}{ \n"
            "      print $x; } };"),
@@ -1242,7 +1242,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For loop without body"),
-         s("def f = {{} for {x' = 1; x < 101; x += 1;} {} }"),
+         s("fn f = f{-> for {x' = 1; x < 101; x += 1;} {} }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 15, .pl3 = 0 },
             (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 14, .pl3 = 9 },
@@ -1269,7 +1269,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For loop with no step"),
-         s("def f = {{} for {x' = 1; x < 101; } { print $x; } }"),
+         s("fn f = f{-> for {x' = 1; x < 101; } { print $x; } }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
             (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 12, .pl3 = 13 },
@@ -1294,7 +1294,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For with no initializers nor step"),
-         s("def f = {{} x = 0;\n"
+         s("fn f = f{-> x = 0;\n"
            " for { x < 101;}{ print $x; } }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 13, .pl3 = 0 },
@@ -1320,7 +1320,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For loop with no initalizers nor body"),
-         s("def f = {{} x' = 7;\n"
+         s("fn f = f{-> x' = 7;\n"
            " for {x < 101; x += 1;}{} }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 15, .pl3 = 0 },
@@ -1347,7 +1347,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For loop with single-token condition"),
-         s("def f = {{} x' = true;\n"
+         s("fn f = f{-> x' = true;\n"
            " for {x;} {x = not x;} }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 11, .pl3 = 0 },
@@ -1371,7 +1371,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("For loop error: neither step nor body"),
          s(errLoopEmptyStepBody),
-         s("def f = {{} for {x$ = 1; x$ < 101;} {} }"),
+         s("fn f = f{-> for {x$ = 1; x$ < 101;} {} }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef,         .pl2 = 0, .pl3 = 0 },
          }),
@@ -1390,7 +1390,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("For with break and continue"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   for {x = 0; x < 301;} {\n"
            "      break;\n"
            "      continue;}\n"
@@ -1419,7 +1419,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("For with break error"),
          s(errBreakContinueInvalidDepth),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   for {x = 0; x < 101;}{\n"
            "      break 2;\n"
            "} }"
@@ -1443,7 +1443,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Nested for with deep break and continue"),
-         s("def f = {{}\n"
+         s("fn f = f{->\n"
            "   for {a = 0; a < 101;}{\n"
            "      for {b = 0; b < 201;}{\n"
            "         for {c = 0; c < 301;}{\n"
@@ -1535,7 +1535,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTestWithError(
          s("For with type error"),
          s(errTypeMustBeBool),
-         s("def f = {{} for {x' = 1; x / 101;}{ print x; } }"),
+         s("fn f = f{-> for {x' = 1; x / 101;}{ print x; } }"),
          ((Node[]) {
             (Node){ .tp = nodFnDef },
             (Node){ .tp = nodFor },

@@ -58,16 +58,15 @@ typedef struct {
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
 #define tokScope       27  // `(do ...)` firstScopeTokenType
 #define tokIf          28  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      29  // `eif ... {`
+#define tokElseIf      29  // `ei ... {`
 #define tokElse        30  // `else { `
 #define tokMatch       31  // `(match ... ` pattern matching on sum type tag
 #define tokFn          32  // `{a b -> body}`. pl1 = entityId
-#define tokFnParams    33  //  `{ a Int -> Str }`. pl1 = entityId
-#define tokTry         34  // `(try`
-#define tokCatch       35  // `(catch e MyExc:`
-#define tokImpl        36
-#define tokFor         37
-#define tokEach        38
+#define tokTry         33  // `(try`
+#define tokCatch       34  // `(catch e MyExc:`
+#define tokImpl        35
+#define tokFor         36
+#define tokEach        37
 
 #define topVerbatimTokenVariant tokString
 #define topVerbatimType     tokMisc

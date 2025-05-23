@@ -126,13 +126,12 @@ typedef struct { // :Token
 #define tokElseIf      29  // `eif ... {`
 #define tokElse        30  // `else { `
 #define tokMatch       31  // `(match ... ` pattern matching on sum type tag
-#define tokFn          32  // `{a b -> body}`. pl1 = entityId
-#define tokFnParams    33  //  `{ a Int -> Str }`. pl1 = entityId
-#define tokTry         34  // `(try`
-#define tokCatch       35  // `(catch e MyExc:`
-#define tokImpl        36
-#define tokFor         37
-#define tokEach        38
+#define tokFn          32  // `f{a b -> body}`. pl1 = entityId
+#define tokTry         33  // `try {`
+#define tokCatch       34  // `catch e MyExc {`
+#define tokImpl        35
+#define tokFor         36
+#define tokEach        37
 
 #define topVerbatimTokenVariant tokString
 #define firstSpanTokenType  tokStmt
@@ -185,7 +184,7 @@ constexpr char
 standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 
                 // reserved words: must be sorted alphabetically!
-                "aliasassertbreakcatchcontinueeacheifelsefalsefnfor"
+                "aliasassertbreakcatchcontinueeacheielsefalsefnfor"
                 "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
@@ -205,7 +204,7 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 private constexpr Byte
 standardStringLens[] = {
     5, 6, 5, 5, 8,
-    4, 3, 4, 5, 2,
+    4, 2, 4, 5, 2,
     3, 2, 4, 6, 5,
     3, 6, 5, 4, 3,
     3,
@@ -1817,11 +1816,14 @@ errIfElseMustBeLast[] = "An `else` subexpression must be the last thing in an `i
 char const
 errFnTypeArrows[]  = "A function type should contain exactly one arrow: `F(Par1 Par2 -> ReturnType)`";
 char const
-errFnNameAndParams[]  = "Function signature must look like this: `{x Type1 y Type 2 ->  ReturnType => body...}`";
+errArrowOutOfPlace[]  = "Arrows must be either in a function type: `F(Param -> ReturnType)` or "
+                        "closing a parameter list: `f{ param -> ...body...}`" ;
 char const
-errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name must be unique!";
+errFnParamList[]  = "Function parameter list must look like this: `{x y ->  body...}`";
 char const
 errFnDuplicateParams[] = "Duplicate parameter names in a function are not allowed";
+char const
+errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name must be unique!";
 char const
 errFnMissingBody[]  = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
 char const errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++}{ loopBody } `";
@@ -2087,8 +2089,7 @@ addStatementSpan(Unt stmtType, Int startBt, LX) {
 
 private void //:wrapInAStatement
 wrapInAStatement(Int startBt, Arr(char const) source, LX) {
-// Wraps a new token in a statement or, if we're in a tokFnParams, a clause
-// Sets the startBt to a specific value
+// Wraps a new token in a statement. Sets the startBt to a specific value
    if (lx->lexBtrack->len > 0) {
       BtToken const top = last(lx->lexBtrack);
       if (top.tp == tokToplevelFn) {
@@ -2496,7 +2497,6 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
       } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {
          // function body `f{ ... -> }`
          openPunctuation(tokFn, slScope, lx->i, lx);
-         openPunctuation(tokFnParams, slStmt, lx->i, lx);
          lx->i++; // CONSUME the `{`
          return;
       }
@@ -2772,11 +2772,15 @@ lexArrow(SRC, LX) {
          && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows
       )
       lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
-   } ei (top.tp == tokFnParams) { // `f{ a -> ...}`
-      top = removeLast(lx->lexBtrack);  
-      setSpanLengthLexer(top.tokenInd, lx);
-   } else {
-      throwExcLexer(errPunctuationUnmatched);
+   } else { // `f{ a -> ...}`
+      VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
+         && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace);
+      Token prevTok = lx->tokens.c[lx->tokens.len - 1];
+      Int endBt = prevTok.startBt + prevTok.lenBts;
+      
+      lx->tokens.c[top.tokenInd].lenBts = endBt - lx->tokens.c[top.tokenInd].startBt;
+      lx->tokens.c[top.tokenInd].pl2 = lx->tokens.len - top.tokenInd - 1;
+      removeLast(lx->lexBtrack);
    }
    lx->i += 2; // CONSUME the `->`
 }
@@ -2854,7 +2858,6 @@ lexFn(SRC, LX) {
    }
 
    openPunctuation(tokFn, slScope, lx->i, lx);
-   openPunctuation(tokFnParams, slClauseList, lx->i + 1, lx);
    lx->i += 2; // CONSUME the "{{"
 }
 
@@ -2905,8 +2908,16 @@ lexCurlyRight(SRC, LX) {
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
 
-   VALIDATEL(top.spanLevel == slScope || top.tp == tokFn, errPunctuationUnmatched)
+   VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
    setSpanLengthLexer(top.tokenInd, lx);
+   if (top.tp == tokFn) { // close the assignment or toplevel if we are in one
+      if (bt->len >= 2 && bt->c[bt->len - 1].tp == tokAssignRight) {
+         top = removeLast(bt);
+         setSpanLengthLexer(top.tokenInd, lx);
+         top = removeLast(bt);
+         setSpanLengthLexer(top.tokenInd, lx);
+      }
+   }
    lx->i++; // CONSUME the "}"
 }
 
@@ -4402,14 +4413,7 @@ copyStringDict(StringDict* from, Arena* a) {
 
 private void //:finalizeLexer
 finalizeLexer(LX) {
-// Finalizes the lexing of a single input: checks for unclosed scopes, and closes semicolons and
-// an open statement, if any
    lx->stats.toksLen = lx->tokens.len;
-   if (lx->lexBtrack->len == 0)
-      { return; }
-   BtToken top = removeLast(lx->lexBtrack);
-   setStmtSpanLength(top.tokenInd, lx);
-   mbCloseAssignRight(&top, lx);
    VALIDATEL(lx->lexBtrack->len == 0, errPunctuationExtraOpening)
 }
 
@@ -5185,11 +5189,13 @@ pFnCreateType(TExpr* te, CM) {
 private void //:pFnSignature
 pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKENS, CM) {
 // Parses a function signature. Emits no nodes, adds data to @toplevels, @functions, @overloads.
-// Pre-condition: we are at tokFnParams
+// Pre-condition: we are right past tokFn
    TExpr* te = cm->tExpr;
    Int const indParams = cm->i;
 
-   VALIDATEI(tokens[cm->i].tp == tokFnParams, iErrorInconsistentSpans);
+   Token firstTk = tokens[cm->i];
+   VALIDATEP(firstTk.tp == tokWord || (firstTk.tp == tokMisc && firstTk.pl1 == miscArrow),
+      errAssignmentToplevelFn);
 
    Token paramListTk = tokens[cm->i];
    Int paramsSentinel = calcSentinel(paramListTk, cm->i);
@@ -5251,7 +5257,9 @@ pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKENS, CM) {
 }
 
 private void //:pToplevelBodyWorker
-pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte callSort, TOKENS, CM) {
+pToplevelBodyWorker(
+      Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, Byte callSort, TOKENS, CM
+) {
    cm->i = tokenInd; // tokFn
    Token fnTk = tokens[tokenInd];
    Int const fnSentinel = calcSentinel(fnTk, tokenInd);
@@ -5259,23 +5267,26 @@ pToplevelBodyWorker(Int tokenInd, Int funcOrMonoId, TypeId concreteType, Byte ca
    openFnScope(funcOrMonoId, concreteType, callSort, locOf(fnTk), fnSentinel, cm);
 
    cm->i++; // CONSUME the tokFn token
-   Token paramsTk = tokens[cm->i]; // tokFnParams
-   Int const paramsSentinel = calcSentinel(paramsTk, cm->i);
-   if (paramsTk.pl2 == 0)
-      { goto bodyParsing; }
-
-   cm->i++; // CONSUME the tokFnParams
+   Int const paramsSentinel = cm->i + arity;
+   VALIDATEP(paramsSentinel < cm->stats.toksLen, errPrematureEndOfTokens)
+   
+   if (arity > 0) {
+      Token arrowTk = tokens[paramsSentinel];
+      VALIDATEP(arrowTk.tp == tokMisc && arrowTk.pl1 == miscArrow, errFnParamList);
+   } else {
+      goto bodyParsing;
+   }
+   
    for (
-      Int j = tGetIndexOfFnFirstParam(concreteType, cm).v;
+      Int t = tGetIndexOfFnFirstParam(concreteType, cm).v;
       cm->i < paramsSentinel;
-      cm->i = calcSentinel(tokens[cm->i], cm->i), // CONSUME the tokens of param clause
-      j++
+      cm->i++, t++
    ) {
       // must get params type from the concrete function type we got, not
       // from tokens (where they may be generic)
 
-      Token paramNameTk = tokens[cm->i + 1];
-      TypeId paramType = typeOf(cm->types.c[j]);
+      Token paramNameTk = tokens[cm->i];
+      TypeId paramType = typeOf(cm->types.c[t]);
       NameId name = paramNameTk.pl1;
       VarId newVarId = createVarWithType(
             name, paramType, paramNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm
@@ -5301,7 +5312,7 @@ pToplevelBody(FunctionId fnId, TOKENS, CM) {
    if (hdr.isGeneric) // generic functions arn't parsed, only their monomorphizations
       { return; }
 
-   pToplevelBodyWorker(fn.tokenInd, fnId, fnType, callNormal, tokens, cm);
+   pToplevelBodyWorker(fn.tokenInd, fnId, fnType, hdr.arity - 1, callNormal, tokens, cm);
 }
 
 void //:generateMonomorphizations
@@ -5318,8 +5329,9 @@ generateMonomorphizations(TOKENS, CM) {
          );
          pushIntoplevels(newFnId, cm);
          m->fnId = newFnId;
-         pToplevelBodyWorker(m->tokenInd, m - cm->monos->c, m->concrete, callMonomorph,
-            tokens, cm
+         pToplevelBodyWorker(
+            m->tokenInd, m - cm->monos->c, m->concrete, typeReadHeader(m->concrete, cm).arity - 1,
+            callMonomorph, tokens, cm
          );
       } else { // imported host functions
          pushInfunctions(
@@ -5357,8 +5369,7 @@ pToplevelSignatures(TOKENS, CM) {
       if (tok.tp != tokToplevelFn)
          { continue; }
       Assignment fnAssign = pPreparseAssignment(tok, cm->i + 1, tokens, cm);
-      if (!fnAssign.isFunction)
-         { continue; }
+      VALIDATEP(fnAssign.isFunction, errAssignmentToplevelFn);
 
       Token nameTk = tokens[cm->i + 1];
       VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errAssignmentToplevelFn)
@@ -5899,7 +5910,7 @@ pTypeDef(TOKENS, CM) {
 // Produces no AST nodes, but potentially lots of new types
 // Consumes the whole type assignment right side, or the whole function signature
 // Data format: see "Type expression data format"
-// Precondition: we are 1 past the tokAssignmentRight token, or tokFnParams token
+// Precondition: we are 1 past the tokAssignmentRight token
    VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, errAssignmentLeftSide)
    cm->tExpr->frames->len = 0;
 
@@ -6495,7 +6506,7 @@ char const* tokNames[] = {
    "Type", "data", "a[b][c]", "[]",
    "=", "=...", "alias", "assert", "breakCont",
    "trait", "import", "return",
-   "{", "if...", "eif ...", "else {", "match", "{{fn", "{fn params}",
+   "{", "if...", "eif ...", "else {", "match", "{{fn",
    "try{", "{catch", "impl", "for{", "{each"
 };
 

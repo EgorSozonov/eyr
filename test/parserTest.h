@@ -78,7 +78,7 @@ extern char const errIfEmpty[];
 extern char const errIfMalformed[];
 extern char const errIfElseMustBeLast[];
 extern char const errTypeDefCountNames[];
-extern char const errFnNameAndParams[];
+extern char const errFnParamList[];
 extern char const errFnDuplicateParams[];
 extern char const errFnMissingBody[];
 extern char const errLoopSyntaxError[];
