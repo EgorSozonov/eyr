@@ -1,17 +1,17 @@
-fn fizzBuzz F(->) = f{->
+fn fizzBuzz F() f{
     for {i' = 1; i < 101; i++; }{
         worker i;
     }
-};
+}
 
-fn worker F(Int ->) = f{ i ->
+fn worker F(Int ->) f{ i ->
     if  i % 3 == 0 && (i % 5 == 0) {print `FizzBuzz`;}
     eif i % 3 == 0 {print `Fizz`;}
     eif i % 5 == 0 {print `Buzz`;}
     else {print i;} 
-};
+}
 
-fn main F(-> Int) = f{->
+fn main F(-> Int) f{
     (fizzBuzz);
     return 0;
-};
+}

@@ -1,4 +1,4 @@
-fn multiply F((L (L Int)) (L (L Int)) -> (L (L Int)) = f{a b ->
+fn multiply F((L (L Int)) (L (L Int)) -> (L (L Int))) f{a b ->
    rows = a.len;
    cols = b[0].len;
    middle = a[0].len;
@@ -16,9 +16,9 @@ fn multiply F((L (L Int)) (L (L Int)) -> (L (L Int)) = f{a b ->
       add res newRow;
    }
    return res;
-};
+}
 
-fn main F(-> Int) = f{->
+fn main F(-> Int) f{->
    a (L (L Int)) = [[1 2 3 4 5] [10 9 8 7 6]];
    b (L (L Int)) = [[10] [10] [10] [10] [10]];
    product = multiply a b;
@@ -32,4 +32,4 @@ fn main F(-> Int) = f{->
    }
    print `]`; 
    return 0;
-};
+}

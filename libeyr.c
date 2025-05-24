@@ -390,6 +390,14 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 //}}}
 //{{{ Forward decls & generics
 
+DEFINE_LIST_HEADER(Token)
+DEFINE_LIST_HEADER(BtToken)
+DEFINE_LIST_HEADER(ParseFrame)
+DEFINE_LIST_HEADER(ExprFrame)
+DEFINE_LIST_HEADER(TypeFrame)
+DEFINE_LIST_HEADER(Monomorphization)
+DEFINE_LIST_HEADER(TypeLoc)
+
 typedef libeyr_CompResult CompResult;
 #define SRC Arr(char const) restrict source // Source text
 #define LX Compiler* restrict lx // Compiler for lexer functions
@@ -417,24 +425,22 @@ private TypeId typecheckList(Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(NameId outerName, TypeId param, CM);
 private TypeId tFunctionReturnType(TypeId t, CM);
+private TypeId tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM);
+private TypeId tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM);
+private void teOpenTypeCall(NameId typeName, Int sentinel, LTypeFrame* frames, CM);
+private TypeId teMergeParam(NameId name, TExpr* restrict te, CM);
+
+private TypeId tParse(Int sentinel, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
 private void tFreshState(TExpr* st);
-private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
+//~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
-
-DEFINE_LIST_HEADER(Token)
-DEFINE_LIST_HEADER(BtToken)
-DEFINE_LIST_HEADER(ParseFrame)
-DEFINE_LIST_HEADER(ExprFrame)
-DEFINE_LIST_HEADER(TypeFrame)
-DEFINE_LIST_HEADER(Monomorphization)
-DEFINE_LIST_HEADER(TypeLoc)
 
 #define add(A, X) _Generic((X),\
    LInt*: addInt,\
@@ -1826,27 +1832,51 @@ char const
 errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name must be unique!";
 char const
 errFnMissingBody[]  = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
-char const errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++}{ loopBody } `";
-char const errLoopNoCondition[] = "A loop header should contain a condition";
-char const errLoopEmptyStepBody[] = "Empty loop step code & body, but at least one must be present!";
-char const errLoopWrongFormInStepper[] = "A for loop's stepper can only contain assignments, expressions and asserts";
-char const errLoopBreakOutside[] = "The break keyword can only be used inside a loop scope!";
 char const
-errBreakContinueTooComplex[]    = "This statement is too complex! Continues and breaks may contain one thing only: the positive number of enclosing loops to continue/break!";
-char const errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a positive 32-bit integer!";
-char const errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
-char const errExpressionError[]   = "Cannot parse expression!";
-char const errExpressionWrongArgCount[]    = "Wrong argument count for a function";
-char const errExpressionCannotContain[]    = "Expressions cannot contain scopes or statements!";
-char const errExpressionFunctionless[]     = "Functionless expression!";
-char const errTypeDefCountNames[] = "Wrong count of names in a type definition!";
-char const errTypeDefCannotContain[]       = "Type declarations may only contain types (like Int), type params (like A), type constructors (like List) and parentheses!";
-char const errTypeDefError[]      = "Cannot parse type declaration!";
-char const errTypeDefParamsError[] = "Error parsing type params. Should look like this: [T U/2]";
-char const errOperatorWrongArity[] = "Wrong number of arguments for operator!";
-char const errUnknownBinding[]     = "Unknown binding!";
-char const errUnknownFunction[]    = "Unknown function!";
-char const errOperatorUsedInappropriately[] = "Operator used in an inappropriate location!";
+errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++}{ loopBody } `";
+char const
+errLoopNoCondition[] = "A loop header should contain a condition";
+char const
+errLoopEmptyStepBody[] = "Empty loop step code & body, but at least one must be present!";
+char const
+errLoopWrongFormInStepper[] = "A for loop's stepper can only contain assignments, expressions and asserts";
+char const
+errLoopBreakOutside[] = "The break keyword can only be used inside a loop scope!";
+char const
+errBreakContinueTooComplex[] = "This statement is too complex! Continues and breaks may contain"
+                               " one thing only: the positive number of enclosing loops to"
+                               " continue/break!";
+char const
+errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a positive 32-bit integer!";
+char const
+errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
+char const
+errExpressionError[]   = "Cannot parse expression!";
+char const
+errExpressionWrongArgCount[]    = "Wrong argument count for a function";
+char const
+errExpressionCannotContain[]    = "Expressions cannot contain scopes or statements!";
+char const
+errExpressionFunctionless[]     = "Functionless expression!";
+char const
+errTypeDefCountNames[] = "Wrong count of names in a type definition!";
+char const
+errTypeDefCannotContain[] = "Type declarations may only contain types (like Int),"
+                            " type params (like A), type constructors (like List) and parentheses!";
+char const
+errTypeExpr[]      = "Cannot parse type expression!";
+char const
+errTypeDefError[]      = "Cannot parse type declaration!";
+char const
+errTypeDefParamsError[] = "Error parsing type params. Should look like this: [T U/2]";
+char const
+errOperatorWrongArity[] = "Wrong number of arguments for operator!";
+char const
+errUnknownBinding[]     = "Unknown binding!";
+char const
+errUnknownFunction[]    = "Unknown function!";
+char const
+errOperatorUsedInappropriately[] = "Operator used in an inappropriate location!";
 char const
 errAssignment[]           = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
 char const
@@ -1856,14 +1886,14 @@ errMutation[]           = "Cannot parse mutation, it must look like `freshIdenti
 char const
 errAssignmentShadowing[] = "Assignment error: existing identifier is being shadowed";
 char const
-errAssignmentToplevelFn[] = "Assignment of top-level functions must be immutable";
-char const
 errAssignmentLeftSide[]   = "Assignment error: left side must be a var name, a type name, or an existing var with one or more accessors";
 char const
 errAssignmentAccessOnToplevel[] = "Accessor on the left side of an assignment at toplevel";
 char const
 errAssignmentToFunctionVar[]    = "Assignment to a function variable should look like "
                                   "`fn F(Int -> Long) = overloadedName;`";
+char const
+errFnSignature[]    = "A function signature should look like `fn F(Int -> Long) f{a-> ...};`";
 char const
 errReturn[]               = "Cannot parse return statement, it must look like `return ` {expression}";
 char const
@@ -2840,8 +2870,8 @@ lexParenRight(SRC, LX) {
    BtToken top = removeLast(bt);
 
    VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFn, errPunctuationUnmatched)
-   if (top.tp == tokType && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF)) {
-      VALIDATEL(top.spanLevel == slFn, errFnTypeArrows)
+   if (top.tp == tokType && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF)) { // F(..)
+      VALIDATEL(top.spanLevel == slFn || top.tokenInd == lx->tokens.len - 1, errFnTypeArrows)
    }
    mbCloseAssignRight(&top, lx);
 
@@ -2911,9 +2941,7 @@ lexCurlyRight(SRC, LX) {
    VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
    setSpanLengthLexer(top.tokenInd, lx);
    if (top.tp == tokFn) { // close the assignment or toplevel if we are in one
-      if (bt->len >= 2 && bt->c[bt->len - 1].tp == tokAssignRight) {
-         top = removeLast(bt);
-         setSpanLengthLexer(top.tokenInd, lx);
+      if (bt->len >= 1 && bt->c[bt->len - 1].tp == tokToplevelFn) {
          top = removeLast(bt);
          setSpanLengthLexer(top.tokenInd, lx);
       }
@@ -3450,7 +3478,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
    // when the left side is a var definition with its type declared
    cm->tExpr->isGeneric = false;
 
-   TypeId leftType = teClause(cm->tExpr, sentinel, tokens, cm);
+   TypeId leftType = tParse(sentinel, tokens, cm);
    VALIDATEP(!cm->tExpr->isGeneric, errTypePolymorphicAssignment)
 
    if (nextTk.pl1 == nameOfStandard(strF)) {
@@ -5172,87 +5200,51 @@ validateOverloadsFull(CM) {
 
 #endif
 
-TypeId //:pFnCreateType
-pFnCreateType(TExpr* te, CM) {
-   Int const depth = te->fnScratch->len;
-   TYPE_CREATE_START(
-      ((TypeHeader){ .sort = sorDeclare, .isGeneric = te->isGeneric,
-                     .tyrity = te->tParams->len, .arity = depth, .name = nameOfStandard(strF) })
-   );
-   for (Int j = 0; j < depth; j++) {
-      pushIntypes(te->fnScratch->c[j], cm);
-   }
-   TYPE_CREATE_END;
-   return mergeType(tentativeType, cm);
-}
+//~TypeId //:pFnCreateType
+//~pFnCreateType(TExpr* te, CM) {
+//~   Int const depth = te->fnScratch->len;
+//~   TYPE_CREATE_START(
+//~      ((TypeHeader){ .sort = sorDeclare, .isGeneric = te->isGeneric,
+//~                     .tyrity = te->tParams->len, .arity = depth, .name = nameOfStandard(strF) })
+//~   );
+//~   for (Int j = 0; j < depth; j++) {
+//~      pushIntypes(te->fnScratch->c[j], cm);
+//~   }
+//~   TYPE_CREATE_END;
+//~   return mergeType(tentativeType, cm);
+//~}
 
 private void //:pFnSignature
-pFnSignature(Assignment fnAssign, TypeId voidToVoid, TOKENS, CM) {
+pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
 // Parses a function signature. Emits no nodes, adds data to @toplevels, @functions, @overloads.
-// Pre-condition: we are right past tokFn
-   TExpr* te = cm->tExpr;
-   Int const indParams = cm->i;
+// Pre-condition: we are right past tokToplevelFn
+   Int const tokenInd = cm->i - 1;
+   
+   Token nameTk = tokens[cm->i];
+   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errFnSignature)
+   NameId name = nameTk.pl1;
+   
+   cm->i++; // CONSUME the function name
+   Token typeTk = tokens[cm->i];
+   VALIDATEP(typeTk.tp == tokType, errFnSignature)
 
-   Token firstTk = tokens[cm->i];
-   VALIDATEP(firstTk.tp == tokWord || (firstTk.tp == tokMisc && firstTk.pl1 == miscArrow),
-      errAssignmentToplevelFn);
+   TypeId fnType = tParse(calcSentinel(typeTk, cm->i), tokens, cm);
+   TypeHeader hdr = typeReadHeader(fnType, cm);
+   
+   FunctionId const newFnId = cm->functions.len;
 
-   Token paramListTk = tokens[cm->i];
-   Int paramsSentinel = calcSentinel(paramListTk, cm->i);
-   TypeId newFnType = voidToVoid; // default for nullary functions
-   Bool const hasReturnType = fnAssign.rightTokenInd - fnAssign.nameTokenInd > 1;
-
-   te->isGeneric = false;
-   if (!hasReturnType && paramListTk.pl2 == 0) // A void -> void function
-      { goto entityAdding; }
-
-   te->tParams->len = 0; // list of params pertains to the whole function
-   te->fnScratch->len = 0;
-   TypeId returnType = typeOf(voidType);
-   if (hasReturnType) {
-      cm->i = fnAssign.nameTokenInd; // To function name token
-      returnType = teClause(te, fnAssign.rightTokenInd, tokens, cm);
-   }
-
-   Int arity = 0;
-   if (paramListTk.pl2 == 0)
-      { goto returnTypeAdding; }
-
-   tFreshState(te);
-   for (cm->i = indParams + 1; cm->i < paramsSentinel;) {
-      Token clause = tokens[cm->i];
-      VALIDATEP(clause.tp == tokClause, errTypeDefCannotContain)
-      Int const clauseSentinel = calcSentinel(clause, cm->i);
-      cm->i++; // CONSUME the tokStmt
-      TypeId paramType = teClause(te, clauseSentinel, tokens, cm);
-
-      add(paramType.v, te->fnScratch);
-      cm->i = clauseSentinel; // CONSUME the statement
-      arity++;
-   }
-
-   returnTypeAdding:
-   if (arity == 0) // nullary functions get an implicit Void-type parameter
-      { add(voidType, te->fnScratch); }
-   add(returnType.v, te->fnScratch);
-   newFnType = pFnCreateType(te, cm);
-   entityAdding:
-   FunctionId newFnId = cm->functions.len;
-   fnAssign.entityId = -(newFnId) - 1;
-
-   Int genericInd = te->isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
+   Int genericInd = hdr.isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
    pushInfunctions(((Function){
-         .name = fnAssign.name, .typeId = newFnType,
-         .genericInd = genericInd, .tokenInd = fnAssign.rightTokenInd + 1,
+         .name = nameTk.pl1, .typeId = fnType, .genericInd = genericInd, .tokenInd = tokenInd,
          .access = accessPrivImm, .emit = emitParsed
       }),
       cm
    );
-   if (fnAssign.name == nameOfStandard(strMain)) {
+   if (name == nameOfStandard(strMain)) {
       VALIDATEP(cm->entrypoint == -1, errFnEntrypoint);
       cm->entrypoint = newFnId;
    }
-   addRawOverload(fnAssign.name, newFnType, newFnId, cm);
+   addRawOverload(name, fnType, newFnId, cm);
    pushIntoplevels(newFnId, cm);
 }
 
@@ -5364,22 +5356,12 @@ pToplevelSignatures(TOKENS, CM) {
    TypeId const voidToVoid = addConcrFnType(1, (Int[]){ voidType, voidType}, cm);
 
    Int nextI = 0;
-   for (Token tok = tokens[cm->i]; cm->i < len; cm->i = nextI, tok = tokens[cm->i]) {
+   for (Token tok = tokens[cm->i]; cm->i < len; cm->i = nextI, tok = tokens[nextI]) {
       nextI = calcSentinel(tok, cm->i);
       if (tok.tp != tokToplevelFn)
          { continue; }
-      Assignment fnAssign = pPreparseAssignment(tok, cm->i + 1, tokens, cm);
-      VALIDATEP(fnAssign.isFunction, errAssignmentToplevelFn);
-
-      Token nameTk = tokens[cm->i + 1];
-      VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errAssignmentToplevelFn)
-
-      // since this is an immutable definition tokDef, its pl1 is the nameId
-      NameId name = (Unt)nameTk.pl1;
-      cm->i = fnAssign.rightTokenInd + 2; // CONSUME the left side, tokAssignmentRight and tokFn
-      fnAssign.name = name;
-
-      pFnSignature(fnAssign, voidToVoid, tokens, cm);
+      cm->i++; // CONSUME the tokToplevelFn   
+      pFnSignature(tok, voidToVoid, tokens, cm);
    }
 }
 
@@ -5550,7 +5532,7 @@ tGetBody(TypeId ty, CM) {
 
 private TypeId //:typeGetTypeByName
 typeGetTypeByName(Int t, CM) {
-   Int mbTypeId = cm->activeBindings[t];
+   Int const mbTypeId = cm->activeBindings[t];
    VALIDATEP(mbTypeId > -1, errUnknownType);
    return typeOf(mbTypeId);
 }
@@ -5563,6 +5545,86 @@ tFreshState(TExpr* te) {
    te->frames->len = 0;
    te->exp->len = 0;
 }
+
+private void //:teClose
+teClose(TExpr* te, CM) {
+// Flushes the finished subexpr frames from the top of the type stack.
+   LInt* exp = te->exp;
+   LTypeFrame* frames = te->frames;
+   while (frames->len > 0 && last(frames).sentinel == cm->i) {
+      TypeFrame frame = removeLast(frames);
+      Int startInd = exp->len - frame.countArgs;
+      TypeId newType = ZERO_ARITY_TYPE;
+
+      if (frame.tp == tfrFnTypeCall)  {
+         newType = tCreateFnTypeCall(te, startInd, frame, cm);
+      } ei (frame.tp == tfrTypeCall) {
+         newType = tCreateTypeCall(te, sorTypeCall, startInd, frame, cm);
+      } else { // tyeParamCall, a call of a type which is a parameter
+         // TODO higher-kinded types
+         throwExcParser(errTemp);
+      }
+      exp->c[startInd] = newType.v;
+      exp->len = startInd + 1; // +1 because we've put one type for the call we've reduced
+   }
+}
+
+private TypeId //:tParseComplexType
+tParseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
+// Precondition: we are looking at the first tokType (`L` in this example),
+// while the first one has been added as a type call.
+   LInt* exp = te->exp;
+   LTypeFrame* frames = te->frames;
+   while (cm->i < sentinel) {
+      teClose(te, cm);
+      Token cTk = tokens[cm->i];
+
+      VALIDATEP(frames->len > 0, errTypeDefError)
+      frames->c[frames->len - 1].countArgs++;
+
+      if (cTk.tp == tokType) {
+         if (cTk.pl2 == 0) {
+            add(typeGetTypeByName(cTk.pl1, cm).v, exp);
+         } else {
+            Int const typeCallSent = calcSentinel(cTk, cm->i);
+            teOpenTypeCall(cTk.pl1, typeCallSent, frames, cm);
+         }
+      } ei (cTk.tp == tokTypeVar) {
+         // create/reuse a type of sorGenericParam for a newly encountered type param
+         NameId name = cTk.pl1;
+         teMergeParam(name, te, cm);
+      } else {
+         throwExcParser(errTypeExpr);
+      }
+      cm->i++; // CONSUME the current token
+   }
+   teClose(te, cm);
+
+   VALIDATEI(exp->len == 1, iErrorInconsistentTypeExpr);
+   return typeOf(exp->c[0]);
+}
+
+private TypeId //:tParse
+tParse(Int sentinel, TOKENS, CM) {
+// Parse a type expression like `(L Double)`. Produces a linear, RPN sequence. Consumes all tokens,
+// populates @te.exp.
+// Precondition: we are looking at the first type token (e.g. `(L`).
+   Token firstTypeTk = tokens[cm->i];
+   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, errTypeDefError)
+   TExpr* te = cm->tExpr;
+   if (cm->i + 1 == sentinel) { // single-name type
+      if (firstTypeTk.tp == tokType)  {
+         TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
+         add(simpleType.v, te->exp);
+         return simpleType;
+      } else { // tokTypeParam
+         return teMergeParam(firstTypeTk.pl1, te, cm);
+      }
+   } else  {
+      return tParseComplexType(te, sentinel, tokens, cm);
+   }
+}
+
 
 private Int //:tSubexValidateNamesUnique
 tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
@@ -5769,135 +5831,78 @@ tCreateFnSignature(TExpr* te, Int startInd, CM) {
 
 #define maxTypeParams 254
 
-private void //:teClose
-teClose(TExpr* te, CM) {
-// Flushes the finished subexpr frames from the top of the funcall stack.
-// Handles data allocations
-   LInt* exp = te->exp;
-   LTypeFrame* frames = te->frames;
-   while (frames->len > 0 && last(frames).sentinel == cm->i) {
-      TypeFrame frame = removeLast(frames);
-      Int startInd = exp->len - frame.countArgs;
-      TypeId newType = ZERO_ARITY_TYPE;
-
-      if (frame.tp == tfrFunction) {
-         newType = tCreateFnSignature(te, startInd, cm);
-      } ei (frame.tp == tfrFnTypeCall)  {
-         newType = tCreateFnTypeCall(te, startInd, frame, cm);
-      } ei (frame.tp == tfrRecord) {
-         throwExcParser(errTemp);
-         //typeCreateRecord(st, startInd, -1, cm);
-      } ei (frame.tp == tfrTypeCall) {
-         newType = tCreateTypeCall(te, sorTypeCall, startInd, frame, cm);
-      } else { // tyeParamCall, a call of a type which is a parameter
-         // TODO
-         throwExcParser(errTemp);
-      }
-      exp->c[startInd] = newType.v;
-      exp->len = startInd + 1; // +1 because we've put one type for the call we've reduced
-   }
-}
-
 private void //:teOpenTypeCall
 teOpenTypeCall(NameId typeName, Int sentinel, LTypeFrame* frames, CM) {
 // Adds a new type call to @exp during type expression parsing
    if (typeName == nameOfStandard(strF)) { // F ...
       add(((TypeFrame){ .tp = tfrFnTypeCall, .sentinel = sentinel}), frames);
-   } ei (typeName == nameOfStandard(strRec)) { // inline types  `(id Int name String)`
-      add(((TypeFrame){ .tp = tfrRecord, .sentinel = sentinel}), frames);
    } else { // ordinary type call
-      TypeId typeId = typeOf(cm->activeBindings[typeName]);
+      TypeId const typeId = typeOf(cm->activeBindings[typeName]);
       VALIDATEP(typeId.v > -1, errUnknownTypeConstructor)
-      add(((TypeFrame){.tp = tfrTypeCall, .id = typeId, .sentinel = sentinel}),
-         frames);
+      add(((TypeFrame){.tp = tfrTypeCall, .id = typeId, .sentinel = sentinel}), frames);
    }
 }
 
-private TypeId //:teClauseComplexType
-teClauseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
+//~private TypeId //:teClauseComplexType
+//~teClauseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
 // For a clause like `lst L Double`, parses the `L Double` part.
 // Precondition: we are looking JUST PAST the first type token (`Double` in this example),
 // while the first one has been added as a type call.
-   LInt* exp = te->exp;
-   LTypeFrame* frames = te->frames;
-   while (cm->i < sentinel) {
-      teClose(te, cm);
-      Token cTk = tokens[cm->i];
-      cm->i++; // CONSUME the current token
-
-      VALIDATEP(frames->len > 0, errTypeDefError)
-      if (cTk.tp == tokWord) { // name of a field in a struct/variant
-         VALIDATEP(cm->i < sentinel, errTypeDefError)
-         Int ctxType = last(frames).tp;
-         VALIDATEP(ctxType == sorDeclare, errTypeDefError)
-
-         Token nextTk = cm->tokens.c[cm->i];
-         VALIDATEP(nextTk.tp == tokType, errTypeDefError)
-         add(cTk.pl1, te->names);
-         continue;
-      }
-
-      frames->c[frames->len - 1].countArgs++;
-
-      if (cTk.tp == tokType) {
-         if (cTk.pl2 == 0) {
-            add(typeGetTypeByName(cTk.pl1, cm).v, exp);
-         } else {
-            Int const typeCallSent = calcSentinel(cTk, cm->i - 1);
-
-            teOpenTypeCall(cTk.pl1, typeCallSent, frames, cm);
-            cm->i++; // CONSUME the type function's name
-         }
-      } ei (cTk.tp == tokTypeVar) {
-         // create/reuse a type of sorGenericParam for a newly encountered type param
-         NameId name = cTk.pl1;
-         teMergeParam(name, te, cm);
-      } else {
-         throwExcParser(errTypeDefError);
-      }
-   }
-
-   teClose(te, cm);
-
-   VALIDATEI(exp->len == 1, iErrorInconsistentTypeExpr);
-   return typeOf(exp->c[0]);
-}
-
-private TypeId //:tExpr
-tExpr(TExpr* te, Int sentinel, TOKENS, CM) {
-// Parses `L Double`.
-// Precondition: we are looking at the first type token (e.g. `L`).
-// Produces a linear, RPN sequence. Populates @te.exp
-   Token firstTypeTk = tokens[cm->i];
-   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, errTypeDefError)
-   if (cm->i + 1 == sentinel) { // single-name type
-      if (firstTypeTk.tp == tokType)  {
-         TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
-         add(simpleType.v, te->exp);
-         return simpleType;
-      } else {
-         return teMergeParam(firstTypeTk.pl1, te, cm);
-      }
-   } else  {
-
-      teOpenTypeCall(firstTypeTk.pl1, sentinel, te->frames, cm);
-      cm->i++; // CONSUME the first type name (which is actually a call)
-      return teClauseComplexType(te, sentinel, tokens, cm);
-   }
-}
-
-private TypeId //:teClause
-teClause(TExpr* te, Int sentinel, TOKENS, CM) {
+//~   LInt* exp = te->exp;
+//~   LTypeFrame* frames = te->frames;
+//~   while (cm->i < sentinel) {
+//~      teClose(te, cm);
+//~      Token cTk = tokens[cm->i];
+//~      cm->i++; // CONSUME the current token
+//~
+//~      VALIDATEP(frames->len > 0, errTypeDefError)
+//~      if (cTk.tp == tokWord) { // name of a field in a struct/variant
+//~         VALIDATEP(cm->i < sentinel, errTypeDefError)
+//~         Int ctxType = last(frames).tp;
+//~         VALIDATEP(ctxType == sorDeclare, errTypeDefError)
+//~
+//~         Token nextTk = cm->tokens.c[cm->i];
+//~         VALIDATEP(nextTk.tp == tokType, errTypeDefError)
+//~         add(cTk.pl1, te->names);
+//~         continue;
+//~      }
+//~
+//~      frames->c[frames->len - 1].countArgs++;
+//~
+//~      if (cTk.tp == tokType) {
+//~         if (cTk.pl2 == 0) {
+//~            add(typeGetTypeByName(cTk.pl1, cm).v, exp);
+//~         } else {
+//~            Int const typeCallSent = calcSentinel(cTk, cm->i - 1);
+//~            teOpenTypeCall(cTk.pl1, typeCallSent, frames, cm);
+//~         }
+//~      } ei (cTk.tp == tokTypeVar) {
+//~         // create/reuse a type of sorGenericParam for a newly encountered type param
+//~         NameId name = cTk.pl1;
+//~         teMergeParam(name, te, cm);
+//~      } else {
+//~         throwExcParser(errTypeDefError);
+//~      }
+//~   }
+//~
+//~   teClose(te, cm);
+//~
+//~   VALIDATEI(exp->len == 1, iErrorInconsistentTypeExpr);
+//~   return typeOf(exp->c[0]);
+//~}
+//~
+//~private TypeId //:teClause
+//~teClause(TExpr* te, Int sentinel, TOKENS, CM) {
 // Parses `lst S Double`.
 // Precondition: we are looking at the name token (e.g. `lst`).
 // @te.frames, @te.exp etc must be empty. Produces a linear, RPN sequence.
-   tFreshState(te);
-   Token nameTk = tokens[cm->i];
-   VALIDATEP(nameTk.tp == tokWord, errTypeDefError)
-   add(nameTk.pl1, te->names);
-   cm->i++; // CONSUME the name of the clause
-   return tExpr(te, sentinel, tokens, cm);
-}
+//~   tFreshState(te);
+//~   Token nameTk = tokens[cm->i];
+//~   VALIDATEP(nameTk.tp == tokWord, errTypeDefError)
+//~   add(nameTk.pl1, te->names);
+//~   cm->i++; // CONSUME the name of the clause
+//~   return teParse(sentinel, tokens, cm);
+//~}
 
 private TypeId //:pTypeDef
 pTypeDef(TOKENS, CM) {
@@ -5919,7 +5924,7 @@ pTypeDef(TOKENS, CM) {
    cm->i += 2; // CONSUME the type name and the tokAssignmentRight
 
    VALIDATEP(cm->i < sentinel, errTypeDefError)
-   TypeId newType = tExpr(cm->tExpr, sentinel, tokens, cm);
+   TypeId newType = tParse(sentinel, tokens, cm);
    NameId name = nameTk.pl1;
    cm->activeBindings[name] = newType.v;
    cm->types.c[newType.v + 1] = name;
@@ -6502,11 +6507,11 @@ printNameNoLn(NameId nameId, CM) {
 char const* tokNames[] = {
    "Int", "Long", "Double", "Bool", "String", "misc",
    "word", "@TVar", ":kwarg", "oper", ".field",
-   "stmt", "clause", "def", "()",
+   "stmt", "clause", "TOPLEVEL", "()",
    "Type", "data", "a[b][c]", "[]",
    "=", "=...", "alias", "assert", "breakCont",
    "trait", "import", "return",
-   "{", "if...", "eif ...", "else {", "match", "{{fn",
+   "{", "if...", "eif ...", "else {", "match", "f{",
    "try{", "{catch", "impl", "for{", "{each"
 };
 

@@ -1,4 +1,4 @@
-fn fibonacci F(Int -> Int) = f{n ->
+fn fibonacci F(Int -> Int) f{n ->
      if  n <= 0 { return 0; }
      eif n == 1 { return 1; }
 
@@ -11,12 +11,12 @@ fn fibonacci F(Int -> Int) = f{n ->
           accum += swap;
      }
      return accum;
-};
+}
 
-fn main F(-> Int) = f{->
+fn main F(-> Int) f{->
     print `First 10 Fibonacci numbers:`;
     for { k' = 0; k < 10; k++; } {
        print (fibonacci k);
     }
     return 0;
-};
+}

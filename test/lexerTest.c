@@ -976,30 +976,29 @@ LexerTestSet* coreFormTests(Arena* a) {
                 (Token){ .tp = tokBool, .pl2 = 1, .startBt = 54, .lenBts = 4 }
          }))},
          (LexerTest) { .name = s("Function simple 1"),
-             .input = s("noo F(Int Int -> Int) = f{ x y -> return x - y;}"),
+             .input = s("fn noo F(Int Int -> Int) f{ x y -> return x - y;}"),
              .expectedOutput = expect(((Token[]){
-                 (Token){ .tp = tokAssignment,         .pl2 = 14,
-                          .startBt = 0, .lenBts = 48 },
-                 (Token){ .tp = tokWord, .pl1 = 0,        .startBt = 0, .lenBts = 3 }, // noo
+                 (Token){ .tp = tokToplevelFn,         .pl2 = 13,
+                          .startBt = 0, .lenBts = 49 },
+                 (Token){ .tp = tokWord, .pl1 = 0,        .startBt = 3, .lenBts = 3 }, // noo
                  (Token){ .tp = tokType, .pl1 = (strF + S), .pl2 = 3,  // F(...)
-                          .startBt = 4, .lenBts = 17 },
+                          .startBt = 7, .lenBts = 17 },
                  (Token){ .tp = tokType, .pl1 = (strInt + S), .pl2 = 0, // Int
-                          .startBt = 6, .lenBts = 3 },
-                 (Token){ .tp = tokType, .pl1 = (strInt + S), .pl2 = 0, .startBt = 10, .lenBts = 3},
-                 (Token){ .tp = tokType, .pl1 = (strInt + S), .pl2 = 0, .startBt = 17, .lenBts = 3},
-                 (Token){ .tp = tokAssignRight,        .pl2 = 8, .startBt = 22, .lenBts = 26 },
+                          .startBt = 9, .lenBts = 3 },
+                 (Token){ .tp = tokType, .pl1 = (strInt + S), .pl2 = 0, .startBt = 13, .lenBts = 3},
+                 (Token){ .tp = tokType, .pl1 = (strInt + S), .pl2 = 0, .startBt = 20, .lenBts = 3},
 
                  (Token){ .tp = tokFn, .pl1 = slScope,       .pl2 = 7,
-                          .startBt = 25, .lenBts = 23 },
+                          .startBt = 26, .lenBts = 23 },
 
-                 (Token){ .tp = tokStmt, .pl2 = 2,   .startBt = 27, .lenBts = 3 }, //param list
-                 (Token){ .tp = tokWord, .pl1 = 2,   .startBt = 27, .lenBts = 1 }, // x
-                 (Token){ .tp = tokWord, .pl1 = 3,   .startBt = 29, .lenBts = 1 }, // y
+                 (Token){ .tp = tokStmt, .pl2 = 2,   .startBt = 28, .lenBts = 3 }, //param list
+                 (Token){ .tp = tokWord, .pl1 = 2,   .startBt = 28, .lenBts = 1 }, // x
+                 (Token){ .tp = tokWord, .pl1 = 3,   .startBt = 30, .lenBts = 1 }, // y
 
-                 (Token){ .tp = tokReturn,       .pl2 = 3, .startBt = 34, .lenBts = 13 },
-                 (Token){ .tp = tokWord, .pl1 = 2,       .startBt = 41, .lenBts = 1 }, // x
-                 (Token){ .tp = tokOperator, .pl1 = opMinus, .pl2 = 8, .startBt = 43, .lenBts = 1 },
-                 (Token){ .tp = tokWord, .pl1 = 3,       .startBt = 45, .lenBts = 1 } // y
+                 (Token){ .tp = tokReturn,       .pl2 = 3, .startBt = 35, .lenBts = 13 },
+                 (Token){ .tp = tokWord, .pl1 = 2,       .startBt = 42, .lenBts = 1 }, // x
+                 (Token){ .tp = tokOperator, .pl1 = opMinus, .pl2 = 8, .startBt = 44, .lenBts = 1 },
+                 (Token){ .tp = tokWord, .pl1 = 3,       .startBt = 46, .lenBts = 1 } // y
          }))},
          (LexerTest) { .name = s("Loop simple"),
              .input = s("for {x' = 1; x < 101; x = x + 1;} { print x; }"),
@@ -1058,24 +1057,23 @@ LexerTestSet* typeTests(Arena* a) {
 //~                 (Token){ .tp = tokType, .pl1 = 2,   .startBt = 8, .lenBts = 3 }
 //~         }))},
          (LexerTest) { .name = s("Generic function signature"),
-             .input = s("fn f F((L $W) $W ->) = f{lst w -> print w;}"),
+             .input = s("fn f F((L $W) $W ->) f{lst w -> print w;}"),
              .expectedOutput = expect(((Token[]) {
-                 (Token){ .tp = tokToplevelFn, .pl1 = 0, .pl2 = 13,    .lenBts = 43 },
+                 (Token){ .tp = tokToplevelFn, .pl1 = 0, .pl2 = 12,    .lenBts = 41 },
                  (Token){ .tp = tokWord, .pl1 = 0, .pl2 = 0, .startBt = 3,   .lenBts = 1 },
                  (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 3, .startBt = 5, .lenBts = 15 },
                  (Token){ .tp = tokType, .pl1 = strL + S, .pl2 = 1, .startBt = 7, .lenBts = 6 },
                  (Token){ .tp = tokTypeVar, .pl1 = 1, .pl2 = 0, .startBt = 10, .lenBts = 2 },
                  (Token){ .tp = tokTypeVar, .pl1 = 1, .pl2 = 0, .startBt = 14, .lenBts = 2 },
-                 (Token){ .tp = tokAssignRight, .pl1 = 0, .pl2 = 7,  .startBt = 21,  .lenBts = 22 },
-                 (Token){ .tp = tokFn, .pl1 = slScope, .pl2 = 6,   .startBt = 24, .lenBts = 19 },
+                 (Token){ .tp = tokFn, .pl1 = slScope, .pl2 = 6, .startBt = 22, .lenBts = 19 },
 
-                 (Token){ .tp = tokStmt,         .pl2 = 2, .startBt = 25, .lenBts = 5 },
-                 (Token){ .tp = tokWord, .pl1 = 2,         .startBt = 25, .lenBts = 3 }, //lst
-                 (Token){ .tp = tokWord, .pl1 = 3,     .startBt = 29, .lenBts = 1 }, // w
+                 (Token){ .tp = tokStmt,         .pl2 = 2, .startBt = 23, .lenBts = 5 },
+                 (Token){ .tp = tokWord, .pl1 = 2,         .startBt = 23, .lenBts = 3 }, //lst
+                 (Token){ .tp = tokWord, .pl1 = 3,     .startBt = 27, .lenBts = 1 }, // w
 
-                 (Token){ .tp = tokStmt,         .pl2 = 2,     .startBt = 34, .lenBts = 8 },
-                 (Token){ .tp = tokWord,  .pl1 = strPrint + S, .startBt = 34, .lenBts = 5 },
-                 (Token){ .tp = tokWord,     .pl1 = 3, .startBt = 40, .lenBts = 1 },
+                 (Token){ .tp = tokStmt,         .pl2 = 2,     .startBt = 32, .lenBts = 8 },
+                 (Token){ .tp = tokWord,  .pl1 = strPrint + S, .startBt = 32, .lenBts = 5 },
+                 (Token){ .tp = tokWord,     .pl1 = 3, .startBt = 38, .lenBts = 1 },
          }))},
          (LexerTest) { .name = s("Function type"),
              .input = s("F(From -> To);"),
