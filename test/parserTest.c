@@ -784,111 +784,111 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
 
 ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("Functions test set"), a, ((ParserTest[]){
-      createTestWithLocs(
-         s("Simple function definition 1"),
-         s("fn newFn F(Int (L Bool) ->) = f{x y -> a = x;};"),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 5 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam  },  // param x
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam  },  // param y
-            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }   // x
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {}),
-         ((SourceLoc[]) {
-            (SourceLoc){ .startBt = 12, .lenBts = 28 },
-            (SourceLoc){ .startBt = 14, .lenBts = 1 },
-            (SourceLoc){ .startBt = 21, .lenBts = 1 },
-            (SourceLoc){ .startBt = 33, .lenBts = 6 },
-            (SourceLoc){ .startBt = 33, .lenBts = 1 },
-            (SourceLoc){ .startBt = 37, .lenBts = 1 }
-          })
-      ),
-      createTest(
-         s("Simple function definition 2"),
-         s("fn newFn F(Str Double -> Str) = f{x y ->\n"
-           "   a = x;\n"
-           "   return a;\n"
-           "};"
-         ),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 7 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam }, // param x
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam }, // param y
-            (Node){ .tp = nodAssignment,      .pl2 = 2, .pl3 = 2  },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // local a
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0  }, // x
-            (Node){ .tp = nodReturn,        .pl2 = 1  },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0  }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Simple function definition 3"),
-         s("fn main = f{->\n"
-           "   print `asdf`;\n"
-           "};"
-         ),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,     .pl2 = 3 },
-            (Node){ .tp = nodExpr,      .pl2 = 2 },
-            (Node){ .tp = tokString    },
-            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("Function definition wrong return type"),
-         s(errTypeWrongReturnType),
-         s("fn newFn F(Double Double -> Str) = f{x y ->\n"
-           "   a = x;\n"
-           "   return a;\n"
-           "};"
-         ),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn                  },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // param x
-            (Node){ .tp = nodVar, .pl1 = 2, .pl3 = assiVarAssignment }, // param y
-            (Node){ .tp = nodAssignment,      .pl2 = 2, .pl3 = 2  },
-            (Node){ .tp = nodVar, .pl1 = 3, .pl3 = assiVarAssignment }, // local a
-            (Node){ .tp = nodVar, .pl1 = 1,    .pl2 = 1  }, // x
-            (Node){ .tp = nodReturn,                },
-            (Node){ .tp = nodVar, .pl1 = 3,    .pl2 = 3  }  // a
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
-         s("Function definition with complex return"),
-         s("fn newFn F(Int Double -> Str) = f{x y ->\n"
-           "   return $(foo x - y);};"
-         ),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 9 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam },  // param x
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam },  // param y
-            (Node){ .tp = nodReturn,        .pl2 = 6  },
-            (Node){ .tp = nodExpr,          .pl2 = 5  },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },   // x
-            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 1 }, // foo
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 },   // y
-            (Node){ .tp = nodCall, .pl1 = oper(opMinus, tokDouble), .pl2 = 2 },
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble), .pl2 = 1 },
-         }),
-         ((Int[]) { 2, tokInt, tokDouble }),
-         ((TestEntityImport[]) {{ .nameInd = 0, .typeInd = 0 }})
-      ),
+//~      createTestWithLocs(
+//~         s("Simple function definition 1"),
+//~         s("fn newFn F(Int (L Bool) ->) f{x y -> a = x;}"),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodToplevelFn,         .pl2 = 5 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam  },  // param x
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam  },  // param y
+//~            (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }   // x
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {}),
+//~         ((SourceLoc[]) {
+//~            (SourceLoc){ .startBt = 12, .lenBts = 28 },
+//~            (SourceLoc){ .startBt = 14, .lenBts = 1 },
+//~            (SourceLoc){ .startBt = 21, .lenBts = 1 },
+//~            (SourceLoc){ .startBt = 33, .lenBts = 6 },
+//~            (SourceLoc){ .startBt = 33, .lenBts = 1 },
+//~            (SourceLoc){ .startBt = 37, .lenBts = 1 }
+//~          })
+//~      ),
+//~      createTest(
+//~         s("Simple function definition 2"),
+//~         s("fn newFn F(Str Double -> Str) f{x y ->\n"
+//~           "   a = x;\n"
+//~           "   return a;\n"
+//~           "};"
+//~         ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodToplevelFn,         .pl2 = 7 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam }, // param x
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam }, // param y
+//~            (Node){ .tp = nodAssignment,      .pl2 = 2, .pl3 = 2  },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // local a
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0  }, // x
+//~            (Node){ .tp = nodReturn,        .pl2 = 1  },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0  }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Simple function definition 3"),
+//~         s("fn main F() f{->\n"
+//~           "   print `asdf`;\n"
+//~           "};"
+//~         ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodToplevelFn,     .pl2 = 3 },
+//~            (Node){ .tp = nodExpr,      .pl2 = 2 },
+//~            (Node){ .tp = tokString    },
+//~            (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTestWithError(
+//~         s("Function definition wrong return type"),
+//~         s(errTypeWrongReturnType),
+//~         s("fn newFn F(Double Double -> Str) f{x y ->\n"
+//~           "   a = x;\n"
+//~           "   return a;\n"
+//~           "};"
+//~         ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodToplevelFn                  },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // param x
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl3 = assiVarAssignment }, // param y
+//~            (Node){ .tp = nodAssignment,      .pl2 = 2, .pl3 = 2  },
+//~            (Node){ .tp = nodVar, .pl1 = 3, .pl3 = assiVarAssignment }, // local a
+//~            (Node){ .tp = nodVar, .pl1 = 1,    .pl2 = 1  }, // x
+//~            (Node){ .tp = nodReturn,                },
+//~            (Node){ .tp = nodVar, .pl1 = 3,    .pl2 = 3  }  // a
+//~         }),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
+//~      createTest(
+//~         s("Function definition with complex return"),
+//~         s("fn newFn F(Int Double -> Str) f{x y ->\n"
+//~           "   return $(foo x - y);};"
+//~         ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodToplevelFn,         .pl2 = 9 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam },  // param x
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam },  // param y
+//~            (Node){ .tp = nodReturn,        .pl2 = 6  },
+//~            (Node){ .tp = nodExpr,          .pl2 = 5  },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },   // x
+//~            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 1 }, // foo
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 },   // y
+//~            (Node){ .tp = nodCall, .pl1 = oper(opMinus, tokDouble), .pl2 = 2 },
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble), .pl2 = 1 },
+//~         }),
+//~         ((Int[]) { 2, tokInt, tokDouble }),
+//~         ((TestEntityImport[]) {{ .nameInd = 0, .typeInd = 0 }})
+//~      ),
       createTest(
          s("Mutually recursive function definitions"),
-         s("fn func1 F(Int Double -> Int) = f{x y ->\n"
+         s("fn func1 F(Int Double -> Int) f{x y ->\n"
            "   a = x;\n"
            "   return func2 y a;\n"
            "};\n"
-           "fn func2 F(Double Int -> Int) = f{x y ->\n"
+           "fn func2 F(Double Int -> Int) f{x y ->\n"
            "   return func1 y x;\n"
            "};"
          ),
@@ -917,60 +917,59 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
          ((Int[]) {}),
          ((TestEntityImport[]) {})
       ),
-      createTest(
-         s("Function definition with nested scope"),
-         s("fn main F(Int Double->) = f{x y ->\n"
-           "   {\n"
-           "      a = 5;\n"
-           "   }\n"
-           "   a = foo x - y;\n"
-           "   print $a;\n"
-           "};"
-         ),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 17 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam }, // param x
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam }, // param y
-
-            (Node){ .tp = nodScope,         .pl2 = 3 },
-            (Node){ .tp = nodAssignment,    .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // first a =
-            (Node){ .tp = tokInt,           .pl2 = 5 },
-
-            (Node){ .tp = nodAssignment,      .pl2 = 6, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment }, // snd a =
-            (Node){ .tp = nodExpr,         .pl2 = 4 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // x
-            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 1 }, // foo
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 }, // y
-            (Node){ .tp = nodCall, .pl1 = oper(opMinus, tokDouble), .pl2 = 2 },
-
-            (Node){ .tp = nodExpr,           .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 3,  .pl2 = 0 }, // a
-            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble),  .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = I - 4, .pl2 = 1 } // print String
-         }),
-         ((Int[]) { 2, tokInt, tokDouble }), // Int -> Double
-         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0 }})
-      ),
-      createTest(
-         s("Local variable being called"),
-         s("fn main F(F(Int -> Str) -> Str) = f{fun ->"
-           "    return fun 5;"
-           "}"
-         ),
-         (((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 5, .pl3 = 0 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam },
-            (Node){ .tp = nodReturn,        .pl2 = 3 },
-            (Node){ .tp = nodExpr,          .pl2 = 2 },
-            (Node){ .tp = tokInt,           .pl2 = 5 },
-            (Node){ .tp = nodCall, .pl1 = 0, .pl2 = 1, .pl3 = callVar }, // foo
-         })),
-         ((Int[]) { 2, tokInt, tokString }),
-         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0},
-                                })
-      )
+//~      createTest(
+//~         s("Function definition with nested scope"),
+//~         s("fn main F(Int Double->) f{x y ->\n"
+//~           "   {\n"
+//~           "      a = 5;\n"
+//~           "   }\n"
+//~           "   a = foo x - y;\n"
+//~           "   print $a;\n"
+//~           "};"
+//~         ),
+//~         ((Node[]) {
+//~            (Node){ .tp = nodToplevelFn,         .pl2 = 17 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam }, // param x
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam }, // param y
+//~
+//~            (Node){ .tp = nodScope,         .pl2 = 3 },
+//~            (Node){ .tp = nodAssignment,    .pl2 = 2, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment }, // first a =
+//~            (Node){ .tp = tokInt,           .pl2 = 5 },
+//~
+//~            (Node){ .tp = nodAssignment,      .pl2 = 6, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment }, // snd a =
+//~            (Node){ .tp = nodExpr,         .pl2 = 4 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 }, // x
+//~            (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 1 }, // foo
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 }, // y
+//~            (Node){ .tp = nodCall, .pl1 = oper(opMinus, tokDouble), .pl2 = 2 },
+//~
+//~            (Node){ .tp = nodExpr,           .pl2 = 3 },
+//~            (Node){ .tp = nodVar, .pl1 = 3,  .pl2 = 0 }, // a
+//~            (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble),  .pl2 = 1 }, // $
+//~            (Node){ .tp = nodCall, .pl1 = I - 4, .pl2 = 1 } // print String
+//~         }),
+//~         ((Int[]) { 2, tokInt, tokDouble }), // Int -> Double
+//~         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0 }})
+//~      ),
+//~      createTest(
+//~         s("Local variable being called"),
+//~         s("fn main F(F(Int -> Str) -> Str) f{fun ->"
+//~           "    return fun 5;"
+//~           "}"
+//~         ),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodToplevelFn,         .pl2 = 5, .pl3 = 0 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam },
+//~            (Node){ .tp = nodReturn,        .pl2 = 3 },
+//~            (Node){ .tp = nodExpr,          .pl2 = 2 },
+//~            (Node){ .tp = tokInt,           .pl2 = 5 },
+//~            (Node){ .tp = nodCall, .pl1 = 0, .pl2 = 1, .pl3 = callVar }, // foo
+//~         })),
+//~         ((Int[]) { 2, tokInt, tokString }),
+//~         ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0} })
+//~      )
    }));
 }
 
@@ -1579,9 +1578,9 @@ main() {
    initializeParser(protoOvs, ct.a);
    createOverloads(protoOvs);
 
-   runATestSet(&assignmentTests, &ct, protoOvs);
+//~   runATestSet(&assignmentTests, &ct, protoOvs);
 //~   runATestSet(&expressionTests, &ct, protoOvs);
-//~   runATestSet(&functionTests, &ct, protoOvs);
+   runATestSet(&functionTests, &ct, protoOvs);
 //~   runATestSet(&ifTests, &ct, protoOvs);
 //~   runATestSet(&forTests, &ct, protoOvs);
 

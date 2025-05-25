@@ -2649,7 +2649,7 @@ lexAssignment(Int const opType, LX) { //:lexAssignment
 // tokAssignRight span. Doesn't consume anything
    BtToken currSpan = last(lx->lexBtrack);
    
-   VALIDATEL(currSpan.tp == tokStmt || currSpan.tp == tokToplevelFn, errOperatorAssignmentPunct);
+   VALIDATEL(currSpan.tp == tokStmt, errOperatorAssignmentPunct);
 
    Int assignmentStartInd = currSpan.tokenInd;
    Token* tok = (lx->tokens.c + assignmentStartInd);
@@ -2801,16 +2801,16 @@ lexArrow(SRC, LX) {
       VALIDATEL(top.spanLevel == slSubexpr
          && lx->tokens.c[top.tokenInd].pl1 == nameOfStd(strF), errFnTypeArrows
       )
-      if (top.tokenInd == lx->tokens.len - 1) {
-         pushIntokens(((Token){.tp = tokType, .pl1 = nameOfStd(strVoid),
-            .startBt = lx->i, .lenBts = 0}), lx
-         );
-      }
       add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnReturn}),
          lx->lexBtrack);
    } else { // `f{ a -> ...}`
+      if (top.tokenInd == lx->tokens.len - 1) {
+         VALIDATEL(top.tp == tokFn, errArrowOutOfPlace);
+         goto consumeArrow;
+      } 
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
-         && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace);
+            && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace
+      );
       Token prevTok = lx->tokens.c[lx->tokens.len - 1];
       Int endBt = prevTok.startBt + prevTok.lenBts;
       
@@ -2818,6 +2818,7 @@ lexArrow(SRC, LX) {
       lx->tokens.c[top.tokenInd].pl2 = lx->tokens.len - top.tokenInd - 1;
       removeLast(lx->lexBtrack);
    }
+consumeArrow:
    lx->i += 2; // CONSUME the `->`
 }
 
@@ -2883,11 +2884,6 @@ lexParenRightIfFnType(BtToken top, LBtToken* bt, LX) {
       VALIDATEL(next.tp == tokType && lexIsFnType(next, lx), errArrowOutOfPlace);
       return next;
    } ei (lexIsFnType(top, lx)) {
-      if (top.tokenInd == lx->tokens.len - 1) { // `F()`
-         pushIntokens(
-            ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
-         );
-      }
       pushIntokens(
          ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
       );
@@ -4125,7 +4121,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       add(((Node){ .tp = cTk.tp, .pl1 = name, .pl2 = cTk.pl2 }), e->scr);
       //-fallthrough
    case tokWord:
-      if (tokType == tokWord)
+      if (tokTp == tokWord)
          { add(createNodVarForName(name, cm), e->scr); }
       add(loc, e->locsScr);
       eWriteUnaryCalls(e);
@@ -5262,6 +5258,9 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    VALIDATEP(typeTk.tp == tokType, errFnSignature)
 
    TypeId fnType = tParse(calcSentinel(typeTk, cm->i), tokens, cm);
+   print("SIGNATURE new Type %d", fnType.v);
+   dbgType(fnType);
+
    TypeHeader hdr = typeReadHeader(fnType, cm);
    
    FunctionId const newFnId = cm->functions.len;
@@ -5285,23 +5284,21 @@ private void //:pToplevelBodyWorker
 pToplevelBodyWorker(
       Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, Byte callSort, TOKENS, CM
 ) {
-   cm->i = tokenInd; // tokFn
-   Token fnTk = tokens[tokenInd];
-   Int const fnSentinel = calcSentinel(fnTk, tokenInd);
+   cm->i = tokenInd + 2; // skipping the tokToplevelFn and tokWord (fn name)
+   cm->i = calcSentinel(tokens[cm->i], cm->i); // skipping the function type and tokFn
 
+   Token fnTk = tokens[cm->i];
+   Int const fnSentinel = calcSentinel(fnTk, cm->i);
    openFnScope(funcOrMonoId, concreteType, callSort, locOf(fnTk), fnSentinel, cm);
-
    cm->i++; // CONSUME the tokFn token
-   Int const paramsSentinel = cm->i + arity;
-   VALIDATEP(paramsSentinel < cm->stats.toksLen, errPrematureEndOfTokens)
    
    if (arity > 0) {
-      Token arrowTk = tokens[paramsSentinel];
-      VALIDATEP(arrowTk.tp == tokMisc && arrowTk.pl1 == miscArrow, errFnParamList);
+      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity, errFnParamList);   
    } else {
       goto bodyParsing;
    }
-   
+   Int const paramsSentinel = calcSentinel(tokens[cm->i], cm->i);
+   cm->i++; // CONSUME the tokStmt for param list
    for (
       Int t = tGetIndexOfFnFirstParam(concreteType, cm).v;
       cm->i < paramsSentinel;
@@ -5322,7 +5319,6 @@ pToplevelBodyWorker(
       );
    }
    bodyParsing:
-   cm->i = paramsSentinel;
    parseUpTo(fnSentinel, tokens, cm);
 }
 
@@ -5608,6 +5604,9 @@ tParseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
 // while the first one has been added as a type call.
    LInt* exp = te->exp;
    LTypeFrame* frames = te->frames;
+   
+   teOpenTypeCall(tokens[cm->i].pl1, sentinel, frames, cm);
+   cm->i++; // CONSUME the outer TypeCall
    while (cm->i < sentinel) {
       teClose(te, cm);
       Token cTk = tokens[cm->i];

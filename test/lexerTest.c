@@ -1105,17 +1105,15 @@ LexerTestSet* typeTests(Arena* a) {
          (LexerTest) { .name = s("Function type: empty paren"),
              .input = s("F();"),
              .expectedOutput = expect(((Token[]) {
-                 (Token){ .tp = tokStmt, .pl2 = 3,  .lenBts = 4 },
-                 (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 2, .lenBts = 3 },
-                 (Token){ .tp = tokType, .pl1 = strVoid + S, .startBt = 2, .lenBts = 0 },
+                 (Token){ .tp = tokStmt, .pl2 = 2,  .lenBts = 4 },
+                 (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 1, .lenBts = 3 },
                  (Token){ .tp = tokType, .pl1 = strVoid + S, .startBt = 2, .lenBts = 0 }
          }))},
          (LexerTest) { .name = s("Function type: nullary function"),
              .input = s("F(->Int);"),
              .expectedOutput = expect(((Token[]) {
-                 (Token){ .tp = tokStmt, .pl2 = 3,  .lenBts = 9 },
-                 (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 2, .lenBts = 8 },
-                 (Token){ .tp = tokType, .pl1 = strVoid + S, .startBt = 2, .lenBts = 0 },
+                 (Token){ .tp = tokStmt, .pl2 = 2,  .lenBts = 9 },
+                 (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 1, .lenBts = 8 },
                  (Token){ .tp = tokType, .pl1 = strInt + S, .startBt = 4, .lenBts = 3 }
          }))},
          (LexerTest) { .name = s("Data allocations"),
