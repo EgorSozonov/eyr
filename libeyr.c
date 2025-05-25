@@ -148,7 +148,7 @@ typedef struct { // :Token
 #define slClauseList   4 // a comma-separated list
 #define slUnbraced     5 // A scope that hasn't met its first brace, like an "if" before its "{"
 #define slSingleBraced 6 // A "for" scope that has met exactly 1 curly brace
-#define slFn           7 // A `F(A -> B)` or `{a -> b}` when it has met exactly 1 arrow symbol
+#define slFnReturn     7 // A `F(A -> B)` the `B` part (after exactly 1 arrow symbol)
 
 // List of keywords that don't correspond directly to a token.
 // Must all be below "firstSpanTokenType"
@@ -2005,8 +2005,8 @@ prepareInput(char const* content, Arena* a) {
    return (String){.c = result, .len = lenStandard + lenSource};
 }
 
-NameId //:nameOfStandard
-nameOfStandard(Int strId) {
+NameId //:nameOfStd
+nameOfStd(Int strId) {
 // Converts a standard string to its nameId.
    return (NameId)((Unt)(strId + countOperators));
 }
@@ -2497,7 +2497,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          .startBt = realStartBt, .lenBts = lenBts };
    if (wordType == tokWord && wasCapitalized) { // a type
       if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aParenLeft
-         && uniqueStringId == nameOfStandard(strF)
+         && uniqueStringId == nameOfStd(strF)
       ) { // `F(...)`
          add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
                lx->lexBtrack
@@ -2799,9 +2799,15 @@ lexArrow(SRC, LX) {
    BtToken top = last(lx->lexBtrack);
    if (top.tp == tokType) { // `F(G -> H)`
       VALIDATEL(top.spanLevel == slSubexpr
-         && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF), errFnTypeArrows
+         && lx->tokens.c[top.tokenInd].pl1 == nameOfStd(strF), errFnTypeArrows
       )
-      lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slFn;
+      if (top.tokenInd == lx->tokens.len - 1) {
+         pushIntokens(((Token){.tp = tokType, .pl1 = nameOfStd(strVoid),
+            .startBt = lx->i, .lenBts = 0}), lx
+         );
+      }
+      add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnReturn}),
+         lx->lexBtrack);
    } else { // `f{ a -> ...}`
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
          && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace);
@@ -2858,23 +2864,50 @@ lexParenLeft(SRC, LX) { //:lexParenLeft
    lx->i++; // CONSUME the left parenthesis
 }
 
+private Bool //:lexIsFnType
+lexIsFnType(BtToken btt, LX) {
+   return lx->tokens.c[btt.tokenInd].pl1 == nameOfStd(strF);
+}
+
+private BtToken //:lexParenRightIfFnType
+lexParenRightIfFnType(BtToken top, LBtToken* bt, LX) {
+   if (top.tp != tokType) // add extra Void type tokens if function definition
+      { return top; }
+   if (top.spanLevel == slFnReturn) { // F(...->...) after the arrow
+      if (top.tokenInd == lx->tokens.len) { // `F(...->)` means `F(...->Void)`
+         pushIntokens(
+            ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
+         );
+      }
+      BtToken next = removeLast(bt);   
+      VALIDATEL(next.tp == tokType && lexIsFnType(next, lx), errArrowOutOfPlace);
+      return next;
+   } ei (lexIsFnType(top, lx)) {
+      if (top.tokenInd == lx->tokens.len - 1) { // `F()`
+         pushIntokens(
+            ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
+         );
+      }
+      pushIntokens(
+         ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
+      );
+      return top;
+   } else {
+      return top;
+   }
+}
+
 private void //:lexParenRight
 lexParenRight(SRC, LX) {
 // A closing parenthesis may close the following configurations of lexer backtrack:
-// 1. [scope stmt] - if it's just a scope nested within another scope or a function
-// 2. [coreForm stmt] - eg. if it's closing the function body
-// 3. [if else/elseIf stmt]
-// 4. [if else/elseIf ]
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
 
-   VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFn, errPunctuationUnmatched)
-   if (top.tp == tokType && lx->tokens.c[top.tokenInd].pl1 == nameOfStandard(strF)) { // F(..)
-      VALIDATEL(top.spanLevel == slFn || top.tokenInd == lx->tokens.len - 1, errFnTypeArrows)
-   }
+   VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFnReturn, errPunctuationUnmatched)
+   top = lexParenRightIfFnType(top, bt, lx);
+   
    mbCloseAssignRight(&top, lx);
-
    setSpanLengthLexer(top.tokenInd, lx);
    lx->i++; // CONSUME the closing ")"
 }
@@ -3481,7 +3514,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
    TypeId leftType = tParse(sentinel, tokens, cm);
    VALIDATEP(!cm->tExpr->isGeneric, errTypePolymorphicAssignment)
 
-   if (nextTk.pl1 == nameOfStandard(strF)) {
+   if (nextTk.pl1 == nameOfStd(strF)) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
       *isAFnVar = true;
       cm->i = assignment.sentinel; // CONSUME the whole assignment
@@ -3848,7 +3881,7 @@ subexDataAllocation(ExprFrame frame, Expr* e, CM) {
 
    if (countNodes > 0)  {
       TypeId eltType = typecheckList(mainNodeInd, cm);
-      TypeId collType = tCreateSingleParamTypeCall(nameOfStandard(strArray), eltType, cm);
+      TypeId collType = tCreateSingleParamTypeCall(nameOfStd(strArray), eltType, cm);
       cm->vars.c[newVarId].typeId = collType;
       cm->ast.c[allocInd].pl1 = collType.v;
    }
@@ -4104,7 +4137,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       e->metAnAllocation = true;
       eBumpArgCount(e->frames);
       add(((ExprFrame) {
-            .tp = exfrDataAlloc, .name = nameOfStandard(strArray),
+            .tp = exfrDataAlloc, .name = nameOfStd(strArray),
             .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
             .loc = loc  }),
            e->frames
@@ -4582,7 +4615,7 @@ addConcrFnType(Int arity, Arr(Int) paramsAndReturn, CM) {
    pushIntypes(TYPE_PREFIX + arity, cm);
    typeAddHeader(
       (TypeHeader){ .sort = sorDeclare, .tyrity = 0, .arity = arity + 1,
-         .name = nameOfStandard(strF), .isGeneric = false },
+         .name = nameOfStd(strF), .isGeneric = false },
       cm
    );
    for (Int k = 0; k <= arity; k++) { // <= because there are (arity + 1) elts - the return type!
@@ -4606,7 +4639,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strF),
+      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStd(strF),
          .isGeneric = true }),
       cm
    );
@@ -4618,7 +4651,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strF),
+      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStd(strF),
          .isGeneric = true }),
          cm
    );
@@ -4630,7 +4663,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 2, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStandard(strF),
+      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStd(strF),
          .isGeneric = true }),
          cm
    );
@@ -4655,7 +4688,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
 //~   tentativeType = typeOf(cm->types.len);
 //~   pushIntypes(TYPE_PREFIX + 1, cm);
 //~   typeAddHeader(
-//~      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStandard(strL),
+//~      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 2, .name = nameOfStd(strL),
 //~         .isGeneric = true }),
 //~         cm
 //~   );
@@ -4667,7 +4700,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
 //~   tentativeType = typeOf(cm->types.len);
 //~   pushIntypes(TYPE_PREFIX + 2, cm);
 //~   typeAddHeader(
-//~      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStandard(strF),
+//~      ((TypeHeader){ .sort = sorTypeCall, .tyrity = 1, .arity = 3, .name = nameOfStd(strF),
 //~         .isGeneric = true }),
 //~         cm
 //~   );
@@ -4698,7 +4731,7 @@ buildPreludeTypes(CM) {
 // Creates the built-in types in the proto compiler
    // primitive types up to topVerbatimType (inclusive)
    for (int i = strInt; i <= strVoid; i++) {
-      cm->activeBindings[nameOfStandard(i)] = i - strInt;
+      cm->activeBindings[nameOfStd(i)] = i - strInt;
       pushIntypes(0, cm);
    }
    pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
@@ -4706,7 +4739,7 @@ buildPreludeTypes(CM) {
    // Array
    Int typeIndA = cm->types.len;
    pushIntypes(TYPE_PREFIX + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX - 1
-   NameId name = nameOfStandard(strArray);
+   NameId name = nameOfStd(strArray);
    typeAddHeader(((TypeHeader){
       .sort = sorDeclare, .isGeneric = true, .arity = 2, .tyrity = 1, .name = name }), cm
    );
@@ -4714,7 +4747,7 @@ buildPreludeTypes(CM) {
    pushIntypes(tokInt, cm);
    pushIntypes(cm->genericFields.len, cm);
    pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
-   pushIngenericFields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
+   pushIngenericFields(((StructField){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
 
    cm->activeBindings[name] = typeIndA;
    cm->stats.arrayType = typeIndA;
@@ -4722,7 +4755,7 @@ buildPreludeTypes(CM) {
    // List
    Int typeIndL = cm->types.len;
    pushIntypes(TYPE_PREFIX + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX - 1
-   name = nameOfStandard(strL);
+   name = nameOfStd(strL);
    typeAddHeader(((TypeHeader){
       .sort = sorDeclare, .arity = 3, .tyrity = 1, .isGeneric = true, .name = name }),
       cm
@@ -4732,8 +4765,8 @@ buildPreludeTypes(CM) {
    pushIntypes(tokInt, cm);
    pushIntypes(cm->genericFields.len, cm);
    pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
-   pushIngenericFields(((StructField){.name = nameOfStandard(strLen), .access = accessPubImm}), cm);
-   pushIngenericFields(((StructField){.name = nameOfStandard(strCap), .access = accessPubImm}), cm);
+   pushIngenericFields(((StructField){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
+   pushIngenericFields(((StructField){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
    cm->activeBindings[name] = typeIndL;
    cm->stats.listType = typeIndL;
    // no need to merge the types as they are surely unique
@@ -4889,24 +4922,24 @@ importPrelude(CM) {
    //TypeId doubToInt = addConcrFnType(1, (Int[]){ tokDouble, tokInt}, cm);
    Var constImports[2] = {
       (Var){
-         .name = nameOfStandard(strMathPi), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
+         .name = nameOfStd(strMathPi), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
       },
       (Var){
-         .name = nameOfStandard(strMathE), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
+         .name = nameOfStd(strMathE), .typeId = tokDouble, .access = accessPrivImm, .fnId = -1
       },
    };
 
    Int const genericInd = listCreateMultiAssocList(cm->functionMonos); // for the generic list "add"
    Function fnImports[5] =  {
-      (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
+      (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
          .typeId = intToVoid },
-      (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintDou,
+      (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintDou,
          .typeId = douToVoid },
-      (Function){ .name = nameOfStandard(strPrint), .access = accessPrivImm, .emit = emitPrintStr,
+      (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintStr,
          .typeId = strToVoid },
-      (Function){ .name = nameOfStandard(strAdd), .typeId = listAdd, .genericInd = genericInd,
+      (Function){ .name = nameOfStd(strAdd), .typeId = listAdd, .genericInd = genericInd,
          .tokenInd = -1, .access = accessPrivImm, .emit = emitParsed },
-      (Function){ .name = nameOfStandard(strPrintErr),
+      (Function){ .name = nameOfStd(strPrintErr),
          .access = accessPrivImm, .typeId = strToVoid }
       // TODO functions for casting (int, double, unsigned)
    };
@@ -5205,7 +5238,7 @@ validateOverloadsFull(CM) {
 //~   Int const depth = te->fnScratch->len;
 //~   TYPE_CREATE_START(
 //~      ((TypeHeader){ .sort = sorDeclare, .isGeneric = te->isGeneric,
-//~                     .tyrity = te->tParams->len, .arity = depth, .name = nameOfStandard(strF) })
+//~                     .tyrity = te->tParams->len, .arity = depth, .name = nameOfStd(strF) })
 //~   );
 //~   for (Int j = 0; j < depth; j++) {
 //~      pushIntypes(te->fnScratch->c[j], cm);
@@ -5240,7 +5273,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
       }),
       cm
    );
-   if (name == nameOfStandard(strMain)) {
+   if (name == nameOfStd(strMain)) {
       VALIDATEP(cm->entrypoint == -1, errFnEntrypoint);
       cm->entrypoint = newFnId;
    }
@@ -5460,7 +5493,7 @@ libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types) {
 TypeId //:libeyr_typeGetGenericArg
 libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int indArg, Arr(Int) types) {
 // (S Foo) => Foo. (F A -> B) => A
-   if (hdr.name == nameOfStandard(strF)) {
+   if (hdr.name == nameOfStd(strF)) {
       return typeOf(types[t.v + TYPE_PREFIX + indArg]);
    } else if (hdr.sort == sorTypeCall) {
       // need to skip the prefix, field types, and the index in @genericFields
@@ -5488,7 +5521,7 @@ typeGetOuter(TypeId t, CM) {
    TypeHeader hdr = typeReadHeader(t, cm);
    if (hdr.sort == sorGenericParam)
       { return typeOf(outerTypeForTypeParam); }
-   else if (hdr.name == nameOfStandard(strF) || hdr.sort == sorDeclare)
+   else if (hdr.name == nameOfStd(strF) || hdr.sort == sorDeclare)
       { return t; }
    else { // sorTypeCall which is a struct or union
       // need to skip the prefix, field types, and the index in @genericFields
@@ -5502,10 +5535,10 @@ tGetIndexOfFnFirstParam(TypeId fnType, CM) {
 #ifdef SAFETY //{{{
    NameId name = typeReadHeader(fnType, cm).name;
 #ifdef DEBUG
-   if (name != nameOfStandard(strF))
+   if (name != nameOfStd(strF))
       { print("A function is not a function! TypeId = %d", fnType); }
 #endif
-   VALIDATEI(name == nameOfStandard(strF), iErrorNotAFunction);
+   VALIDATEI(name == nameOfStd(strF), iErrorNotAFunction);
 #endif //}}}
    return typeOf(fnType.v + TYPE_PREFIX);
 }
@@ -5516,7 +5549,7 @@ tIsFunction(TypeId t, CM) {
    if (t.v < topVerbatimType)
       { return -1; }
    TypeHeader hdr = typeReadHeader(t, cm);
-   return (hdr.name == nameOfStandard(strF)) ? (hdr.arity - 1) : -1;
+   return (hdr.name == nameOfStd(strF)) ? (hdr.arity - 1) : -1;
 }
 
 private TypeLoc //:tGetBody
@@ -5764,7 +5797,7 @@ tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM) {
    Int const sentinel = exp->len;
 
    TYPE_CREATE_START(
-      ((TypeHeader){ .sort = sorDeclare, .tyrity = 0, .arity = depth, .name = nameOfStandard(strF),
+      ((TypeHeader){ .sort = sorDeclare, .tyrity = 0, .arity = depth, .name = nameOfStd(strF),
                .isGeneric = false})
    );
    for (Int j = startInd; j < sentinel; j++) {
@@ -5819,7 +5852,7 @@ tCreateFnSignature(TExpr* te, Int startInd, CM) {
    TYPE_CREATE_START(
       ((TypeHeader){ .sort = sorDeclare, .tyrity = tyrity, .arity = arity, .isGeneric = false })
    );
-   pushIntypes(nameOfStandard(strF), cm);
+   pushIntypes(nameOfStd(strF), cm);
    for (Int j = startInd; j < sentinel; j++) {
       // types of params and return type
       pushIntypes(exp->c[j], cm);
@@ -5834,7 +5867,7 @@ tCreateFnSignature(TExpr* te, Int startInd, CM) {
 private void //:teOpenTypeCall
 teOpenTypeCall(NameId typeName, Int sentinel, LTypeFrame* frames, CM) {
 // Adds a new type call to @exp during type expression parsing
-   if (typeName == nameOfStandard(strF)) { // F ...
+   if (typeName == nameOfStd(strF)) { // F ...
       add(((TypeFrame){ .tp = tfrFnTypeCall, .sentinel = sentinel}), frames);
    } else { // ordinary type call
       TypeId const typeId = typeOf(cm->activeBindings[typeName]);
@@ -6393,7 +6426,7 @@ tGenericTryUnifyTypes(Function fn, TypeId concrete, CM) {
    for (Int j = 0; j < genericHdr.tyrity; j++) {
       cm->tExpr->tParams->c[j] = -1;
    }
-   if (genericHdr.name == nameOfStandard(strF)) {
+   if (genericHdr.name == nameOfStd(strF)) {
       return tGenericTryUnifyFunctionTypes(fn.typeId, genericHdr, concrete, concreteHdr, cm);
    } else  {
       return ZERO_ARITY_TYPE;
@@ -6438,7 +6471,7 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 
    // For `F Int Str -> Double` this will be `F Int -> Str`, i.e. the return type is missing
    TYPE_CREATE_START(((TypeHeader){ .sort = sorDeclare, .tyrity = 0, .arity = arity,
-      .name = nameOfStandard(strF), .isGeneric = false }));
+      .name = nameOfStd(strF), .isGeneric = false }));
    memcpy(cm->types.c + cm->types.len, argTypes + start, arity*4);
    cm->types.len += arity;
    TYPE_CREATE_END;
@@ -6781,7 +6814,7 @@ dbgScopes(CM) {
 void //:dbgTypeOuter
 dbgTypeOuter(TypeHeader currHdr, CM) {
 // Print the name of the outer type. `(Tu Int Double)` -> `Tu`
-   if (currHdr.name == nameOfStandard(strF)) {
+   if (currHdr.name == nameOfStd(strF)) {
       printf("(F ");
    } else {
       printf("(");
@@ -6799,7 +6832,7 @@ dbgType1(Int t, TypeHeader hdr, CM) {
 
    Int sentinel = t + cm->types.c[t] + 1;
    Int startingT = t + TYPE_PREFIX;
-   Bool isFn = hdr.name == nameOfStandard(strF);
+   Bool isFn = hdr.name == nameOfStd(strF);
    if (!isFn) {
       if (hdr.sort == sorTypeCall)
          { startingT++; }
@@ -6827,7 +6860,7 @@ dbgType1(Int t, TypeHeader hdr, CM) {
          dbgTypeOuter(currHdr, cm);
 
          Int nextT = currT + TYPE_PREFIX;
-         if (currHdr.name != nameOfStandard(strF))
+         if (currHdr.name != nameOfStd(strF))
             { nextT++; }
          top->currPos++;
          if (currHdr.sort == sorTypeCall) {
@@ -6970,7 +7003,7 @@ importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
       pushIntypes(importLen + TYPE_PREFIX - 1, cm);
 
       typeAddHeader((TypeHeader){
-         .sort = sorDeclare, .tyrity = 0, .arity = importLen, .name = nameOfStandard(strF) }, cm
+         .sort = sorDeclare, .tyrity = 0, .arity = importLen, .name = nameOfStd(strF) }, cm
       );
       for (Int k = j + 1; k < typeSentinel; k++) { // <= because there are (arity + 1) elts -
                                      // +1 for the return type!
@@ -6996,7 +7029,7 @@ importTestFns(Arr(Int) types, Int countTypes,
 
    for (Int j = 0; j < countImports; j++) {
       importedFns[j] = (Function) {
-         .name = nameOfStandard(strSentinel - 3 + imports[j].nameInd),
+         .name = nameOfStd(strSentinel - 3 + imports[j].nameInd),
          .typeId = typeIds[imports[j].typeInd]
       };
    }

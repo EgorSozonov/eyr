@@ -86,7 +86,6 @@ void printIntArray(Int count, Arr(Int) arr);
 void printIntArrayOff(Int startInd, Int count, Arr(Int) arr);
 void initializeParser(Compiler* lx, Arena* a);
 Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
-NameId nameOfStandard(Int strId);
 void printRawOverload(Int listInd, Compiler* cm);
 void printName(Int name, Compiler* cm);
 void setLexerError(String errMsg, CM);
