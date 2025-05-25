@@ -2504,7 +2504,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          );
          lx->i++; // CONSUME the `(`
       } ei (lx->tokens.len > 0) {
-         Token prevToken = lx->tokens.c[lx->tokens.len - 1]; 
+         Token prevToken = lx->tokens.c[lx->tokens.len - 1];
          if (prevToken.tp == tokParens) {
             lx->tokens.c[lx->tokens.len - 1] = (Token){
                .tp = tokType, .pl1 = uniqueStringId, .startBt = prevToken.startBt
@@ -2512,7 +2512,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
             return;
          }
       }
-      
+
       newToken.tp = tokType;
    } ei (lx->i < lx->stats.inpLength) {
       if (CURR_BT == aBracketLeft && wordType == tokWord) { // `a[5]`
@@ -2530,7 +2530,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          lx->i++; // CONSUME the `{`
          return;
       }
-   } 
+   }
    pushIntokens(newToken, lx);
 }
 
@@ -2648,7 +2648,7 @@ lexAssignment(Int const opType, LX) { //:lexAssignment
 // tokens from the left side). Changes existing stmt token into tokAssignment and opens up a new
 // tokAssignRight span. Doesn't consume anything
    BtToken currSpan = last(lx->lexBtrack);
-   
+
    VALIDATEL(currSpan.tp == tokStmt, errOperatorAssignmentPunct);
 
    Int assignmentStartInd = currSpan.tokenInd;
@@ -2807,13 +2807,13 @@ lexArrow(SRC, LX) {
       if (top.tokenInd == lx->tokens.len - 1) {
          VALIDATEL(top.tp == tokFn, errArrowOutOfPlace);
          goto consumeArrow;
-      } 
+      }
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
             && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace
       );
       Token prevTok = lx->tokens.c[lx->tokens.len - 1];
       Int endBt = prevTok.startBt + prevTok.lenBts;
-      
+
       lx->tokens.c[top.tokenInd].lenBts = endBt - lx->tokens.c[top.tokenInd].startBt;
       lx->tokens.c[top.tokenInd].pl2 = lx->tokens.len - top.tokenInd - 1;
       removeLast(lx->lexBtrack);
@@ -2880,7 +2880,7 @@ lexParenRightIfFnType(BtToken top, LBtToken* bt, LX) {
             ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
          );
       }
-      BtToken next = removeLast(bt);   
+      BtToken next = removeLast(bt);
       VALIDATEL(next.tp == tokType && lexIsFnType(next, lx), errArrowOutOfPlace);
       return next;
    } ei (lexIsFnType(top, lx)) {
@@ -2902,7 +2902,7 @@ lexParenRight(SRC, LX) {
 
    VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFnReturn, errPunctuationUnmatched)
    top = lexParenRightIfFnType(top, bt, lx);
-   
+
    mbCloseAssignRight(&top, lx);
    setSpanLengthLexer(top.tokenInd, lx);
    lx->i++; // CONSUME the closing ")"
@@ -3503,7 +3503,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
 // Precondition: we are looking right past tokAssignment
    LInt* sc = cm->expr->exp;
    sc->len = 0;
-   
+
    cm->i++; // CONSUME the var name
    Token nextTk = tokens[cm->i]; // +1 is safe because we know left side is long
    // when the left side is a var definition with its type declared
@@ -5250,11 +5250,11 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
 // Parses a function signature. Emits no nodes, adds data to @toplevels, @functions, @overloads.
 // Pre-condition: we are right past tokToplevelFn
    Int const tokenInd = cm->i - 1;
-   
+
    Token nameTk = tokens[cm->i];
    VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errFnSignature)
    NameId name = nameTk.pl1;
-   
+
    cm->i++; // CONSUME the function name
    Token typeTk = tokens[cm->i];
    VALIDATEP(typeTk.tp == tokType, errFnSignature)
@@ -5262,7 +5262,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    TypeId fnType = tParse(calcSentinel(typeTk, cm->i), tokens, cm);
 
    TypeHeader hdr = typeReadHeader(fnType, cm);
-   
+
    FunctionId const newFnId = cm->functions.len;
 
    Int genericInd = hdr.isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
@@ -5291,9 +5291,9 @@ pToplevelBodyWorker(
    Int const fnSentinel = calcSentinel(fnTk, cm->i);
    openFnScope(funcOrMonoId, concreteType, callSort, locOf(fnTk), fnSentinel, cm);
    cm->i++; // CONSUME the tokFn token
-   
+
    if (arity > 0) {
-      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity, errFnParamList);   
+      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity, errFnParamList);
    } else {
       goto bodyParsing;
    }
@@ -5389,7 +5389,7 @@ pToplevelSignatures(TOKENS, CM) {
       nextI = calcSentinel(tok, cm->i);
       if (tok.tp != tokToplevelFn)
          { continue; }
-      cm->i++; // CONSUME the tokToplevelFn   
+      cm->i++; // CONSUME the tokToplevelFn
       pFnSignature(tok, voidToVoid, tokens, cm);
    }
 }
@@ -5605,7 +5605,7 @@ tParseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
    LInt* exp = te->exp;
    exp->len = 0;
    LTypeFrame* frames = te->frames;
-   
+
    teOpenTypeCall(tokens[cm->i].pl1, sentinel, frames, cm);
    cm->i++; // CONSUME the outer TypeCall
    while (cm->i < sentinel) {
@@ -6093,24 +6093,24 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       TypeId outer = typeGetOuter(typeColl, cm);
       VALIDATEP(outer.v == cm->stats.listType || outer.v == cm->stats.arrayType, errTypeOfNotList)
 
-      TypeId typeInd = typeOf(exp->c[exp->len - 1]);
-      VALIDATEP(eq(typeInd, intTy), errTypeOfListIndex) // list index == Int
+      VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy), errTypeOfListIndex) // list index == Int
 
       TypeId typeElt =
          libeyr_typeGetGenericArg(typeColl, typeReadHeader(typeColl, cm), 0, cm->types.c);
+      cm->ast.c[cm->j].pl1 = typeColl.v;
       exp->len -= 2; // replace collection and its index type (Int) with element type
       add(typeElt.v, exp);
    } ei (nd.pl3 == callField) { // a field accessor
       VALIDATEP(exp->len >= 1, errExpressionError)
       NameId name = nd.pl1;
 
-      Int prevType = exp->c[exp->len - 1];
-      VALIDATEP(prevType > topVerbatimType, errTypeFieldNotFound);
+      Int structType = exp->c[exp->len - 1];
+      VALIDATEP(structType > topVerbatimType, errTypeFieldNotFound);
 
       Int fieldInd;
-      TypeId fieldType = typeTryGetField(name, typeOf(prevType), OUT &fieldInd, cm);
+      TypeId fieldType = typeTryGetField(name, typeOf(structType), OUT &fieldInd, cm);
 
-      cm->ast.c[cm->j].pl1 = prevType;
+      cm->ast.c[cm->j].pl1 = structType;
       cm->ast.c[cm->j].pl2 = fieldInd;
       exp->c[exp->len - 1] = fieldType.v;
    } else {

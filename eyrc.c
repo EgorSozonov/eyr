@@ -146,7 +146,7 @@ typedef struct { //:Builtins
    Fn* memAlloc; // the "malloc" function from libc
    CgType* cString; // the zero-terminated array of chars
    CgType* sloppyInt; // the sloppy "int" type of C
-   CgType* sizeT; 
+   CgType* sizeT;
    Int fieldsArray;
    Int fieldsList;
    RValue* formatInt; // "%d\n"
@@ -627,8 +627,7 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [nodBreakCont  - nodScope] = &writeBreakCont,
    [nodTry        - nodScope] = &writeTry,
    [nodCatch      - nodScope] = &writeCatch,
-   [nodFnDef      - nodScope] = &writeFnDef,
-   [nodDef        - nodScope] = &writeDef,
+   [nodToplevelFn - nodScope] = &writeFnDef,
    [nodTrait      - nodScope] = &writeTrait,
    [nodImpl       - nodScope] = &writeImpl,
    [nodReturn     - nodScope] = &writeReturn,
@@ -700,7 +699,7 @@ countTheConcreteTypes(OUT Int* countFields, CR) {
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (hdr.isGeneric)
          { continue; }
-      if (hdr.name != nameOfStandard(strF))
+      if (hdr.name != nameOfStd(strF))
          { (*countFields) += hdr.arity; }
       res++;
    }
@@ -715,9 +714,9 @@ nonStructTypeInfo(CgType* t) {
 private TypeInfo //:registerType
 registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
 // searches in @typeRefs interval [0; typeCounter). Adds to @concreteFields
-   if (hdr.name == nameOfStandard(strF)) { // functions
+   if (hdr.name == nameOfStd(strF)) { // functions
       return nonStructTypeInfo(createFnType(t.v, hdr, typeCounter, buffer, cg));
-   } else if (hdr.name == nameOfStandard(strArray)) {
+   } else if (hdr.name == nameOfStd(strArray)) {
       CompResult* cr = &(cg->compResult);
       Int const fieldInd = cg->concreteFields.len;
       char c[2] = {'c', '\0'};
@@ -726,12 +725,12 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
          ptrOf(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
          c
       );
-      cg->concreteFields.c[fieldInd + 1] = field(nameOfStandard(strLen), cg->types[tokInt].c, cg);
+      cg->concreteFields.c[fieldInd + 1] = field(nameOfStd(strLen), cg->types[tokInt].c, cg);
       cg->concreteFields.len += 2;
 
       Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
       return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd };
-   } else if (hdr.name == nameOfStandard(strL)) {
+   } else if (hdr.name == nameOfStd(strL)) {
       CompResult* cr = &(cg->compResult);
       Int const fieldInd = cg->concreteFields.len;
       char c[2] = {'c', '\0'};
@@ -761,7 +760,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
          cg->concreteFields.c[l] = field(fldName, cgType(typeOf(fldType), cg).c, cg);
       }
       cg->concreteFields.c[cg->concreteFields.len + 1] =
-         field(nameOfStandard(strLen), cg->types[tokInt].c, cg);
+         field(nameOfStd(strLen), cg->types[tokInt].c, cg);
       cg->concreteFields.len += 2;
 
       Struct* s =
@@ -784,9 +783,9 @@ registerPrimitiveTypes(CG) {
 
    // String type
    Field* stringFields[2];
-   stringFields[0] = field(nameOfStandard(strLen), cg->types[tokInt].c, cg);
-   stringFields[1] = field(nameOfStandard(strContent), cg->builtins.cString, cg);
-   Struct* stringStruct = newStruct(nameOfStandard(strString), 2, stringFields, cg);
+   stringFields[0] = field(nameOfStd(strLen), cg->types[tokInt].c, cg);
+   stringFields[1] = field(nameOfStd(strContent), cg->builtins.cString, cg);
+   Struct* stringStruct = newStruct(nameOfStd(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
    cg->types[tokString] = (TypeInfo){
       .c = gcc_jit_struct_as_type(stringStruct), .fieldInd = cg->concreteFields.len
@@ -796,7 +795,7 @@ registerPrimitiveTypes(CG) {
       cg->md, null, gcc_jit_type_get_const(builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md)), c
    );
    add(content, &(cg->concreteFields));
-   add(field(nameOfStandard(strLen), cg->types[tokInt].c, cg), &(cg->concreteFields));
+   add(field(nameOfStd(strLen), cg->types[tokInt].c, cg), &(cg->concreteFields));
 
    cg->typeRefs[topVerbatimType + 1] = topVerbatimType + 1;
    cg->types[topVerbatimType + 1] = nonStructTypeInfo(null); // never to be used, it's a placeholder!
@@ -936,11 +935,11 @@ createBuiltins(CG) {
    );
 
    CgType* voidPtr = builtinType(GCC_JIT_TYPE_VOID_PTR, cg->md);
-   CgType* sloppyUnt = builtinType(GCC_JIT_TYPE_SIZE_T, cg->md);
-   
+   //CgType* sloppyUnt = builtinType(GCC_JIT_TYPE_SIZE_T, cg->md);
+
    CgType* sizeT = gcc_jit_context_get_type(cg->md, GCC_JIT_TYPE_SIZE_T);
    FnParam* paramAllocSize = paramFromChars("p", builtinType(GCC_JIT_TYPE_INT32_T, cg->md), cg);
-   
+
    Fn* memAlloc = importFn(
       "malloc",
       1,
@@ -1008,14 +1007,12 @@ mbRegisterNewVar(Node varNode, CG) {
       Int const varId = varNode.pl1;
       Var v = cg->compResult.vars.c[varId];
       CgType* t = cgType(v.typeId, cg).c;
-      print("creating VAR id %d", varId);
       if (v.name > -1) {
          cg->vars[varId] = localVar(v.name, t, cg);
       } else {
          cg->vars[varId] = localTempVar(t, cg);
       }
-      
-      print("creating VAR @2 %p", cg->vars[2]);
+
    }
 }
 
@@ -1074,9 +1071,22 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
             if (!rightMode && exp->len == 0) {
                cg->lValue = fieldAccessLeft(cg->lValue, cg->concreteFields.c[indField], cg);
             } else {
-               RValue* callResult = fieldAccess(exp->c[exp->len - 1], cg->concreteFields.c[indField], cg);
+               RValue* callResult = fieldAccess(
+                  exp->c[exp->len - 1], cg->concreteFields.c[indField], cg
+               );
                exp->c[exp->len - 1] = callResult;
             }
+            break;
+         }
+         case callGetElem: {
+            TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
+            Int indField = concreteColl.fieldInd; // "c" field is first in Array as well as List
+
+            RValue* rawArr = fieldAccess(exp->c[exp->len - 2], cg->concreteFields.c[indField], cg);
+            RValue* elemResult =
+               rValueOf(arrElem(rawArr, exp->c[exp->len - 1], cg->md));
+            exp->c[exp->len - 2] = elemResult;
+            exp->len--;
             break;
          }
          }
@@ -1124,23 +1134,23 @@ dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
    TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
    TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
    CgType* eltTypeCg = cgType(eltType, cg).c;
-   
+
    RValue* mallocArg = builtinBinary( // len * sizeof(Elt)
       GCC_JIT_BINARY_OP_MULT,
       cg->types[tokInt].c,
       getSizeof(eltTypeCg, cg),
       lenR
    );
-      
-   RValue* vals[2]; 
+
+   RValue* vals[2];
    vals[0] =
       ptrCast(callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), ptrOf(eltTypeCg), cg->md);
    vals[1] = lenR;
    // Array{ .c = malloc(...), .len = ... };
    RValue* arr = initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
-   
+
    assign(lValue, arr, cg->cbl.c);
-   
+
    Int fieldInd = cgType(concreteType, cg).fieldInd;
    LValue* rawArr = fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg);
 
@@ -1163,7 +1173,7 @@ simpleAssignment(Node nd, Int sentinel, AST, CG) {
    Int varId = varNode.pl1;
    Node rightSide = ast[cg->i + 1];
    cg->i += 2;
-   
+
    mbRegisterNewVar(varNode, cg);
    LValue* lValue = cg->vars[varId];
    if (rightSide.tp == nodDataAlloc) {
@@ -1501,8 +1511,17 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
 
    enum gcc_jit_function_kind accessLevel =
       eyrFn.access == accessPrivImm ? GCC_JIT_FUNCTION_INTERNAL : GCC_JIT_FUNCTION_EXPORTED;
+
    Fn* freshFn;
-   if (*arity == 0) {
+   if (toplevelId == cr->entrypoint) {
+      CgType* sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md);
+
+      FnParam* mainParams[2];
+      mainParams[0] = paramFromChars("argc", sloppyInt, cg);
+      mainParams[1] = paramFromChars("argv", ptrOf(cg->builtins.cString), cg);
+      freshFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
+      *arity = 2;
+   } else if (*arity == 0) {
       freshFn = newFnReal(
          eyrFn.name,
          null,
@@ -1510,13 +1529,6 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
          accessLevel,
          cg
       );
-   } else if (toplevelId == cr->entrypoint) {
-      CgType* sloppyInt = builtinType(GCC_JIT_TYPE_INT, cg->md);
-      FnParam* mainParams[2];
-      mainParams[0] = paramFromChars("argc", sloppyInt, cg);
-      mainParams[1] = paramFromChars("argv", ptrOf(cg->builtins.cString), cg);
-      freshFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
-      *arity = 2;
    } else {
       cg->params->len = 0;
       for (Int n = 0; n < *arity; n++) {
@@ -1536,7 +1548,6 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
          cg
       );
    }
-
    cg->currFn = freshFn;
    cg->functions[toplevelId] = freshFn;
    return freshFn;
@@ -1544,12 +1555,14 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
+
    Function eyrFn = cr->functions.c[toplevelId];
 
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
 
    Int arity;
+
    Fn* newToplevel = openFn(toplevelId, OUT &arity, cr, cg);
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
 
@@ -1569,7 +1582,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    Node nodeFn = cr->ast.c[eyrFn.nodeInd];
    Int const fnSentinel = calcNodeSentinel(nodeFn, eyrFn.nodeInd);
 
-   cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodFnDef and the parameters
+   cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodToplevelFn and the parameters
    if (toplevelId == cr->entrypoint) {
       // TODO temp
       cg->i -= 2;
@@ -1586,7 +1599,6 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       if (nd.tp < nodScope) {
          print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
-
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, sentinel, cr->ast.c, cg);
       mbCloseLoops(cg);

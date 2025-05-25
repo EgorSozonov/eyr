@@ -5,10 +5,10 @@ fn fizzBuzz F() f{
 }
 
 fn worker F(Int ->) f{ i ->
-    if  i % 3 == 0 && (i % 5 == 0) {print `FizzBuzz`;}
-    eif i % 3 == 0 {print `Fizz`;}
-    eif i % 5 == 0 {print `Buzz`;}
-    else {print i;} 
+    if i % 3 == 0 && (i % 5 == 0) {print `FizzBuzz`;}
+    ei i % 3 == 0 {print `Fizz`;}
+    ei i % 5 == 0 {print `Buzz`;}
+    else {print i;}
 }
 
 fn main F(-> Int) f{

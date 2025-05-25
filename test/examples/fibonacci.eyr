@@ -1,6 +1,6 @@
 fn fibonacci F(Int -> Int) f{n ->
      if  n <= 0 { return 0; }
-     eif n == 1 { return 1; }
+     ei n == 1 { return 1; }
 
      accum' = 1;
      for { beforeLast' = 0; swap' = 0; k' = n - 1;

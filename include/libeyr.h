@@ -184,7 +184,7 @@ libeyr_String str(const char* cent);
                            //   index into @functions (after type resolution) when pl3 = callNormal,
                            //   into @monos if pl3 = callMonomorph,
                            //   into @vars if pl3 = callVar,
-                           //   into @types if pl3 = callField.
+                           //   into @types if pl3 = callField or pl3 = callGetElem.
                            // pl2 = arg count (or ind of field within type iff pl3 = callField).
                            // pl3 = "call" constants.
 // Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
@@ -450,7 +450,7 @@ typedef struct { //:TypeHeader
 #endif
 
 void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);
-NameId nameOfStandard(Int a);
+NameId nameOfStd(Int a);
 
 //}}}
 //}}}
