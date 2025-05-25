@@ -3500,10 +3500,12 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
       TOKENS, CM) {
 // Typechecks a complex left side like `x (Foo Int) = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
-// Precondition: we are looking right past tokToplevelFn or tokAssignment
+// Precondition: we are looking right past tokAssignment
    LInt* sc = cm->expr->exp;
    sc->len = 0;
-   Token nextTk = tokens[cm->i + 1]; // +1 is safe because we know left side is long
+   
+   cm->i++; // CONSUME the var name
+   Token nextTk = tokens[cm->i]; // +1 is safe because we know left side is long
    // when the left side is a var definition with its type declared
    cm->tExpr->isGeneric = false;
 
@@ -5258,8 +5260,6 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    VALIDATEP(typeTk.tp == tokType, errFnSignature)
 
    TypeId fnType = tParse(calcSentinel(typeTk, cm->i), tokens, cm);
-   print("SIGNATURE new Type %d", fnType.v);
-   dbgType(fnType);
 
    TypeHeader hdr = typeReadHeader(fnType, cm);
    
@@ -5603,6 +5603,7 @@ tParseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
 // Precondition: we are looking at the first tokType (`L` in this example),
 // while the first one has been added as a type call.
    LInt* exp = te->exp;
+   exp->len = 0;
    LTypeFrame* frames = te->frames;
    
    teOpenTypeCall(tokens[cm->i].pl1, sentinel, frames, cm);
