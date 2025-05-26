@@ -23,10 +23,22 @@ Record sorDeclare:
 [name](member concrete types)|1 index into @fields|
 (meta flags ?)
 
+//vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
 Record sorTypeCall:
 [name](member concrete types)|1 index into @fields|(Parent type and type params, if any. count = tyrity)
 (meta flags ?)
+
+Example: (A Int)
+[...7 131584 67 -1  0  0          7  0  ]
+                ^c len ^genFields ^A Int
+(A (A Int )) 
+[...7 131584 67 -1 0   0          7  163    ]
+                ^c len ^genFields ^A (A Int)
+
+//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
 
 Enum:
 [name](variant names)(variant types)|meta flags|

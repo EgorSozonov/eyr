@@ -4749,6 +4749,7 @@ buildPreludeTypes(CM) {
 
    cm->activeBindings[name] = typeIndA;
    cm->stats.arrayType = typeIndA;
+   print("Array type %d", typeIndA);
 
    // List
    Int typeIndL = cm->types.len;

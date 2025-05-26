@@ -50,11 +50,11 @@ all: $(DEBUG_TGT) ## Build the whole compiler
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
-#/ cd _target && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
-#  PATH=$(GCC_PATH):$(PATH) \
-#  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
-#  ./$(APP)
-/ cd _target && ./$(APP)
+/ cd _target && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
+  PATH=$(GCC_PATH):$(PATH) \
+  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
+  ./$(APP)
+#/ cd _target && ./$(APP)
 
 
 clean: ## Delete cached build results

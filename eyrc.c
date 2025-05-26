@@ -589,6 +589,7 @@ newStructWithSuffix(NameId nameId, Int suffix, Int countFields, Arr(Field*) fiel
    Int lenName = strlen(cg->buffer);
    Int suffixWritten = snprintf(cg->buffer + lenName, 50, "_%d", suffix);
    cg->buffer[lenName + suffixWritten] = '\0';
+   print("new struct with suffix field count %d", countFields)
    return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
 }
 
@@ -601,9 +602,14 @@ private RValue* //:initializeStruct
 initializeStruct(TypeId t, LRValuePtr values, CG) {
 // The order and types of values must correspond to the fields in @concreteFields
    TypeInfo ti = cgType(t, cg);
-   return gcc_jit_context_new_struct_constructor(
+   print("init struct ti.ptr %p fieldInd %d values.c %p, concrF %p, values len %d fld %p, module %p",
+      ti.c, ti.fieldInd, values.c, cg->concreteFields.c, values.len, cg->concreteFields.c + ti.fieldInd, cg->md
+   )
+   
+   RValue* r = gcc_jit_context_new_struct_constructor(
       cg->md, null, ti.c, values.len, cg->concreteFields.c + ti.fieldInd, values.c
    );
+   return r;
 }
 
 //}}}
@@ -720,15 +726,21 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       CompResult* cr = &(cg->compResult);
       Int const fieldInd = cg->concreteFields.len;
       char c[2] = {'c', '\0'};
+      
+      TypeId eltType = libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c);
+      print("registering with eltType %d gcc type %p", eltType, ptrOf(cgType(eltType, cg).c));
       cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
          cg->md, null,
-         ptrOf(cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c),
+         ptrOf(cgType(eltType, cg).c),
          c
       );
       cg->concreteFields.c[fieldInd + 1] = field(nameOfStd(strLen), cg->types[tokInt].c, cg);
       cg->concreteFields.len += 2;
 
       Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
+      
+   print("registering array %d field ind %d struct type %p", t.v, fieldInd, gcc_jit_struct_as_type(s));
+      print("element type %p", cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c);
       return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd };
    } else if (hdr.name == nameOfStd(strL)) {
       CompResult* cr = &(cg->compResult);
@@ -787,6 +799,7 @@ registerPrimitiveTypes(CG) {
    stringFields[1] = field(nameOfStd(strContent), cg->builtins.cString, cg);
    Struct* stringStruct = newStruct(nameOfStd(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
+   print("registering Str, concreteFields %d", cg->concreteFields.len)
    cg->types[tokString] = (TypeInfo){
       .c = gcc_jit_struct_as_type(stringStruct), .fieldInd = cg->concreteFields.len
    };
@@ -1148,8 +1161,8 @@ dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
    vals[1] = lenR;
    // Array{ .c = malloc(...), .len = ... };
    RValue* arr = initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
-
    assign(lValue, arr, cg->cbl.c);
+   
 
    Int fieldInd = cgType(concreteType, cg).fieldInd;
    LValue* rawArr = fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg);
@@ -1162,6 +1175,7 @@ dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
       assign(arrElem(rValueOf(rawArr), intConst(j, cg), cg->md), eltValue, cg->cbl.c);
       cg->i = eltSentinel;
    }
+   print("dataAlloc end");
    return arr;
 }
 
@@ -1169,6 +1183,7 @@ private void //:simpleAssignment
 simpleAssignment(Node nd, Int sentinel, AST, CG) {
 // The left side is a single var, right side is a simpleExpr or a data alloc
 // Consumes the whole assignment
+
    Node varNode = ast[cg->i];
    Int varId = varNode.pl1;
    Node rightSide = ast[cg->i + 1];
@@ -1189,12 +1204,14 @@ expr(Node nd, Int sentinel, AST, CG) {
 // Evaluates the right side of a complex expression: a simpleExpr, or a data allocation,
 // or a series of simpleAssignments followed by a simpleExpr.
 // Consumes all nodes
+   if (cg->i == sentinel) { // single atom instead of an expression
+      return simpleExprAtom(nd, cg->i - 1, cg);
+   }
    for (; cg->i < sentinel && ast[cg->i].tp == nodAssignment; ) {
       Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
       cg->i++;
       simpleAssignment(ast[cg->i], assignSentinel, ast, cg);
    }
-
    RValue* result = simpleExpr(cg->i, sentinel, ast, cg);
    cg->i = sentinel;
    return result;
@@ -1208,9 +1225,8 @@ assignment(Node nd, Int sentinel, AST, CG) {
       { goto end; } // a function-typed local var - nothing to codegen here
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
-
    LValue* lValue = simpleExprLeft(cg->i, rightNodeInd, ast, cg);
-
+   
    cg->i = rightNodeInd + 1;
    RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
    assign(lValue, rValue, cg->cbl.c);
