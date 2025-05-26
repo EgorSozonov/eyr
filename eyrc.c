@@ -157,7 +157,7 @@ typedef struct { //:Builtins
 typedef struct { //:Codegen
    Int i; // current node index
    CurrBlock cbl; // no relation to Carbon-Based Lifeforms
-   Fn* currFn; // the function we are in
+   Fn* currFn;    // the function we are in
    LFutureBlock* futureBlocks; // future block at lowest AST index is at the top
    LBtLoop* loops;// backtrack of loop conditions, used for "continue" block linking
 
@@ -166,19 +166,19 @@ typedef struct { //:Codegen
    Byte buffer[maxWordLength + 45]; // temporary buffer for name writing
 
    Arr(Fn*) functions; // same len as @compResult.functions
-   Arr(LValue*) vars; // same len as @compResult.vars
+   Arr(LValue*) vars;  // same len as @compResult.vars
 
    LFnParamPtr* params;       // temporary buffer for function params
    LValue* lValue;            // temporary pointer for generating complex assignment left sides
    LRValuePtr* exp;           // temporary buffer for expression evaluation
 
    Int countConcreteTypes;
-   Arr(Int) typeRefs; // indices into @compResult.types, len = countTypes
+   Arr(Int) typeRefs;   // indices into @compResult.types, len = countTypes
    Arr(TypeInfo) types; // len = countTypes. The GCC types corresponding to Eyr types via @typeRefs
 
    LFieldPtr concreteFields; // fields of concrete structs & unions
 
-   CompResult compResult; // results of the compilation from libeyr
+   CompResult compResult;    // results of the compilation from libeyr
    Builtins builtins;
 
    Arena* a;
@@ -1209,12 +1209,27 @@ expr(Node nd, Int sentinel, AST, CG) {
    return result;
 }
 
+private void //:assignFnToVar
+assignFnToVar(Node nd, Int sentinel, CG) {
+// assiFnVarDef 
+   Int varId = nd.pl1;
+   Int fnId = nd.pl2;
+   Var var = cg->compResult.vars.c[varId];
+   Function fn = cg->compResult.functions.c[fnId];
+   LValue* lValue = localVar(var.name, cgType(fn.typeId, cg).c, cg);
+   cg->vars[varId] = lValue;
+   assign(lValue, gcc_jit_function_get_address(cg->functions[fnId], NULL), cg->cbl.c);
+   cg->i = sentinel;
+}
+
 private void //:assignment
 assignment(Node nd, Int sentinel, AST, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
 // Consumes the whole assignment
-   if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef)
-      { goto end; } // a function-typed local var - nothing to codegen here
+   if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef) {
+      assignFnToVar(ast[cg->i], sentinel, cg);
+      return;
+   } 
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
    LValue* lValue = simpleExprLeft(cg->i, rightNodeInd, ast, cg);
