@@ -423,7 +423,7 @@ createFnType(Int tp, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
    TypeId returnType = tFunctionReturnType(typeOf(tp), cr);
    buffer->len = 0;
 
-   if (countParams == 1 && cr->types.c[tp + TYPE_PREFIX] == voidType) { // nullary functions
+   if (countParams == 0 && cr->types.c[tp + TYPE_PREFIX] == voidType) { // nullary functions
       return gcc_jit_context_new_function_ptr_type(
          cg->md, null, searchCgTypePartiallyFilled(returnType, typeCounter, cg), 0, null, 0
       );
@@ -589,7 +589,6 @@ newStructWithSuffix(NameId nameId, Int suffix, Int countFields, Arr(Field*) fiel
    Int lenName = strlen(cg->buffer);
    Int suffixWritten = snprintf(cg->buffer + lenName, 50, "_%d", suffix);
    cg->buffer[lenName + suffixWritten] = '\0';
-   print("new struct with suffix field count %d", countFields)
    return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
 }
 
@@ -602,9 +601,6 @@ private RValue* //:initializeStruct
 initializeStruct(TypeId t, LRValuePtr values, CG) {
 // The order and types of values must correspond to the fields in @concreteFields
    TypeInfo ti = cgType(t, cg);
-   print("init struct ti.ptr %p fieldInd %d values.c %p, concrF %p, values len %d fld %p, module %p",
-      ti.c, ti.fieldInd, values.c, cg->concreteFields.c, values.len, cg->concreteFields.c + ti.fieldInd, cg->md
-   )
    
    RValue* r = gcc_jit_context_new_struct_constructor(
       cg->md, null, ti.c, values.len, cg->concreteFields.c + ti.fieldInd, values.c
@@ -700,7 +696,7 @@ private Int //:countTheConcreteTypes
 countTheConcreteTypes(OUT Int* countFields, CR) {
    // +1 for outerTypeForTypeParam, +1 because it's the array length, not index
    Int res = topVerbatimType + 2;
-   *countFields = 0;
+   *countFields = 2; // 2 for the Str type which is created in {registerPrimitiveTypes}
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (hdr.isGeneric)
@@ -728,7 +724,6 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       char c[2] = {'c', '\0'};
       
       TypeId eltType = libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c);
-      print("registering with eltType %d gcc type %p", eltType, ptrOf(cgType(eltType, cg).c));
       cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
          cg->md, null,
          ptrOf(cgType(eltType, cg).c),
@@ -739,8 +734,6 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
 
       Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
       
-   print("registering array %d field ind %d struct type %p", t.v, fieldInd, gcc_jit_struct_as_type(s));
-      print("element type %p", cgType(libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c), cg).c);
       return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd };
    } else if (hdr.name == nameOfStd(strL)) {
       CompResult* cr = &(cg->compResult);
@@ -799,7 +792,6 @@ registerPrimitiveTypes(CG) {
    stringFields[1] = field(nameOfStd(strContent), cg->builtins.cString, cg);
    Struct* stringStruct = newStruct(nameOfStd(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
-   print("registering Str, concreteFields %d", cg->concreteFields.len)
    cg->types[tokString] = (TypeInfo){
       .c = gcc_jit_struct_as_type(stringStruct), .fieldInd = cg->concreteFields.len
    };
@@ -821,11 +813,12 @@ registerCompositeTypes(CG) {
    CompResult* cr = &(cg->compResult);
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
-      if (!hdr.isGeneric) {
-         cg->typeRefs[typeCounter] = j;
-         cg->types[typeCounter] = registerType(typeOf(j), hdr, typeCounter, buffer, cg);
-         typeCounter++;
-      }
+      if (hdr.isGeneric)
+         { continue; }
+      cg->typeRefs[typeCounter] = j;
+      cg->types[typeCounter] = registerType(typeOf(j), hdr, typeCounter, buffer, cg);
+
+      typeCounter++;
    }
 }
 
@@ -837,7 +830,7 @@ registerTypes(CG) {
    cg->typeRefs = allocateArray(cg->countConcreteTypes, Int, cg->a);
    cg->types = allocateArray(cg->countConcreteTypes, TypeInfo, cg->a);
    LFieldPtr* fields = createLFieldPtr(countFields, cg->a);
-   print("count of all: concrete types %d fields %d", cg->countConcreteTypes, countFields)
+   print("count of all: concrete types %d fields %d %p", cg->countConcreteTypes, countFields, fields)
    cg->concreteFields = *fields;
 
    registerPrimitiveTypes(cg);
@@ -1175,7 +1168,6 @@ dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
       assign(arrElem(rValueOf(rawArr), intConst(j, cg), cg->md), eltValue, cg->cbl.c);
       cg->i = eltSentinel;
    }
-   print("dataAlloc end");
    return arr;
 }
 

@@ -4749,7 +4749,6 @@ buildPreludeTypes(CM) {
 
    cm->activeBindings[name] = typeIndA;
    cm->stats.arrayType = typeIndA;
-   print("Array type %d", typeIndA);
 
    // List
    Int typeIndL = cm->types.len;
@@ -5383,8 +5382,7 @@ pToplevelSignatures(TOKENS, CM) {
    cm->i = 0;
    Int const len = cm->tokens.len;
 
-   TypeId const voidToVoid = addConcrFnType(1, (Int[]){ voidType, voidType}, cm);
-
+   TypeId const voidToVoid = addConcrFnType(0, (Int[]){ voidType}, cm);
    Int nextI = 0;
    for (Token tok = tokens[cm->i]; cm->i < len; cm->i = nextI, tok = tokens[nextI]) {
       nextI = calcSentinel(tok, cm->i);
