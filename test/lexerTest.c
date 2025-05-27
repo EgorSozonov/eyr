@@ -1000,6 +1000,20 @@ LexerTestSet* coreFormTests(Arena* a) {
                  (Token){ .tp = tokOperator, .pl1 = opMinus, .pl2 = 8, .startBt = 44, .lenBts = 1 },
                  (Token){ .tp = tokWord, .pl1 = 3,       .startBt = 46, .lenBts = 1 } // y
          }))},
+         (LexerTest) { .name = s("Function simple 2"),
+             .input = s("fn noFBeforeScope F(-> Int) { return 5;}"),
+             .expectedOutput = expect(((Token[]){
+                 (Token){ .tp = tokToplevelFn,         .pl2 = 6,
+                          .startBt = 0, .lenBts = 40 },
+                 (Token){ .tp = tokWord, .pl1 = 0,        .startBt = 3, .lenBts = 14 },
+                 (Token){ .tp = tokType, .pl1 = (strF + S), .pl2 = 1,  // F(...)
+                          .startBt = 18, .lenBts = 9 },
+                 (Token){ .tp = tokType, .pl1 = (strInt + S), .pl2 = 0, .startBt = 23, .lenBts = 3},
+                 (Token){ .tp = tokFn, .pl1 = slScope,       .pl2 = 2,
+                          .startBt = 28, .lenBts = 12 },
+                 (Token){ .tp = tokReturn,       .pl2 = 1, .startBt = 30, .lenBts = 9 },
+                 (Token){ .tp = tokInt,          .pl2 = 5, .startBt = 37, .lenBts = 1 }
+         }))},
          (LexerTest) { .name = s("Loop simple"),
              .input = s("for {x' = 1; x < 101; x = x + 1;} { print x; }"),
              .expectedOutput = expect(((Token[]) {

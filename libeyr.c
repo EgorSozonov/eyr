@@ -2941,6 +2941,9 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
          lx->lexBtrack->c[len - 2].spanLevel = slScope;
          lx->tokens.c[second.tokenInd].pl1 = slScope;
          goto consumption;
+      } ei (top.tp == tokToplevelFn)  {
+         openPunctuation(tokFn, slScope, lx->i, lx);
+         goto consumption;
       } ei (top.tp == tokElse) {
          goto consumption;
       } ei (top.tp == tokFor) {
@@ -5412,7 +5415,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      printParser(cm);
+      //printParser(cm);
       //dbgAllTypes(cm);
    } else {
 #ifndef TEST
@@ -6118,7 +6121,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 
 #ifdef DEBUG //{{{
       if (typeReadHeader(typeOfFunc, cm).arity != (argCount == 0 ? 1 : argCount) + 1) {
-         print("arity %d type %d argc %d", typeReadHeader(typeOfFunc, cm).arity, typeOfFunc.v,
+         print("arity error %d type %d argc %d", typeReadHeader(typeOfFunc, cm).arity, typeOfFunc.v,
             (argCount == 0 ? 1 : argCount) + 1);
       }
 #endif //}}}
