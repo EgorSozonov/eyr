@@ -181,7 +181,7 @@ Byte const maximumPreciselyRepresentedFloatingInt[16] = {
 
 
 constexpr char
-standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
+standardText[] = "!.!0!=##$%&&.'*:+:-:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 
                 // reserved words: must be sorted alphabetically!
                 "aliasassertbreakcatchcontinueeacheielsefalsefnfor"
@@ -195,7 +195,7 @@ standardText[] = "!.!0!=##$%&&.'*:++:--:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
 #endif
              ;
 
-#define standardOperatorsLength 54 // length of the operator part above
+#define standardOperatorsLength 52 // length of the operator part above
 
 // The :standardText prepended to all source code inputs and the hash table to provide a built-in
 // string set. Eyr's reserved words must be at the start and sorted lexicographically.
@@ -278,45 +278,41 @@ OPERATORS[countSignOperators + 1] = { // +1 for the "not" which is not a sign op
         .assignable = true, .overloadable = true},
    { .prec = 9,         .name = nameLoc(14, 1), .firstSymbol = '*',   // *
         .assignable = true, .overloadable = true},
-   { .prec = 9,         .name = nameLoc(16, 2), .firstSymbol = '+',   // ++
-        .assignable = false, .overloadable = false},
-   { .prec = 8,         .name = nameLoc(17, 2), .firstSymbol = '+',   // +:
+   { .prec = 8,         .name = nameLoc(16, 2), .firstSymbol = '+',   // +:
         .assignable = true, .overloadable = true},
    { .prec = 8,         .name = nameLoc(16, 1), .firstSymbol = '+',   // +
         .assignable = true, .overloadable = true},
-   { .prec = 9,         .name = nameLoc(19, 2), .firstSymbol = '-',   // --
-        .assignable = false, .overloadable = false},
-   { .prec = 8,         .name = nameLoc(20, 2), .firstSymbol = '-',   // -:
+   { .prec = 8,         .name = nameLoc(18, 2), .firstSymbol = '-',   // -:
         .assignable = true, .overloadable = true},
-   { .prec = 8,         .name = nameLoc(19, 1), .firstSymbol = '-',   // -
+   { .prec = 8,         .name = nameLoc(18, 1), .firstSymbol = '-',   // -
         .assignable = true, .overloadable = true },
-   { .prec = precUnary, .name = nameLoc(19, 1), .firstSymbol = '-' }, // -
-   { .prec = 9,         .name = nameLoc(22, 2), .firstSymbol = '/',   // /:
+   { .prec = precUnary, .name = nameLoc(18, 1), .firstSymbol = '-' }, // -
+   { .prec = 9,         .name = nameLoc(20, 2), .firstSymbol = '/',   // /:
         .assignable = true, .overloadable = true},
-   { .prec = 0,         .name = nameLoc(24, 2), .firstSymbol = '/',   // /|
+   { .prec = 0,         .name = nameLoc(22, 2), .firstSymbol = '/',   // /|
         .isTypelevel = true},
-   { .prec = 9,         .name = nameLoc(24, 1), .firstSymbol = '/',   // /
+   { .prec = 9,         .name = nameLoc(22, 1), .firstSymbol = '/',   // /
         .assignable = true, .overloadable = true},
-   { .prec = 7,         .name = nameLoc(26, 3), .firstSymbol = '<' }, // <<.
-   { .prec = 6,         .name = nameLoc(29, 3), .firstSymbol = '<' }, // <=>
-   { .prec = precUnary, .name = nameLoc(32, 2), .firstSymbol = '<' }, // <0
-   { .prec = 6,         .name = nameLoc(29, 2), .firstSymbol = '<' }, // <=
-   { .prec = 6,         .name = nameLoc(26, 1), .firstSymbol = '<' }, // <
-   { .prec = 5,         .name = nameLoc(34, 3), .firstSymbol = '=' }, // ===
-   { .prec = 5,         .name = nameLoc(35, 2), .firstSymbol = '=' }, // ==
-   { .prec = 7,         .name = nameLoc(41, 3), .firstSymbol = '>',   // >>.
+   { .prec = 7,         .name = nameLoc(24, 3), .firstSymbol = '<' }, // <<.
+   { .prec = 6,         .name = nameLoc(27, 3), .firstSymbol = '<' }, // <=>
+   { .prec = precUnary, .name = nameLoc(30, 2), .firstSymbol = '<' }, // <0
+   { .prec = 6,         .name = nameLoc(27, 2), .firstSymbol = '<' }, // <=
+   { .prec = 6,         .name = nameLoc(24, 1), .firstSymbol = '<' }, // <
+   { .prec = 5,         .name = nameLoc(32, 3), .firstSymbol = '=' }, // ===
+   { .prec = 5,         .name = nameLoc(33, 2), .firstSymbol = '=' }, // ==
+   { .prec = 7,         .name = nameLoc(39, 3), .firstSymbol = '>',   // >>.
         .assignable=true, .overloadable = true},
-   { .prec = precUnary, .name = nameLoc(44, 2), .firstSymbol = '>' }, // >0
-   { .prec = 6,         .name = nameLoc(38, 2), .firstSymbol = '>' }, // >=
-   { .prec = 6,         .name = nameLoc(31, 1), .firstSymbol = '>' }, // >
-   { .prec = 0,         .name = nameLoc(46, 2), .firstSymbol = '?' }, // ?:
-   { .prec = 0,         .name = nameLoc(46, 1), .firstSymbol = '?',   // ?
+   { .prec = precUnary, .name = nameLoc(42, 2), .firstSymbol = '>' }, // >0
+   { .prec = 6,         .name = nameLoc(36, 2), .firstSymbol = '>' }, // >=
+   { .prec = 6,         .name = nameLoc(29, 1), .firstSymbol = '>' }, // >
+   { .prec = 0,         .name = nameLoc(44, 2), .firstSymbol = '?' }, // ?:
+   { .prec = 0,         .name = nameLoc(44, 1), .firstSymbol = '?',   // ?
         .isTypelevel=true },
-   { .prec = 3,         .name = nameLoc(49, 2), .firstSymbol = '^',   // ^.
+   { .prec = 3,         .name = nameLoc(47, 2), .firstSymbol = '^',   // ^.
         .assignable = true },
-   { .prec = 2,         .name = nameLoc(51, 3), .firstSymbol = '|',   // ||.
+   { .prec = 2,         .name = nameLoc(49, 3), .firstSymbol = '|',   // ||.
         .assignable = true },
-   { .prec = 0,         .name = nameLoc(51, 2), .firstSymbol = '|',   // ||
+   { .prec = 0,         .name = nameLoc(49, 2), .firstSymbol = '|',   // ||
         .assignable=true },
    { .prec = precUnary,  .name = 0, .firstSymbol = 'n' }             // not
 }; // real operator overloads filled in by "buildOperators"
@@ -324,9 +320,9 @@ OPERATORS[countSignOperators + 1] = { // +1 for the "not" which is not a sign op
 
 constexpr Int
 operatorStartSymbols[] = {
-   // Symbols an operator may start with. "-" is absent because it's handled by lexMinus,
-   // "=" - by lexEqual, "/" by "lexDivBy"
-   aExclamation, aSharp, aDollar, aPercent, aAmp, aApostrophe, aTimes, aPlus,
+   // Symbols an operator may start with. "+" is absent because it's handled by lexPlus, 
+   // "-" because it's handled by lexMinus, "=" by lexEqual, "/" by "lexDivBy".
+   aExclamation, aSharp, aDollar, aPercent, aAmp, aApostrophe, aTimes,
    aDivBy, aLT, aGT, aQuestion, aAt, aCaret, aPipe
 };
 
@@ -2641,17 +2637,11 @@ lexSemicolon(SRC, LX) {
    }
 }
 
-private void
-lexAssignment(Int const opType, LX) { //:lexAssignment
-// Params: opType is the operator for mutations (like `*=`), -1 for normal assignments.
-// Handles the "=", and "+=" tokens (for the latter, inserts the operator and duplicates the
-// tokens from the left side). Changes existing stmt token into tokAssignment and opens up a new
-// tokAssignRight span. Doesn't consume anything
+private Int //:lConvertToAssignment
+lConvertToAssignment(Int const opType, LX) {
    BtToken currSpan = last(lx->lexBtrack);
-
    VALIDATEL(currSpan.tp == tokStmt, errOperatorAssignmentPunct);
-
-   Int assignmentStartInd = currSpan.tokenInd;
+   Int const assignmentStartInd = currSpan.tokenInd;
    Token* tok = (lx->tokens.c + assignmentStartInd);
    if (currSpan.tp == tokStmt) {
       tok->tp = tokAssignment;
@@ -2665,6 +2655,17 @@ lexAssignment(Int const opType, LX) { //:lexAssignment
    }
 
    openPunctuation(tokAssignRight, slStmt, lx->i, lx);
+   return assignmentStartInd;
+}
+
+private void //:lCreateAssignment
+lCreateAssignment(Int const opType, LX) {
+// Params: opType is the operator for mutations (like `*=`), -1 for normal assignments.
+// Handles the "=", and "+=" tokens (for the latter, inserts the operator and duplicates the
+// tokens from the left side). Changes existing stmt token into tokAssignment and opens up a new
+// tokAssignRight span. Doesn't consume anything
+   Int assignmentStartInd = lConvertToAssignment(opType, lx);
+   
    if (opType > -1) { // mutation
       // -2 because we've already opened the right side span
       Int const countLeftSide = lx->tokens.len - assignmentStartInd - 2;
@@ -2724,7 +2725,7 @@ lexOperator(SRC, LX) { //:lexOperator
       j++;
    }
    if (isAssignment) { // mutation operators like "*=" or "*.="
-      lexAssignment(opType, lx);
+      lCreateAssignment(opType, lx);
    } else {
       pushIntokens((Token){ .tp = tokOperator, .pl1 = opType, .pl2 = opDef.prec,
          .startBt = lx->i, .lenBts = j - lx->i}, lx);
@@ -2751,7 +2752,7 @@ lexEqual(SRC, LX) {
    if (nextBt == aEqual || nextBt == aDigit0) {
       lexOperator(source, lx); // == or =0
    } else {
-      lexAssignment(-1, lx);
+      lCreateAssignment(-1, lx);
       lx->i++; // CONSUME the =
    }
 }
@@ -2793,6 +2794,28 @@ lexComment(SRC, LX) {
    }
 }
 
+private void //:lInDeCrement
+lInDeCrement(Bool isIncrement, SRC, LX) {
+// Converts the `++` and `--` into mutations `+= 1` and `-= 1`
+   Int assignmentStartInd = lConvertToAssignment(opPlus, lx);
+   
+   // -2 because we've already opened the right side span
+   Int const countLeftSide = lx->tokens.len - assignmentStartInd - 2;
+   ensureCapacityTokens(countLeftSide + 1, lx); // + 1 for the operator
+
+   memcpy(lx->tokens.c + lx->tokens.len,
+         lx->tokens.c + assignmentStartInd + 1, countLeftSide*sizeof(Token));
+   lx->tokens.len += countLeftSide;
+   pushIntokens(((Token){
+         .tp = tokOperator, .pl1 = isIncrement ? opPlus : opMinus, .pl2 = 0, 
+         .startBt = lx->i, .lenBts = 1
+      }), lx
+   );
+   pushIntokens((Token){ .tp = tokInt, .pl1 = 0, .pl2 = 1, .startBt = lx->i + 1, .lenBts = 1}, lx);
+
+   lx->i += 2; // CONSUME the `++` or `--`
+}
+
 private void //:lexArrow
 lexArrow(SRC, LX) {
    VALIDATEL(lx->lexBtrack->len > 0, errFnTypeArrows)
@@ -2822,9 +2845,21 @@ consumeArrow:
    lx->i += 2; // CONSUME the `->`
 }
 
+private void //:lexPlus
+lexPlus(SRC, LX) {
+// Handles the binary operator and the increment
+   VALIDATEL(lx->i < lx->stats.inpLength - 1, errPrematureEndOfInput)
+   Byte nextBt = NEXT_BT;
+   if (nextBt == aPlus) {
+      lInDeCrement(true, source, lx);
+   } else {
+      lexOperator(source, lx);
+   }
+}
+
 private void //:lexMinus
 lexMinus(SRC, LX) {
-// Handles the binary operator, the unary negation operator and the arrow
+// Handles the binary operator, the unary negation operator, decrement and the arrow
    VALIDATEL(lx->i < lx->stats.inpLength - 1, errPrematureEndOfInput)
    Byte nextBt = NEXT_BT;
    if (isDigit(nextBt)) {
@@ -2835,8 +2870,10 @@ lexMinus(SRC, LX) {
       pushIntokens((Token){ .tp = tokOperator, .pl1 = opMinus, .pl2 = OPERATORS[opMinus].prec,
                             .startBt = lx->i, .lenBts = 1 }, lx);
       lx->i += 2; // CONSUME the "-" and the space
-   } ei (nextBt == aColon || nextBt == aEqual || nextBt == aMinus) {
+   } ei (nextBt == aColon || nextBt == aEqual) {
       lexOperator(source, lx);
+   } ei (nextBt == aMinus) {
+      lInDeCrement(false, source, lx);
    } ei (nextBt == aGT)  {
       lexArrow(source, lx);
    } else {
@@ -3063,7 +3100,8 @@ tabulateLexer() { //:tabulateLexer
    for (Int i = sizeof(operatorStartSymbols)/4 - 1; i > -1; i--) {
       p[operatorStartSymbols[i]] = &lexOperator;
    }
-   p[aMinus] = &lexMinus; // to handle literal negation
+   p[aPlus] = &lexPlus; // to handle ++
+   p[aMinus] = &lexMinus; // to handle --, -> and literal negation
    p[aParenLeft] = &lexParenLeft;
    p[aParenRight] = &lexParenRight;
    p[aCurlyLeft] = &lexCurlyLeft;
@@ -4808,7 +4846,6 @@ buildOperators(CM) {
    TypeId strOfStrStr    = addConcrFnType(2, (Int[]){ tokString, tokString, tokString}, cm);
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
-   TypeId voidOfInt      = addConcrFnType(1, (Int[]){ tokInt, voidType}, cm);
 
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
@@ -4828,12 +4865,10 @@ buildOperators(CM) {
    buildOper(opTimesExt,     douOfDouDou, emitNotEq, cm);
    buildOper(opTimes,        intOfIntInt, emitMultiply, cm);
    buildOper(opTimes,        douOfDouDou, emitMultiply, cm);
-   buildOper(opIncrement,    voidOfInt, emitNotEq, cm);
    buildOper(opPlusExt,      strOfStrStr, emitNotEq, cm);
    buildOper(opPlus,         intOfIntInt, emitAdd, cm);
    buildOper(opPlus,         douOfDouDou, emitAdd, cm);
    buildOper(opPlus,         strOfStrStr, emitAdd, cm);
-   buildOper(opDecrement,    voidOfInt, emitNotEq, cm);
    buildOper(opMinusExt,     intOfIntInt, emitNotEq, cm);
    buildOper(opMinus,        intOfIntInt, emitSubtract, cm);
    buildOper(opMinus,        douOfDouDou, emitSubtract, cm);
@@ -5415,7 +5450,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      //printParser(cm);
+      printParser(cm);
       //dbgAllTypes(cm);
    } else {
 #ifndef TEST
@@ -6120,14 +6155,13 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       }
 
 #ifdef DEBUG //{{{
-      if (typeReadHeader(typeOfFunc, cm).arity != (argCount == 0 ? 1 : argCount) + 1) {
+      if (typeReadHeader(typeOfFunc, cm).arity != argCount + 1) {
          print("arity error %d type %d argc %d", typeReadHeader(typeOfFunc, cm).arity, typeOfFunc.v,
             (argCount == 0 ? 1 : argCount) + 1);
       }
 #endif //}}}
       // first param matches, but does arity?
-      VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == (argCount == 0 ? 1 : argCount) + 1,
-         errTypeNoMatchingOverload)
+      VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == argCount + 1, errTypeNoMatchingOverload)
 
       TypeId firstParamInd = getFirstParamInd(typeOfFunc, cm);
       if (!isGeneric) {

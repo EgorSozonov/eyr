@@ -267,6 +267,8 @@ typedef enum {   // :EmitFn
    emitDivide,
    emitModulo,
    emitNegate,
+   emitIncrement,
+   emitDecrement,
    emitAbsolute,
    emitLogicAnd,
    emitLogicOr,
@@ -339,37 +341,35 @@ struct StructField { //:StructField Struct field names + access are in a separat
 #define opRef             7 // '  References
 #define opTimesExt        8 // *:
 #define opTimes           9 // * Multiplication and nullable pointers
-#define opIncrement      10 // ++
-#define opPlusExt        11 // +:
-#define opPlus           12 // +
-#define opDecrement      13 // --
-#define opMinusExt       14 // -:
-#define opMinus          15 // -
-#define opNegate         16 // -
-#define opDivByExt       17 // /:
-#define opIntersect      18 // /\   type-level trait intersection ?
-#define opDivBy          19 // /
-#define opBitShiftL      20 // <<.
-#define opComparator     21 // <=>
-#define opLTZero         22 // <0   less than zero
-#define opLTEQ           23 // <=
-#define opLessTh         24 // <
-#define opRefEquality    25 // ===
-#define opEquality       26 // ==
-#define opBitShiftR      27 // >>.  unsigned right bit shift
-#define opGTZero         28 // >0   greater than zero
-#define opGTEQ           29 // >=
-#define opGreaterTh      30 // >
-#define opNullCoalesce   31 // ?:   null coalescing operator
-#define opQuestionMark   32 // ?   Initially nullable pointers
-#define opBitwiseXor     33 // ^.   bitwise XOR
-#define opBitwiseOr      34 // ||.  bitwise or
-#define opBoolOr         35 // ||   logical or
-#define countSignOperators 36 // sentinel of operators spelled using special signs
+#define opPlusExt        10 // +:
+#define opPlus           11 // +
+#define opMinusExt       12 // -:
+#define opMinus          13 // -
+#define opNegate         14 // -
+#define opDivByExt       15 // /:
+#define opIntersect      16 // /\   type-level trait intersection ?
+#define opDivBy          17 // /
+#define opBitShiftL      18 // <<.
+#define opComparator     19 // <=>
+#define opLTZero         20 // <0   less than zero
+#define opLTEQ           21 // <=
+#define opLessTh         22 // <
+#define opRefEquality    23 // ===
+#define opEquality       24 // ==
+#define opBitShiftR      25 // >>.  unsigned right bit shift
+#define opGTZero         26 // >0   greater than zero
+#define opGTEQ           27 // >=
+#define opGreaterTh      28 // >
+#define opNullCoalesce   29 // ?:   null coalescing operator
+#define opQuestionMark   30 // ?   Initially nullable pointers
+#define opBitwiseXor     31 // ^.   bitwise XOR
+#define opBitwiseOr      32 // ||.  bitwise or
+#define opBoolOr         33 // ||   logical or
+#define countSignOperators 34 // sentinel of operators spelled using special signs
 
-#define opBoolNot          36 // `not` logical negation
-#define opGetElem          37 // Get list element
-#define countOperators     38 // sentinel
+#define opBoolNot          34 // `not` logical negation
+#define opGetElem          35 // Get list element
+#define countOperators     36 // sentinel
 
 //}}}
 

@@ -717,9 +717,9 @@ LexerTestSet* operatorTests(Arena* a) {
                 (Token){ .tp = tokOperator, .pl1 = opBitwiseXor, .pl2 = 3, .startBt = 19, .lenBts = 2 }
         }))},
         (LexerTest) { .name = s("Operators list"),
-            .input = s("+ - / * && || ? <=> $ ' /\\ # <0 >0 not ++ --;"),
+            .input = s("+ - / * && || ? <=> $ ' /\\ # <0 >0 not;"),
             .expectedOutput = expect(((Token[]){
-                (Token){ .tp = tokStmt,                .pl2 = 17, .startBt = 0, .lenBts = 45 },
+                (Token){ .tp = tokStmt,                .pl2 = 15, .startBt = 0, .lenBts = 39 },
                 (Token){ .tp = tokOperator, .pl1 = opPlus, .pl2 = 8, .startBt = 0, .lenBts = 1 },
                 (Token){ .tp = tokOperator, .pl1 = opMinus, .pl2 = 8, .startBt = 2, .lenBts = 1 },
                 (Token){ .tp = tokOperator, .pl1 = opDivBy, .pl2 = 9, .startBt = 4, .lenBts = 1 },
@@ -738,9 +738,7 @@ LexerTestSet* operatorTests(Arena* a) {
                 (Token){ .tp = tokOperator, .pl1 = opSize, .pl2 = 100, .startBt = 27, .lenBts = 1 },
                 (Token){ .tp = tokOperator, .pl1 = opLTZero, .pl2 = 100, .startBt = 29, .lenBts = 2 },
                 (Token){ .tp = tokOperator, .pl1 = opGTZero, .pl2 = 100, .startBt = 32, .lenBts = 2 },
-                (Token){ .tp = tokOperator, .pl1 = opBoolNot, .pl2 = 100, .startBt = 35, .lenBts = 3 },
-                (Token){ .tp = tokOperator, .pl1 = opIncrement, .pl2 = 9, .startBt = 39, .lenBts = 2 },
-                (Token){ .tp = tokOperator, .pl1 = opDecrement, .pl2 = 9, .startBt = 42, .lenBts = 2 }
+                (Token){ .tp = tokOperator, .pl1 = opBoolNot, .pl2 = 100, .startBt = 35, .lenBts = 3 }
         }))},
         (LexerTest) { .name = s("Operator expression"),
             .input = s("a - b;"),
@@ -793,6 +791,17 @@ LexerTestSet* operatorTests(Arena* a) {
                 (Token){ .tp = tokWord, .pl1 = 0, .startBt = 0, .lenBts = 1 },
                 (Token){ .tp = tokOperator, .pl1 = opBitwiseXor, .startBt = 2, .lenBts = 2 },
                 (Token){ .tp = tokWord, .pl1 = 1, .startBt = 6, .lenBts = 1 }
+        }))},
+        (LexerTest) { .name = s("Operator assignment 5 (increment)"),
+            .input = s("a++;"),
+            .expectedOutput = expect(((Token[]){
+                (Token){ .tp = tokAssignment, .pl1 = 0, .pl2 = 5, .startBt = 0,
+                         .lenBts = 4 },
+                (Token){ .tp = tokWord, .pl1 = 0, .startBt = 0, .lenBts = 1 },
+                (Token){ .tp = tokAssignRight, .pl2 = 3, .startBt = 1, .lenBts = 3 },
+                (Token){ .tp = tokWord, .pl1 = 0, .startBt = 0, .lenBts = 1 },
+                (Token){ .tp = tokOperator, .pl1 = opPlus, .startBt = 1, .lenBts = 1 },
+                (Token){ .tp = tokInt, .pl1 = 0, .pl2 = 1, .startBt = 2, .lenBts = 1 }
         }))},
         (LexerTest) { .name = s("Operator assignment in parens error"),
             .input = s("(x += y + 5)"),

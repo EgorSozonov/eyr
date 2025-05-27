@@ -292,7 +292,7 @@ importFn(const char* name, int countParams, Arr(FnParam*) params,
 }
 
 private Fn* //:newFnReal
-newFnReal(NameId name, NULLABLE LFnParamPtr* params, CgType* returnType, FnKind accessLevel, CG) {
+newFnReal(NameId name, LFnParamPtr params, CgType* returnType, FnKind accessLevel, CG) {
    prepareName(name, cg);
    return gcc_jit_context_new_function(
       cg->md,
@@ -300,8 +300,8 @@ newFnReal(NameId name, NULLABLE LFnParamPtr* params, CgType* returnType, FnKind 
       accessLevel,
       returnType,
       cg->buffer,
-      params->len,
-      params->c,
+      params.len,
+      params.c,
       0
    );
 }
@@ -491,6 +491,12 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
       return builtinBinary(GCC_JIT_BINARY_OP_MODULO, retType, args[0], args[1]);
    }
    case emitNegate: {
+      return builtinUnary(GCC_JIT_UNARY_OP_MINUS, retType, args[0]);
+   }
+   case emitIncrement: {
+      return builtinUnary(GCC_JIT_UNARY_OP_MINUS, retType, args[0]);
+   }
+   case emitDecrement: {
       return builtinUnary(GCC_JIT_UNARY_OP_MINUS, retType, args[0]);
    }
    case emitAbsolute: {
@@ -1127,6 +1133,15 @@ simpleExprLeft(Int start, Int sentinel, AST, CG) {
    }
 }
 
+private RValue* //:exprSingleNode
+exprSingleNode(Node nd, Int ind, AST, CG) {
+   if (nd.tp == nodCall) { // `(call)`
+      return eCall(nd.pl1, 0, null, cg);
+   } else {
+      return simpleExprAtom(nd, ind, cg);
+   }
+}
+
 private RValue* //:simpleExpr
 simpleExpr(Int start, Int sentinel, AST, CG) {
 // Converts a simple (no internal assignments or data allocations) Eyr expression into a Libgccjit
@@ -1134,7 +1149,7 @@ simpleExpr(Int start, Int sentinel, AST, CG) {
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr.
    if (start == sentinel - 1) {
-      return simpleExprAtom(ast[start], start, cg);
+      return exprSingleNode(ast[start], start, ast, cg);
    } else {
       simpleExprReduce(start, sentinel, true, ast, cg);
       return cg->exp->c[0]; // the type checker guarantees that there is only one element at this point
@@ -1206,9 +1221,8 @@ expr(Node nd, Int sentinel, AST, CG) {
 // Evaluates the right side of a complex expression: a simpleExpr, or a data allocation,
 // or a series of simpleAssignments followed by a simpleExpr.
 // Consumes all nodes
-   if (cg->i == sentinel) { // single atom instead of an expression
-      return simpleExprAtom(nd, cg->i - 1, cg);
-   }
+   if (cg->i == sentinel)
+      { return exprSingleNode(nd, cg->i - 1, ast, cg); } // single atom instead of an expression
    for (; cg->i < sentinel && ast[cg->i].tp == nodAssignment; ) {
       Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
       cg->i++;
@@ -1344,11 +1358,12 @@ ifInitialCondition(CodeBlock* ifAfterBlock, AST, CG) {
    RValue* ifCondition = ifWriteCondition(OUT &startIfBody, OUT &sentinelIfBranch, ast, cg);
 
    // Link to the next "else if" or "else", or, if none - to the block after the "if"
-   CodeBlock* ifAfter = cg->futureBlocks->len > 0 ? last(cg->futureBlocks).c : cg->cbl.after;
+   CodeBlock* nextClauseOrIfAfter =
+      cg->futureBlocks->len > 0 ? last(cg->futureBlocks).c : cg->cbl.after;
    CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
 
    // close the current block with two branches, and enter the first "if" clause
-   conditional(cg->cbl.c, ifCondition, ifBody, ifAfter);
+   conditional(cg->cbl.c, ifCondition, ifBody, nextClauseOrIfAfter);
    cg->cbl = (CurrBlock) {
       .start = startIfBody, .sentinel = sentinelIfBranch, .c = ifBody, .after = ifAfterBlock
    };
@@ -1492,7 +1507,8 @@ mbCloseLoops(CG) {
 private void //:openBlockIfClause
 openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
 // Handles only "else if" and "else" clauses
-   CodeBlock* const ifAfterBlock = cg->cbl.after;
+   CodeBlock* const nextClauseOrIfAfter = 
+      cg->futureBlocks->len > 0 ? last(cg->futureBlocks).c : cg->cbl.after;
 
    Int const sentinel = calcNodeSentinel(nd, cg->i);
    if (nd.pl3 == ifclElseIf) {
@@ -1501,11 +1517,11 @@ openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
 
       // Link to the next "else if" or "else", or, if none - to the block after the "if"
       CodeBlock* ifBody = newBlock(cg->currFn); // the body of the branch directly under "if"
-      conditional(futureBlock.c, ifCondition, ifBody, ifAfterBlock);
+      conditional(futureBlock.c, ifCondition, ifBody, nextClauseOrIfAfter);
 
       cg->i = startIfBody - 1; // - 1 because the main loop will increment right now
       cg->cbl = (CurrBlock) {
-         .start = startIfBody, .sentinel = sentinelIfBranch, .c = ifBody, .after = ifAfterBlock
+         .start = startIfBody, .sentinel = sentinelIfBranch, .c = ifBody, .after = cg->cbl.after
       };
    } else { // "else"
       cg->cbl = (CurrBlock) {
@@ -1533,13 +1549,13 @@ openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
    }
 }
 
-private Fn* //:openFn
-openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
-// Opens a new function in the codegen and installs it as the current function.
+private void //:registerFn
+registerFn(FunctionId toplevelId, CR, CG) {
+// Registers a new function in the codegen.
 // Precondition: the function is neither imported nor generic
    Function eyrFn = cr->functions.c[toplevelId];
    TypeHeader typeHeader = libeyr_readTypeHeader(eyrFn.typeId, cr->types.c);
-   *arity = typeHeader.arity - 1;
+   Int arity = typeHeader.arity - 1;
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
 
    enum gcc_jit_function_kind accessLevel =
@@ -1553,18 +1569,18 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
       mainParams[0] = paramFromChars("argc", sloppyInt, cg);
       mainParams[1] = paramFromChars("argv", ptrOf(cg->builtins.cString), cg);
       freshFn = newFn("main", GCC_JIT_FUNCTION_EXPORTED, 2, mainParams, sloppyInt, cg->md);
-      *arity = 2;
-   } else if (*arity == 0) {
+   } ei (arity == 0) {
       freshFn = newFnReal(
          eyrFn.name,
-         null,
+         ((LFnParamPtr){.c = null, .len = 0}),
          cgType(returnType, cg).c,
          accessLevel,
          cg
       );
+      
    } else {
       cg->params->len = 0;
-      for (Int n = 0; n < *arity; n++) {
+      for (Int n = 0; n < arity; n++) {
          VarId varId = cr->ast.c[eyrFn.nodeInd + n + 1].pl1;
          Var parVar = cr->vars.c[varId];
          FnParam* newParam = param(
@@ -1575,31 +1591,28 @@ openFn(FunctionId toplevelId, OUT Int* arity, CR, CG) {
       }
       freshFn = newFnReal(
          eyrFn.name,
-         cg->params,
+         *(cg->params),
          cgType(returnType, cg).c,
          accessLevel,
          cg
       );
    }
-   cg->currFn = freshFn;
    cg->functions[toplevelId] = freshFn;
-   return freshFn;
 }
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
-
    Function eyrFn = cr->functions.c[toplevelId];
 
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
 
-   Int arity;
-
-   Fn* newToplevel = openFn(toplevelId, OUT &arity, cr, cg);
+   cg->currFn = cg->functions[toplevelId];
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
+   TypeHeader hdr = libeyr_readTypeHeader(eyrFn.typeId, cr->types.c);
+   Int arity = hdr.arity - 1;
 
-   CodeBlock* mainBlock = newBlock(newToplevel);
+   CodeBlock* mainBlock = newBlock(cg->currFn);
    cg->cbl = (CurrBlock){
       .start = eyrFn.nodeInd,
       .sentinel = calcNodeSentinel(cr->ast.c[eyrFn.nodeInd], eyrFn.nodeInd),
@@ -1607,7 +1620,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       .after = null
    };
    if (returnType.v == tokMisc) { // default jump target for void-returning functions
-      CodeBlock* voidReturnBlock = newBlock(newToplevel);
+      CodeBlock* voidReturnBlock = newBlock(cg->currFn);
       returnVoid(voidReturnBlock);
       cg->cbl.after = voidReturnBlock;
    }
@@ -1616,10 +1629,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    Int const fnSentinel = calcNodeSentinel(nodeFn, eyrFn.nodeInd);
 
    cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodToplevelFn and the parameters
-   if (toplevelId == cr->entrypoint) {
-      // TODO temp
-      cg->i -= 2;
-   }
+   
    for (; cg->i < fnSentinel;) {
       Node nd = cr->ast.c[cg->i];
 
@@ -1642,7 +1652,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
 //~      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
 //~   }
 
-   if (returnType.v == tokMisc)
+   if (returnType.v == tokMisc) // void-returning function needs an implicit return
       { jump(cg->cbl.c, cg->cbl.after); }
 }
 
@@ -1651,6 +1661,12 @@ void temp(CG);
 private void //:generateMainCode
 generateMainCode(CG) {
    CompResult* cr = &cg->compResult;
+   for (int j = 0; j < cr->toplevels.len; j++) {
+      Int toplevelId = cr->toplevels.c[j];
+      Function eyrFn = cr->functions.c[cr->toplevels.c[j]];
+      if (eyrFn.genericInd == -1 && eyrFn.tokenInd != -1) // not a generic or imported fn
+         { registerFn(toplevelId, cr, cg); }
+   }
    for (int j = 0; j < cr->toplevels.len; j++) {
       writeToplevelFn(cr->toplevels.c[j], cr, cg);
    }
