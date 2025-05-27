@@ -185,7 +185,7 @@ libeyr_String str(const char* cent);
                            //   into @monos if pl3 = callMonomorph,
                            //   into @vars if pl3 = callVar,
                            //   into @types if pl3 = callField or pl3 = callGetElem.
-                           // pl2 = arg count (or ind of field within type iff pl3 = callField).
+                           // pl2 = arg count (or, iff pl3 == callField, ind of field within type).
                            // pl3 = "call" constants.
 // Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till

@@ -5260,7 +5260,6 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    VALIDATEP(typeTk.tp == tokType, errFnSignature)
 
    TypeId fnType = tParse(calcSentinel(typeTk, cm->i), tokens, cm);
-
    TypeHeader hdr = typeReadHeader(fnType, cm);
 
    FunctionId const newFnId = cm->functions.len;
@@ -5997,10 +5996,10 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 // We have 4 scenarios here, sorted from left to right in the outerType part of [overloads]:
 // 1. outerType = -1 => 0-arity function
 // 2. outerType = outerTypeForTypeParam => a blanket overload
-// 3. contains (0 BIG) outerType => non-function types with outer concrete, e.g. "L U" => ind of L
-// 4. outerType >= BIG: function types (generic or concrete), e.g. "(F Int -> String)" => BIG + 1
+// 3. default
    Int const start = ovInd + 1;
    Arr(Int) overs = cm->overloads.c;
+   
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
    if (eq(typeId, ZERO_ARITY_TYPE)) { // scenario 1
@@ -6014,36 +6013,23 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
    }
 
    TypeId const outerType = typeGetOuter(typeId, cm);
-   Int mbFuncArity = tIsFunction(typeId, cm);
-   if (mbFuncArity > -1) { // scenario 4
-      mbFuncArity += BIG;
-      Int j = sentinel - 1;
-      for (; j > start && overs[j] > BIG; j--) {
-         if (overs[j] == mbFuncArity) {
-            (*fn) = overs[j + countOverloads];
-            return true;
-         }
-      }
-   } else { // scenarios 2 or 3
-      Int firstNonneg = start;
-      for (; firstNonneg < sentinel && overs[firstNonneg] < 0; firstNonneg++);
+   Int firstNonneg = start;
+   for (; firstNonneg < sentinel && overs[firstNonneg] < 0; firstNonneg++);
 
-      Int k = sentinel - 1;
-      for (; k > firstNonneg && overs[k] >= BIG; k--) {}
-      if (k < firstNonneg)
-         { return false; }
-      if (overs[firstNonneg] == outerTypeForTypeParam) {
-         (*fn) = overs[firstNonneg + countOverloads];
-         return true;
-      }
-
-      Int ind = binarySearch(outerType.v, firstNonneg, k + 1, overs);
-      if (ind == -1)
-         { return false; }
-      (*fn) = overs[ind + countOverloads];
+   Int k = sentinel - 1;
+   for (; k > firstNonneg && overs[k] >= BIG; k--) {}
+   if (k < firstNonneg)
+      { return false; }
+   if (overs[firstNonneg] == outerTypeForTypeParam) {
+      (*fn) = overs[firstNonneg + countOverloads];
       return true;
    }
-   return false;
+
+   Int ind = binarySearch(outerType.v, firstNonneg, k + 1, overs);
+   if (ind == -1)
+      { return false; }
+   (*fn) = overs[ind + countOverloads];
+   return true;
 }
 
 private FunctionId //:findOverload
@@ -6055,7 +6041,6 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
 #if defined(DEBUG) //{{{
    if (!ovFound) {
       print("Overload not found: indOverl %d name %d j %d", indOverl, name, cm->j)
-      //printLexer(cm);
 print("CREATING");
       printLInt(cm->expr->exp);
    }

@@ -440,8 +440,8 @@ createFnType(Int tp, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) {
 }
 
 private RValue* //:callFnPtr
-callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, Module* md) {
-   return gcc_jit_context_new_call_through_ptr(md, null, fnPtr, countArgs, args);
+callFnPtr(RValue* fnPtr, Int countArgs, Arr(RValue*) args, CG) {
+   return gcc_jit_context_new_call_through_ptr(cg->md, null, fnPtr, countArgs, args);
 }
 
 private RValue* //:fieldAccess
@@ -1070,6 +1070,16 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
             exp->c[exp->len - 1] = callResult;
             break;
          }
+         case callVar: {
+            Int varId = expNode.pl1;
+            Int countArgs = expNode.pl2;
+            LValue* funcVar = cg->vars[varId];
+            RValue* callResult = 
+               callFnPtr(rValueOf(funcVar), countArgs, exp->c + exp->len - countArgs, cg);
+            exp->len -= (countArgs - 1);
+            exp->c[exp->len - 1] = callResult;
+            break;
+         } 
          case callField: {
             TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
             Int indField = concreteColl.fieldInd + expNode.pl2;
