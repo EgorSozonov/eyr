@@ -607,7 +607,7 @@ private RValue* //:initializeStruct
 initializeStruct(TypeId t, LRValuePtr values, CG) {
 // The order and types of values must correspond to the fields in @concreteFields
    TypeInfo ti = cgType(t, cg);
-   
+
    RValue* r = gcc_jit_context_new_struct_constructor(
       cg->md, null, ti.c, values.len, cg->concreteFields.c + ti.fieldInd, values.c
    );
@@ -728,7 +728,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       CompResult* cr = &(cg->compResult);
       Int const fieldInd = cg->concreteFields.len;
       char c[2] = {'c', '\0'};
-      
+
       TypeId eltType = libeyr_typeGetGenericArg(t, hdr, 0, cr->types.c);
       cg->concreteFields.c[fieldInd] = gcc_jit_context_new_field(
          cg->md, null,
@@ -739,7 +739,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
       cg->concreteFields.len += 2;
 
       Struct* s = newStructWithSuffix(hdr.name, t.v, 2, cg->concreteFields.c + fieldInd, cg);
-      
+
       return (TypeInfo){ .c = gcc_jit_struct_as_type(s), .fieldInd = fieldInd };
    } else if (hdr.name == nameOfStd(strL)) {
       CompResult* cr = &(cg->compResult);
@@ -1080,12 +1080,12 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
             Int varId = expNode.pl1;
             Int countArgs = expNode.pl2;
             LValue* funcVar = cg->vars[varId];
-            RValue* callResult = 
+            RValue* callResult =
                callFnPtr(rValueOf(funcVar), countArgs, exp->c + exp->len - countArgs, cg);
             exp->len -= (countArgs - 1);
             exp->c[exp->len - 1] = callResult;
             break;
-         } 
+         }
          case callField: {
             TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
             Int indField = concreteColl.fieldInd + expNode.pl2;
@@ -1180,7 +1180,7 @@ dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
    // Array{ .c = malloc(...), .len = ... };
    RValue* arr = initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
    assign(lValue, arr, cg->cbl.c);
-   
+
 
    Int fieldInd = cgType(concreteType, cg).fieldInd;
    LValue* rawArr = fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg);
@@ -1235,7 +1235,7 @@ expr(Node nd, Int sentinel, AST, CG) {
 
 private void //:assignFnToVar
 assignFnToVar(Node nd, Int sentinel, CG) {
-// assiFnVarDef 
+// assiFnVarDef
    Int varId = nd.pl1;
    Int fnId = nd.pl2;
    Var var = cg->compResult.vars.c[varId];
@@ -1253,11 +1253,11 @@ assignment(Node nd, Int sentinel, AST, CG) {
    if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef) {
       assignFnToVar(ast[cg->i], sentinel, cg);
       return;
-   } 
+   }
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
    LValue* lValue = simpleExprLeft(cg->i, rightNodeInd, ast, cg);
-   
+
    cg->i = rightNodeInd + 1;
    RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
    assign(lValue, rValue, cg->cbl.c);
@@ -1300,7 +1300,8 @@ writeReturn(Node fr, Int sentinel, AST, CG) {
 
    RValue* returnValue = expr(rightSide, sentinel, ast, cg);
    returnFromFn(returnValue, cg->cbl.c);
-   cg->i = sentinel; // CONSUME the whole "return" statement
+   cg->cbl.after = null;
+   cg->i = cg->cbl.sentinel; // CONSUME the whole current block because we've returned from it
 }
 
 private void //:writeNop
@@ -1507,7 +1508,7 @@ mbCloseLoops(CG) {
 private void //:openBlockIfClause
 openBlockIfClause(FutureBlock futureBlock, Node nd, AST, CG) {
 // Handles only "else if" and "else" clauses
-   CodeBlock* const nextClauseOrIfAfter = 
+   CodeBlock* const nextClauseOrIfAfter =
       cg->futureBlocks->len > 0 ? last(cg->futureBlocks).c : cg->cbl.after;
 
    Int const sentinel = calcNodeSentinel(nd, cg->i);
@@ -1541,7 +1542,10 @@ openBlockScope(FutureBlock futureBlock, Node nd, AST, CG) {
 private void //:openBlock
 openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
 // Precondition: we are looking at nd
-   jump(cg->cbl.c, NULLABLE cg->cbl.after);
+   if (cg->cbl.after) {
+      // cbl.after can be null iff the current block has been returned from
+      jump(cg->cbl.c, NULLABLE cg->cbl.after);
+   }
    if (nd.tp == nodIfClause) {
       openBlockIfClause(futureBlock, nd, ast, cg);
    } else {
@@ -1577,7 +1581,7 @@ registerFn(FunctionId toplevelId, CR, CG) {
          accessLevel,
          cg
       );
-      
+
    } else {
       cg->params->len = 0;
       for (Int n = 0; n < arity; n++) {
@@ -1629,7 +1633,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    Int const fnSentinel = calcNodeSentinel(nodeFn, eyrFn.nodeInd);
 
    cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodToplevelFn and the parameters
-   
+
    for (; cg->i < fnSentinel;) {
       Node nd = cr->ast.c[cg->i];
 

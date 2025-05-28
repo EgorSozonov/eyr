@@ -456,7 +456,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
-      ), 
+      ),
       createTest(
          s("Assignment to a function var from a function overload"),
          s("plus F(Double ->) = print;"),
@@ -991,7 +991,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr,          .pl2 = 2 },
             (Node){ .tp = nodVar, .pl1 = 1 },
             (Node){ .tp = nodCall, .pl1 = 0, .pl2 = 1, .pl3 = callVar },
-            
+
             (Node){ .tp = nodToplevelFn, .pl1 = 1, .pl2 = 6, .pl3 = 0 }, // foo
             (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiFnParam },
             (Node){ .tp = nodReturn,        .pl2 = 4 },
@@ -999,7 +999,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
             (Node){ .tp = tokInt,           .pl2 = 5 },
             (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 },
-            
+
             (Node){ .tp = nodToplevelFn, .pl1 = 2, .pl2 = 8 }, // main
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 1 },
             (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 1, .pl3 = assiFnVarDef },

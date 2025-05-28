@@ -320,7 +320,7 @@ OPERATORS[countSignOperators + 1] = { // +1 for the "not" which is not a sign op
 
 constexpr Int
 operatorStartSymbols[] = {
-   // Symbols an operator may start with. "+" is absent because it's handled by lexPlus, 
+   // Symbols an operator may start with. "+" is absent because it's handled by lexPlus,
    // "-" because it's handled by lexMinus, "=" by lexEqual, "/" by "lexDivBy".
    aExclamation, aSharp, aDollar, aPercent, aAmp, aApostrophe, aTimes,
    aDivBy, aLT, aGT, aQuestion, aAt, aCaret, aPipe
@@ -2665,7 +2665,7 @@ lCreateAssignment(Int const opType, LX) {
 // tokens from the left side). Changes existing stmt token into tokAssignment and opens up a new
 // tokAssignRight span. Doesn't consume anything
    Int assignmentStartInd = lConvertToAssignment(opType, lx);
-   
+
    if (opType > -1) { // mutation
       // -2 because we've already opened the right side span
       Int const countLeftSide = lx->tokens.len - assignmentStartInd - 2;
@@ -2798,7 +2798,7 @@ private void //:lInDeCrement
 lInDeCrement(Bool isIncrement, SRC, LX) {
 // Converts the `++` and `--` into mutations `+= 1` and `-= 1`
    Int assignmentStartInd = lConvertToAssignment(opPlus, lx);
-   
+
    // -2 because we've already opened the right side span
    Int const countLeftSide = lx->tokens.len - assignmentStartInd - 2;
    ensureCapacityTokens(countLeftSide + 1, lx); // + 1 for the operator
@@ -2807,7 +2807,7 @@ lInDeCrement(Bool isIncrement, SRC, LX) {
          lx->tokens.c + assignmentStartInd + 1, countLeftSide*sizeof(Token));
    lx->tokens.len += countLeftSide;
    pushIntokens(((Token){
-         .tp = tokOperator, .pl1 = isIncrement ? opPlus : opMinus, .pl2 = 0, 
+         .tp = tokOperator, .pl1 = isIncrement ? opPlus : opMinus, .pl2 = 0,
          .startBt = lx->i, .lenBts = 1
       }), lx
    );
@@ -6037,7 +6037,7 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 // 3. default
    Int const start = ovInd + 1;
    Arr(Int) overs = cm->overloads.c;
-   
+
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
    if (eq(typeId, ZERO_ARITY_TYPE)) { // scenario 1
