@@ -108,7 +108,8 @@ typedef struct { // :Token
 #define tokToplevelFn  13  // Toplevel function definition
 #define tokParens      14  // subexpressions and struct/sum type instances
 #define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
-#define tokData        16  // []
+#define tokData        16  // []. If pl1 == 1, it's a list. If pl1 += BIG, it's filled by meta
+                           // `[@ Int 15]`
 #define tokAccessor    17  // The umbrella around an accessor subexpression like `x[i][j][k]`
 #define tokAccessorIn  18  // The internal `[]` block inside an accessor
 #define tokAssignment  19
@@ -344,9 +345,10 @@ defstruct(TypeLoc);
 typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
 
 #define PARSER_FN(name) private void name(Token tok, TOKENS, CM);
-PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment) PARSER_FN(pDef)
-PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert) PARSER_FN(pBreakCont) PARSER_FN(pReturn)
-PARSER_FN(pIf) PARSER_FN(pElseIf) PARSER_FN(pElse) PARSER_FN(pFor)
+PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment)
+PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert) 
+PARSER_FN(pBreakCont) PARSER_FN(pMeta) PARSER_FN(pReturn) PARSER_FN(pIf) PARSER_FN(pElseIf)
+PARSER_FN(pElse) PARSER_FN(pFor)
 
 private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokInt]        = parseErrorBareAtom,
@@ -371,6 +373,7 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokBreakCont]  = &pBreakCont,
    [tokCatch]      = &pAlias,
    [tokFn]         = &pAlias,
+   [tokMeta]       = &pMeta,
    [tokTrait]      = &pAlias,
    [tokImport]     = &pAlias,
    [tokReturn]     = &pReturn,
@@ -387,6 +390,7 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
 //}}}
 //{{{ Forward decls & generics
 
+#define BIG 70000000
 DEFINE_LIST_HEADER(Token)
 DEFINE_LIST_HEADER(BtToken)
 DEFINE_LIST_HEADER(ParseFrame)
@@ -1452,7 +1456,7 @@ DEFINE_LIST(Token) //:createLToken
 
 constexpr TypeId boolTy = { .v = tokBool };
 constexpr TypeId intTy = { .v = tokInt };
-constexpr TypeId ZERO_ARITY_TYPE = { .v = -1 };
+constexpr TypeId ZERO_ARITY_TYPE = { .v = tokMisc };
 constexpr TypeId VOID_TYPE = { .v = voidType };
 
 Bool eq_TypeId(TypeId a, TypeId b) {
@@ -1877,7 +1881,9 @@ errOperatorUsedInappropriately[] = "Operator used in an inappropriate location!"
 char const
 errAssignment[]           = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
 char const
-errListDifferentEltTypes[] = "A list's elements must all be of the same type";
+errListDifferentEltTypes[] = "An array or list's elements must all be of the same type";
+char const
+errListUnknownEltType[] = "Could not determine the element type of an array or list!";
 char const
 errMutation[]           = "Cannot parse mutation, it must look like `freshIdentifier` += `expression`";
 char const
@@ -1895,6 +1901,11 @@ char const
 errReturn[]               = "Cannot parse return statement, it must look like `return ` {expression}";
 char const
 errScope[]  = "A scope may consist only of expressions, assignments, function definitions and other scopes!";
+char const
+errMetaOnlyInArr[] = "Meta blocks are only allowed in array expressions!";
+char const
+errMetaArrSyntax[] = "Meta blocks must have 2 parts: type and length: `@(Int 2)`, and if present, "
+                     "must be the only thing in the collection declaration";
 char const
 errTemp[]                 = "Not implemented yet";
 
@@ -2605,17 +2616,13 @@ lexWord(SRC, LX) { //:lexWord
 
 private void //:lexAt
 lexAt(SRC, LX) {
-// @meta() or @()
-   VALIDATEL(lx->i < lx->stats.inpLength, errPrematureEndOfInput)
-   if (NEXT_BT == aParenLeft) {
-      add(((BtToken){ .tp = tokMeta, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
-            lx->lexBtrack);
-      pushIntokens((Token) {.tp = tokMeta, .pl1 = -1,  .startBt = lx->i }, lx);
-      lx->i += 2; // CONSUME the `@(`
-   } else {
-      wordInternal(tokMeta, source, lx);
-   }
-
+// `[@Int 15]`
+   VALIDATEL(lx->i < lx->stats.inpLength, errPrematureEndOfInput);
+   VALIDATEL(lx->lexBtrack->len > 0 && last(lx->lexBtrack).tp == tokData, errMetaOnlyInArr);
+   BtToken top = last(lx->lexBtrack);
+   VALIDATEL(lx->tokens.c[top.tokenInd].pl1 < BIG, errMetaArrSyntax);
+   lx->tokens.c[top.tokenInd].pl1 += BIG;
+   lx->i++; // CONSUME the `@`
 }
 
 private void //:lexComma
@@ -3896,16 +3903,16 @@ exprSingleItem(Token tk, CM) {
    } ei (tk.tp <= topVerbatimType) {
       newNode((Node){.tp = tk.tp, .pl1 = tk.pl1, .pl2 = tk.pl2}, locOf(tk), cm);
       typeId = typeOf(tk.tp);
-   } ei (tk.tp == tokData) { // TODO `[]`
-      newNode((Node){.tp = nodDataAlloc, .pl2 = 0}, locOf(tk), cm);
+   } ei (tk.tp == tokData) { // `[]`
+      newNode((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0}, locOf(tk), cm);
    } else {
       throwExcParser(errUnexpectedToken);
    }
    return typeId;
 }
 
-private void //:subexDataAllocation
-subexDataAllocation(ExprFrame frame, Expr* e, CM) {
+private void //:subexSaveDataAllocation
+subexSaveDataAllocation(ExprFrame frame, Expr* e, CM) {
 // Creates an assignment in main. Then walks over the data allocator
 // nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
 // careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
@@ -3994,7 +4001,7 @@ eClose(Expr* restrict e, CM) {
       case exfrCall:
          eWriteCallToScratch(frame, e); break;
       case exfrDataAlloc:
-         subexDataAllocation(frame, e, cm); break;
+         subexSaveDataAllocation(frame, e, cm); break;
       case exfrParen:
          eWriteUnaryCalls(e);
          eBumpArgCount(e->frames);
@@ -4133,6 +4140,37 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
    }
 }
 
+private void //:eDataAllocation
+eDataAllocation(Token cTk, Expr* restrict e, TOKENS, CM) {
+   e->metAnAllocation = true;
+   eBumpArgCount(e->frames);
+   if (cTk.pl1 >= BIG) { // `[@...]`
+      VALIDATEP(cTk.pl2 >= 2 && tokens[cm->i + 1].tp == tokType, errMetaArrSyntax)
+      cm->i++; // CONSUME the tokData
+      Token typeTk = tokens[cm->i];
+      Int const typeSentinel = calcSentinel(typeTk, cm->i);
+      TypeId elemType = tParse(typeSentinel, tokens, cm);
+      Token countTk = tokens[typeSentinel];
+      
+      
+      VALIDATEP(countTk.tp == tokInt, errMetaArrSyntax)
+      
+      Int elemCount = countTk.pl2;
+      add(((Node){.tp = nodDataAlloc, .pl1 = elemType.v, .pl2 = 0, .pl3 = elemCount}), e->scr);
+      add(locOf(cTk), e->locsScr);
+   } ei (cTk.pl2 == 0) { // `[]`
+      add(((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0}), e->scr);
+      add(locOf(cTk), e->locsScr);
+   } else { 
+      add(((ExprFrame) {
+            .tp = exfrDataAlloc, .name = nameOfStd(strArray),
+            .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
+            .loc = locOf(cTk)  }),
+           e->frames
+      );
+   }
+}
+
 private void //:eProcessToken
 eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    ExprFrame parent = last(e->frames);
@@ -4189,15 +4227,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    case tokParens:
       eParens(cTk, parent, e, tokens, cm); break;
    case tokData:
-      e->metAnAllocation = true;
-      eBumpArgCount(e->frames);
-      add(((ExprFrame) {
-            .tp = exfrDataAlloc, .name = nameOfStd(strArray),
-            .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
-            .loc = loc  }),
-           e->frames
-      );
-      break;
+      eDataAllocation(cTk, e, tokens, cm); break;
    default:
       throwExcParser(errExpressionCannotContain);
    }
@@ -4396,6 +4426,11 @@ pBreakCont(Token tok, TOKENS, CM) {
    Node breakContNode = breakContinue(tok, tokens, cm);
    newNode(breakContNode, locOf(tok), cm);
    cm->i = calcSentinel(tok, cm->i - 1); // CONSUME the whole break statement
+}
+
+private void //:pMeta
+pMeta(Token tok, TOKENS, CM) {
+   throwExcParser(errMetaOnlyInArr);
 }
 
 private void
@@ -5238,7 +5273,7 @@ pToplevelConstants(CM) {
       Token tok = toks[cm->i];
       if (tok.tp == tokAssignment) {
          Assignment assi = pPreparseAssignment(tok, cm->i + 1, toks, cm);
-         cm->i++; // CONSUME the tokDef
+         cm->i++; // CONSUME the tokAssignment
          pAssignmentWorker(tok, assi, toks, cm);
       } else { // tokToplevelFn
          cm->i = calcSentinel(tok, cm->i);
@@ -5466,7 +5501,7 @@ parseMain(CM, Arena* a) {
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
-      printParser(cm);
+      //printParser(cm);
       //dbgAllTypes(cm);
    } else {
 #ifndef TEST
@@ -5542,7 +5577,11 @@ TypeId //:libeyr_typeGetGenericArg
 libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int indArg, Arr(Int) types) {
 // (S Foo) => Foo. (F A -> B) => A
    if (hdr.name == nameOfStd(strF)) {
-      return typeOf(types[t.v + TYPE_PREFIX + indArg]);
+      if (hdr.arity == 1) {
+         return typeOf(tokMisc); // void type
+      } else {
+         return typeOf(types[t.v + TYPE_PREFIX + indArg]);
+      }
    } else if (hdr.sort == sorTypeCall) {
       // need to skip the prefix, field types, and the index in @genericFields
       // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type
@@ -6025,7 +6064,10 @@ getFirstParamType(TypeId t, CM) {
    TypeHeader hdr = typeReadHeader(t, cm);
    if (hdr.arity == 0)
       { return ZERO_ARITY_TYPE; }
-   return typeOf(cm->types.c[t.v + TYPE_PREFIX]);
+   ei (hdr.arity == 1 && hdr.name == nameOfStd(strF))
+      { return VOID_TYPE; }
+   else
+      { return typeOf(cm->types.c[t.v + TYPE_PREFIX]); }
 }
 
 private TypeId //:getFirstParamInd
@@ -6056,9 +6098,9 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
-   if (eq(typeId, ZERO_ARITY_TYPE)) { // scenario 1
+   if (eq(typeId, typeOf(tokMisc))) { // scenario 1
       Int j = ovInd + 1;
-      if (j < sentinel && overs[j] == -1) {
+      if (j < sentinel && overs[j] == voidType) {
          (*fn) = overs[j + countOverloads];
          return true;
       } else {
@@ -6291,12 +6333,18 @@ typecheckAndProcessListElt(Int* j, CM) {
 private TypeId //:typecheckList
 typecheckList(Int startInd, CM) {
    Int j = startInd;
-   TypeId fstType = typecheckAndProcessListElt(&j, cm);
-   for (j++; j < cm->ast.len; j++) {
+   TypeId commonEltType = VOID_TYPE;
+   for (; j < cm->ast.len; j++) {
       TypeId eltType = typecheckAndProcessListElt(&j, cm);
-      VALIDATEP(eq(eltType, fstType), errListDifferentEltTypes)
+      if (eq(eltType, ZERO_ARITY_TYPE))
+         { continue; }
+      if (eq(commonEltType, VOID_TYPE))
+         { commonEltType = eltType; }
+      else 
+         { VALIDATEP(eq(eltType, commonEltType), errListDifferentEltTypes) }
    }
-   return fstType;
+   VALIDATEP(!eq(commonEltType, VOID_TYPE), errListUnknownEltType);
+   return commonEltType;
 }
 
 TypeId //:typeTryGetField
@@ -7025,9 +7073,8 @@ importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
 // Importing simple function types for testing purposes
    Int countImportedTypes = 0;
    for (Int j = 0; j < countTypes; j += (types[j] + 1)) {
-      if (types[j] == 0) {
-         return NULL; // should never happen
-      }
+      if (types[j] == 0)
+         { return NULL; } // should never happen
       countImportedTypes++;
    }
    Arr(TypeId) typeIds = allocateOnArena(countImportedTypes*4, aTmp);
@@ -7042,8 +7089,7 @@ importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
       typeAddHeader((TypeHeader){
          .sort = sorDeclare, .tyrity = 0, .arity = importLen, .name = nameOfStd(strF) }, cm
       );
-      for (Int k = j + 1; k < typeSentinel; k++) { // <= because there are (arity + 1) elts -
-                                     // +1 for the return type!
+      for (Int k = j + 1; k < typeSentinel; k++) {
          pushIntypes(types[k], cm);
       }
 

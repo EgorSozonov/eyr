@@ -3,18 +3,18 @@ fn multiply F[[A [A Int]] [A [A Int]] -> [A [A Int]]] {
    rows = a.len;
    cols = b[0].len;
    middle = a[0].len;
-   res = [@([A [A Int]])];
+   res = [@[A [A Int]] rows];
    for {i' = 0; i < rows; i++; } {
       rw [A Int] = a[i];
-      newRow = [@([A Int])];
+      newRow = [@[A Int] cols];
       for {j' = 0; j < cols; j++; } {
          elt' = 0;
          for {k' = 0; k < middle; k++; } {
             elt += rw[k] * b[k][j];
          }
-         add newRow elt;
+         newRow[j] = elt;
       }
-      add res newRow;
+      res[i] = newRow;
    }
    return res;
 }

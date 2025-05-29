@@ -21,6 +21,7 @@ typedef struct {
 
 typedef libeyr_String String;
 typedef libeyr_CompResult CompResult;
+#define BIG 70000000
 
 //}}}
 //{{{ Lexer
