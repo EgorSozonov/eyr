@@ -679,6 +679,17 @@ LexerTestSet* punctuationTests(Arena* a) {
                 (Token){ .tp = tokOperator, .pl1 = opPlus, .pl2 = 8, .startBt = 4, .lenBts = 1 },
                 (Token){ .tp = tokInt,         .pl2 = 1, .startBt = 6, .lenBts = 1 }
             }))
+        },
+        (LexerTest) {
+            .name = s("Array with metadata"),
+            .input = s("[@(Int 14)];"),
+            .expectedOutput = expect(((Token[]){
+                (Token){ .tp = tokStmt,         .pl2 = 4, .startBt = 0, .lenBts = 12 },
+                (Token){ .tp = tokData,         .pl2 = 3, .startBt = 0, .lenBts = 11 },
+                (Token){ .tp = tokMeta, .pl1 = -1, .pl2 = 2, .startBt = 1, .lenBts = 9 },
+                (Token){ .tp = tokType, .pl1 = (strInt + S),   .startBt = 3, .lenBts = 3 },
+                (Token){ .tp = tokInt,         .pl2 = 14, .startBt = 7, .lenBts = 2 }
+            }))
         }
     }));
 }

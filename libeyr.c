@@ -113,25 +113,26 @@ typedef struct { // :Token
 #define tokAccessorIn  18  // The internal `[]` block inside an accessor
 #define tokAssignment  19
 #define tokAssignRight 20  // Right-hand side of assignment
-#define tokAlias       21
-#define tokAssert      22
-#define tokBreakCont   23  // pl1 = 1 iff it's a continue
-#define tokTrait       24
-#define tokImport      25  // For test files and package decls
-#define tokReturn      26
+#define tokMeta        21  // Right-hand side of assignment
+#define tokAlias       22
+#define tokAssert      23
+#define tokBreakCont   24  // pl1 = 1 iff it's a continue
+#define tokTrait       25
+#define tokImport      26  // For test files and package decls
+#define tokReturn      27
 
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       27  // `(do ...)` firstScopeTokenType
-#define tokIf          28  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      29  // `eif ... {`
-#define tokElse        30  // `else { `
-#define tokMatch       31  // `(match ... ` pattern matching on sum type tag
-#define tokFn          32  // `f{a b -> body}`. pl1 = entityId
-#define tokTry         33  // `try {`
-#define tokCatch       34  // `catch e MyExc {`
-#define tokImpl        35
-#define tokFor         36
-#define tokEach        37
+#define tokScope       28  // `(do ...)` firstScopeTokenType
+#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
+#define tokElseIf      30  // `eif ... {`
+#define tokElse        31  // `else { `
+#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
+#define tokFn          33  // `f{a b -> body}`. pl1 = entityId
+#define tokTry         34  // `try {`
+#define tokCatch       35  // `catch e MyExc {`
+#define tokImpl        36
+#define tokFor         37
+#define tokEach        38
 
 #define topVerbatimTokenVariant tokString
 #define firstSpanTokenType  tokStmt
@@ -323,7 +324,7 @@ operatorStartSymbols[] = {
    // Symbols an operator may start with. "+" is absent because it's handled by lexPlus,
    // "-" because it's handled by lexMinus, "=" by lexEqual, "/" by "lexDivBy".
    aExclamation, aSharp, aDollar, aPercent, aAmp, aApostrophe, aTimes,
-   aDivBy, aLT, aGT, aQuestion, aAt, aCaret, aPipe
+   aDivBy, aLT, aGT, aQuestion, aCaret, aPipe
 };
 
 //}}}
@@ -2508,7 +2509,6 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
             return;
          }
       }
-
       newToken.tp = tokType;
    } ei (lx->i < lx->stats.inpLength) {
       if (CURR_BT == aBracketLeft && wordType == tokWord) { // `a[5]`
@@ -2520,8 +2520,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
       } ei (CURR_BT == aApostrophe) { // mutable var definition
          newToken.pl2 = 1;
          lx->i++; // CONSUME the `'`
-      } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {
-         // function body `f{ ... -> }`
+      } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {// fn body `f{..}`
          openPunctuation(tokFn, slScope, lx->i, lx);
          lx->i++; // CONSUME the `{`
          return;
@@ -2585,12 +2584,13 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
       }
    }
 
-   Int const realStartBt = (wordType == tokWord) ? startBt : (startBt - 1);
    // accounting for the initial ".", ":" or other symbol
+   Int const realStartBt = (wordType == tokWord) ? startBt : (startBt - 1);
    Int lenString = lx->i - startBt;
    VALIDATEL(lenString <= maxWordLength, errWordLengthExceeded)
+   
    Int stringId = addStringDict(source, startBt, lenString, lx->names, lx->stringDict);
-   if (stringId - countOperators < strFirstNonReserved)  {
+   if (stringId - countOperators < strFirstNonReserved && wordType == tokWord) {
       wordReserved(wordType, stringId - countOperators, startBt, realStartBt, source, lx);
    } else {
       wrapInAStatement(realStartBt, source, lx);
@@ -2601,6 +2601,21 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
 private void
 lexWord(SRC, LX) { //:lexWord
    wordInternal(tokWord, source, lx);
+}
+
+private void //:lexAt
+lexAt(SRC, LX) {
+// @meta() or @()
+   VALIDATEL(lx->i < lx->stats.inpLength, errPrematureEndOfInput)
+   if (NEXT_BT == aParenLeft) {
+      add(((BtToken){ .tp = tokMeta, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
+            lx->lexBtrack);
+      pushIntokens((Token) {.tp = tokMeta, .pl1 = -1,  .startBt = lx->i }, lx);
+      lx->i += 2; // CONSUME the `@(`
+   } else {
+      wordInternal(tokMeta, source, lx);
+   }
+
 }
 
 private void //:lexComma
@@ -3093,6 +3108,7 @@ tabulateLexer() { //:tabulateLexer
    }
    p[aComma] = &lexComma;
    p[aDot] = &lexDot;
+   p[aAt] = &lexAt;
    p[aSemicolon] = &lexSemicolon;
    p[aEqual] = &lexEqual;
    p[aUnderscore] = &lexUnderscore;
@@ -6563,7 +6579,7 @@ char const* tokNames[] = {
    "word", "@TVar", ":kwarg", "oper", ".field",
    "stmt", "clause", "TOPLEVEL", "()",
    "Type", "data", "a[b][c]", "[]",
-   "=", "=...", "alias", "assert", "breakCont",
+   "=", "=...", "@()", "alias", "assert", "breakCont",
    "trait", "import", "return",
    "{", "if...", "eif ...", "else {", "match", "f{",
    "try{", "{catch", "impl", "for{", "{each"

@@ -48,25 +48,26 @@ typedef struct {
 #define tokAccessorIn  18  // The internal `[]` block inside an accessor
 #define tokAssignment  19
 #define tokAssignRight 20  // Right-hand side of assignment
-#define tokAlias       21
-#define tokAssert      22
-#define tokBreakCont   23  // pl1 = 1 iff it's a continue
-#define tokTrait       24
-#define tokImport      25  // For test files and package decls
-#define tokReturn      26
+#define tokMeta        21  // Right-hand side of assignment
+#define tokAlias       22
+#define tokAssert      23
+#define tokBreakCont   24  // pl1 = 1 iff it's a continue
+#define tokTrait       25
+#define tokImport      26  // For test files and package decls
+#define tokReturn      27
 
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       27  // `(do ...)` firstScopeTokenType
-#define tokIf          28  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      29  // `ei ... {`
-#define tokElse        30  // `else { `
-#define tokMatch       31  // `(match ... ` pattern matching on sum type tag
-#define tokFn          32  // `{a b -> body}`. pl1 = entityId
-#define tokTry         33  // `(try`
-#define tokCatch       34  // `(catch e MyExc:`
-#define tokImpl        35
-#define tokFor         36
-#define tokEach        37
+#define tokScope       28  // `(do ...)` firstScopeTokenType
+#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
+#define tokElseIf      30  // `eif ... {`
+#define tokElse        31  // `else { `
+#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
+#define tokFn          33  // `f{a b -> body}`. pl1 = entityId
+#define tokTry         34  // `try {`
+#define tokCatch       35  // `catch e MyExc {`
+#define tokImpl        36
+#define tokFor         37
+#define tokEach        38
 
 #define topVerbatimTokenVariant tokString
 #define topVerbatimType     tokMisc
