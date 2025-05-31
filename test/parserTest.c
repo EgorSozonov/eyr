@@ -582,21 +582,46 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
 //~         ((Int[]) {}),
 //~         ((TestEntityImport[]) {})
 //~      ),
+//~      createTest(
+//~         s("Data allocation with an empty element with specified metadata"),
+//~         s("x = [[] [@ Str 2]];"),
+//~         (((Node[]) {
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 8, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 6 },
+//~
+//~            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 },
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = 162, .pl2 = 2, .pl3 = 2 },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0 },
+//~            (Node){ .tp = nodDataAlloc, .pl1 = tokString, .pl2 = 0, .pl3 = 2 },
+//~
+//~            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
+//~         })),
+//~         ((Int[]) {}),
+//~         ((TestEntityImport[]) {})
+//~      ),
       createTest(
-         s("Data allocation with an empty element with specified metadata"),
-         s("x = [[] [@ String 2]];"),
+         s("Data allocation with specified metadata but length is not a literal"),
+         s("theLen = 77;"
+           "x = [@ Int (theLen + 2)];"
+         ),
          (((Node[]) {
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 9 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
+            (Node){ .tp = tokInt,           .pl2 = 77 },
+         
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 8, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataAlloc, .pl1 = 167, .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0 },
-            (Node){ .tp = nodDataAlloc, .pl1 = 162, .pl2 = 0, .pl3 = 2 },
+            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 6 },
 
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
+            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment  },
+            (Node){ .tp = nodDataAlloc, .pl1 = 162, .pl2 = 2, .pl3 = 2 },
+            (Node){ .tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0 },
+            (Node){ .tp = nodDataAlloc, .pl1 = tokString, .pl2 = 0, .pl3 = 2 },
+
+            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 } // the allocated array
          })),
          ((Int[]) {}),
          ((TestEntityImport[]) {})

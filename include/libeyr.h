@@ -193,7 +193,11 @@ libeyr_String str(const char* cent);
 #define nodAssignment  11  // Followed by nodVar or complex left side. pl3 = distance to the right
                            // side, which is always an atom, nodExpr or a nodDataAlloc
 #define nodDataAlloc   12  // pl1 = concrete collection type, pl3 = count of elements
-
+                           // if pl2 == 0 and pl3 >= 0, it's an array with comp-time size but no
+                           // contents;
+                           // if pl2 > 0 and pl3 == -1, it's an array with runtime-known
+                           // size and no contents;
+                           // if pl2 > 0 and pl3 > 0, then it's an array with specified contents
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
 #define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
                            // pl3 = 1 iff it's a "continue"

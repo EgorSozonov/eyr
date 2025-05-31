@@ -143,14 +143,16 @@ typedef struct { // :Token
 //}}}
 //{{{ Lexer constants
 
-// Span levels, must all be more than 0
-#define slScope        1 // scopes (denoted by brackets): newlines and commas have no effect there
-#define slStmt         2 // single-line statements: newlines and semicolons break 'em
-#define slSubexpr      3 // parenthesized forms: newlines have no effect, semi-colons error out
-#define slClauseList   4 // a comma-separated list
-#define slUnbraced     5 // A scope that hasn't met its first brace, like an "if" before its "{"
-#define slSingleBraced 6 // A "for" scope that has met exactly 1 curly brace
-#define slFnReturn     7 // A `F(A -> B)` the `B` part (after exactly 1 arrow symbol)
+// Span levels, must all be greater than 0
+#define slScope          1 // scopes (denoted by brackets): newlines and commas have no effect there
+#define slStmt           2 // single-line statements: newlines and semicolons break 'em
+#define slSubexpr        3 // parenthesized forms: newlines have no effect, semi-colons error out
+#define slClauseList     4 // a comma-separated list
+#define slUnbraced       5 // A scope that hasn't met its first brace, like an "if" before its "{"
+#define slSingleBraced   6 // A "for" scope that has met exactly 1 curly brace
+#define slFnTp           7 // `F[...]`
+#define slFnReturn       8 // `F[A -> B]` the `B` part (after exactly 1 arrow symbol)
+#define slToplevel       9 // `fn foo A -> B` A toplevel function declaration 
 
 // List of keywords that don't correspond directly to a token.
 // Must all be below "firstSpanTokenType"
@@ -486,6 +488,7 @@ private void printLInt(LInt* st);
 void dbgTypeFrames(TExpr* st);
 void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
+void dbgNodes(LNode*);
 void dbgScopes0(Scopes* scopes);
 void dbgAllTypes(CM);
 
@@ -1448,7 +1451,7 @@ DEFINE_LIST(Unt)
 struct BtToken { // :BtToken
    Unt tp : 6;
    Int tokenInd;
-   Unt spanLevel : 3;
+   Unt spanLevel : 4;
 };
 
 DEFINE_LIST(BtToken) //:createLBtToken
@@ -1458,6 +1461,10 @@ constexpr TypeId boolTy = { .v = tokBool };
 constexpr TypeId intTy = { .v = tokInt };
 constexpr TypeId ZERO_ARITY_TYPE = { .v = tokMisc };
 constexpr TypeId VOID_TYPE = { .v = voidType };
+
+constexpr Int arrLitKnownElements = 0; // array literal with all elements known
+constexpr Int arrLitEmpty = -1;        // array literal that is empty
+constexpr Int arrLitKnownLength = -2;  // array literal without elements but with known length
 
 Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
@@ -1821,11 +1828,6 @@ errIfMalformed[]  = "Malformed `if` expression, should look like (if pred: `true
 char const
 errIfElseMustBeLast[] = "An `else` subexpression must be the last thing in an `if`";
 char const
-errFnTypeArrows[]  = "A function type should contain exactly one arrow: `F(Par1 Par2 -> ReturnType)`";
-char const
-errArrowOutOfPlace[]  = "Arrows must be either in a function type: `F(Param -> ReturnType)` or "
-                        "closing a parameter list: `f{ param -> ...body...}`" ;
-char const
 errFnParamList[]  = "Function parameter list must look like this: `{x y ->  body...}`";
 char const
 errFnDuplicateParams[] = "Duplicate parameter names in a function are not allowed";
@@ -1897,6 +1899,12 @@ errAssignmentToFunctionVar[]    = "Assignment to a function variable should look
                                   "`fn F(Int -> Long) = overloadedName;`";
 char const
 errFnSignature[]    = "A function signature should look like `fn F(Int -> Long) f{a-> ...};`";
+char const
+errFnTypeArrows[]  = "A function type should contain exactly one arrow and a return type:"
+                     "`F[Par1 Par2 -> ReturnType]`";
+char const
+errArrowOutOfPlace[]  = "Arrows must be either in a function type: `F[Param -> ReturnType]` or "
+                        "closing a parameter list: `f{ param -> ...body...}`" ;
 char const
 errReturn[]               = "Cannot parse return statement, it must look like `return ` {expression}";
 char const
@@ -2397,10 +2405,23 @@ lexIf(Unt reservedWordType, Int startBt, SRC, LX) {
    }
 }
 
-private void //:lexFor
-lexFor(Int startBt, SRC, LX) {
-   openPunctuation(tokFor, slUnbraced, startBt, lx);
-   pushIntokens(((Token){.tp = tokMisc, .pl1 = miscForStep0, .startBt = lx->i}), lx);
+private void //:lexReservedScope
+lexReservedScope(Int reservedWordType, SRC, LX) {
+// A reserved word must be the first inside parentheses, but parentheses are always
+// wrapped in statements, so we need to check the TWO last tokens and two top BtTokens
+   LBtToken* bt = lx->lexBtrack;
+   VALIDATEL(bt->len >= 2 && last(bt).tp == tokParens
+      && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
+   Int const indLastToken = lx->tokens.len - 1;
+   VALIDATEL(lx->tokens.c[indLastToken].tp == tokParens
+      && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
+   lx->tokens.c[indLastToken - 1].tp = reservedWordType;
+   lx->tokens.c[indLastToken - 1].pl1 = slScope;
+   lx->tokens.len--;
+   bt->c[bt->len - 2].tp = reservedWordType;
+   bt->c[bt->len - 2].spanLevel = slScope;
+   bt->len--;
+   skipSpaces(source, lx);
 }
 
 private void //:lexProcessSyntaxForm
@@ -2408,36 +2429,24 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
 // Lexer action for a paren-type or statement-type syntax form.
 // Precondition: we are looking at the character immediately after the keyword
 // We must NOT consume any characters here - that's been done in {wordInternal}
-   LBtToken* bt = lx->lexBtrack;
    if (reservedWordType >= tokIf && reservedWordType <= tokElse) {
       lexIf(reservedWordType, startBt, source, lx);
    } ei (reservedWordType == tokToplevelFn) {
-      openPunctuation(tokToplevelFn, slScope, startBt, lx);
+      openPunctuation(tokToplevelFn, slToplevel, startBt, lx);
    } ei (reservedWordType == tokFor)  {
-      lexFor(startBt, source, lx);
+      openPunctuation(tokFor, slUnbraced, startBt, lx);
+      pushIntokens(((Token){.tp = tokMisc, .pl1 = miscForStep0, .startBt = lx->i}), lx);
    } ei (reservedWordType >= firstScopeTokenType) {
-      // A reserved word must be the first inside parentheses, but parentheses are always
-      // wrapped in statements, so we need to check the TWO last tokens and two top BtTokens
-      VALIDATEL(bt->len >= 2 && last(bt).tp == tokParens
-         && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
-      Int const indLastToken = lx->tokens.len - 1;
-      VALIDATEL(lx->tokens.c[indLastToken].tp == tokParens
-         && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
-      lx->tokens.c[indLastToken - 1].tp = reservedWordType;
-      lx->tokens.c[indLastToken - 1].pl1 = slScope;
-      lx->tokens.len--;
-      bt->c[bt->len - 2].tp = reservedWordType;
-      bt->c[bt->len - 2].spanLevel = slScope;
-      bt->len--;
-      skipSpaces(source, lx);
+      lexReservedScope(reservedWordType, source, lx);
    } ei (reservedWordType >= firstSpanTokenType) {
+      LBtToken* bt = lx->lexBtrack;
       VALIDATEL(bt->len == 0 || last(bt).spanLevel == slScope, errCoreNotInsideStmt)
       addStatementSpan(reservedWordType, startBt, lx);
    }
 }
 
-private Bool
-wordChunk(SRC, LX) { //:wordChunk
+private Bool //:wordChunk
+wordChunk(SRC, LX) {
 // Lexes a single chunk of a word, i.e. the characters between two minuses (or the whole word
 // if there are no minuses). Returns True if the lexed chunk was capitalized
    Bool result = false;
@@ -2455,22 +2464,21 @@ wordChunk(SRC, LX) { //:wordChunk
    return result;
 }
 
-private void
-mbCloseAssignRight(BtToken* top, CM) { //:mbCloseAssignRight
+private void //:mbCloseAssignRight
+mbCloseAssignRight(BtToken* top, CM) {
 // Handles the case we are closing a tokAssignRight: we need to close its parent tokAssignment!
    if (top->tp != tokAssignRight)
       { return; }
    setStmtSpanLength(top->tokenInd, cm);
-   VALIDATEI(cm->lexBtrack->len > 0 &&
-             (last(cm->lexBtrack).tp == tokAssignment || last(cm->lexBtrack).tp == tokToplevelFn),
+   VALIDATEI(cm->lexBtrack->len > 0 && (last(cm->lexBtrack).tp == tokAssignment),
            iErrorInconsistentSpans
    )
    *top = removeLast(cm->lexBtrack);
    setStmtSpanLength(top->tokenInd, cm);
 }
 
-private void
-lxCloseFnDef(BtToken* top, CM) { //:lxCloseFnDef
+private void //:lxCloseFnDef
+lxCloseFnDef(BtToken* top, CM) {
 // Handles the case we are closing a function definition: we need to close its parent tokAssignment!
    LBtToken* bt = cm->lexBtrack;
    setStmtSpanLength(top->tokenInd, cm);
@@ -2504,13 +2512,13 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
    Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId, .pl2 = 0,
          .startBt = realStartBt, .lenBts = lenBts };
    if (wordType == tokWord && wasCapitalized) { // a type
-      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aParenLeft
+      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aBracketLeft
          && uniqueStringId == nameOfStd(strF)
-      ) { // `F(...)`
-         add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
+      ) { // `F[...]`
+         add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}),
                lx->lexBtrack
          );
-         lx->i++; // CONSUME the `(`
+         lx->i++; // CONSUME the `[`
       } ei (lx->tokens.len > 0) {
          Token prevToken = lx->tokens.c[lx->tokens.len - 1];
          if (prevToken.tp == tokParens) {
@@ -2785,11 +2793,20 @@ lexUnderscore(SRC, LX) {
       pushIntokens((Token){ .tp = tokMisc, .pl1 = miscUnderscore, .pl2 = 2,
                 .startBt = lx->i - 1, .lenBts = 2 }, lx);
       lx->i += 2; // CONSUME the "__"
-   } else {
-      pushIntokens((Token){ .tp = tokMisc, .pl1 = miscUnderscore, .pl2 = 1,
-                .startBt = lx->i - 1, .lenBts = 2 }, lx);
-      lx->i++; // CONSUME the "_"
-   }
+      return;
+   } 
+   if (lx->lexBtrack->len > 0) { 
+      BtToken top = last(lx->lexBtrack);
+      if (top.tp == tokType && top.spanLevel == slFnReturn) {
+         pushIntokens((Token){ .tp = tokType, .pl1 = voidType, .pl2 = 0,
+                   .startBt = lx->i - 1, .lenBts = 1 }, lx);
+         lx->i++; // CONSUME the "_"
+         return;
+      }
+   } 
+   pushIntokens((Token){ .tp = tokMisc, .pl1 = miscUnderscore, .pl2 = 1,
+             .startBt = lx->i - 1, .lenBts = 2 }, lx);
+   lx->i++; // CONSUME the "_"
 }
 
 private void //:lexNewline
@@ -2842,12 +2859,13 @@ private void //:lexArrow
 lexArrow(SRC, LX) {
    VALIDATEL(lx->lexBtrack->len > 0, errFnTypeArrows)
    BtToken top = last(lx->lexBtrack);
-   if (top.tp == tokType) { // `F(G -> H)`
-      VALIDATEL(top.spanLevel == slSubexpr
-         && lx->tokens.c[top.tokenInd].pl1 == nameOfStd(strF), errFnTypeArrows
-      )
+   if (top.spanLevel == slFnTp) { // `F[G -> H]`
       add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnReturn}),
          lx->lexBtrack);
+   } ei (top.tp == tokToplevelFn)       {
+      openPunctuation(tokType, slFnTp, lx->i, lx);
+      openPunctuation(tokType, slFnReturn, lx->i, lx);
+      goto consumeArrow;
    } else { // `f{ a -> ...}`
       if (top.tokenInd == lx->tokens.len - 1) {
          VALIDATEL(top.tp == tokFn, errArrowOutOfPlace);
@@ -2925,31 +2943,8 @@ lexParenLeft(SRC, LX) { //:lexParenLeft
 }
 
 private Bool //:lexIsFnType
-lexIsFnType(BtToken btt, LX) {
-   return lx->tokens.c[btt.tokenInd].pl1 == nameOfStd(strF);
-}
-
-private BtToken //:lexParenRightIfFnType
-lexParenRightIfFnType(BtToken top, LBtToken* bt, LX) {
-   if (top.tp != tokType) // add extra Void type tokens if function definition
-      { return top; }
-   if (top.spanLevel == slFnReturn) { // F(...->...) after the arrow
-      if (top.tokenInd == lx->tokens.len) { // `F(...->)` means `F(...->Void)`
-         pushIntokens(
-            ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
-         );
-      }
-      BtToken next = removeLast(bt);
-      VALIDATEL(next.tp == tokType && lexIsFnType(next, lx), errArrowOutOfPlace);
-      return next;
-   } ei (lexIsFnType(top, lx)) {
-      pushIntokens(
-         ((Token){.tp = tokType, .pl1 = nameOfStd(strVoid), .startBt = lx->i, .lenBts = 0}), lx
-      );
-      return top;
-   } else {
-      return top;
-   }
+lexIsFnType(BtToken bt, LX) {
+   return lx->tokens.c[bt.tokenInd].pl1 == nameOfStd(strF);
 }
 
 private void //:lexParenRight
@@ -2959,8 +2954,7 @@ lexParenRight(SRC, LX) {
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
 
-   VALIDATEL(top.spanLevel == slSubexpr || top.spanLevel == slFnReturn, errPunctuationUnmatched)
-   top = lexParenRightIfFnType(top, bt, lx);
+   VALIDATEL(top.spanLevel == slSubexpr, errPunctuationUnmatched)
 
    mbCloseAssignRight(&top, lx);
    setSpanLengthLexer(top.tokenInd, lx);
@@ -3000,9 +2994,6 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
          lx->lexBtrack->c[len - 2].spanLevel = slScope;
          lx->tokens.c[second.tokenInd].pl1 = slScope;
          goto consumption;
-      } ei (top.tp == tokToplevelFn)  {
-         openPunctuation(tokFn, slScope, lx->i, lx);
-         goto consumption;
       } ei (top.tp == tokElse) {
          goto consumption;
       } ei (top.tp == tokFor) {
@@ -3040,26 +3031,110 @@ lexCurlyRight(SRC, LX) {
    lx->i++; // CONSUME the "}"
 }
 
+private Bool //:lMaybeOpenFnType
+lMaybeOpenFnType(SRC, LX) {
+// In a toplevel signature, an opening bracket implies the start of a function type
+   if (lx->lexBtrack->len == 0 || last(lx->lexBtrack).spanLevel != slToplevel)
+      { return false; }
+      
+   add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}),
+         lx->lexBtrack);
+   pushIntokens((Token) {
+      .tp = tokType, .pl1 = nameOfStd(strF), .startBt = startBt + lenBts }, lx
+   );
+   return true;
+}
+
 private void //:lexBracketLeft
 lexBracketLeft(SRC, LX) {
-   wrapInAStatement(lx->i, source, lx);
+   if (!lMaybeOpenFnType(source, lx)) {
+      wrapInAStatement(lx->i, source, lx);
+   }
    openPunctuation(tokData, slSubexpr, lx->i, lx);
    lx->i++; // CONSUME the `[`
 }
 
+private Int //:lInsideFnType
+lInsideFnType(LBtToken* bt, SRC, LX) {
+// Are we inside an fn type like F[Int Str -> Double]?
+// Returns 1 if we're in fn signature but haven't met an arrow, 2 if we've met it,
+// (`F[B -> C]`), 0 if not inside function type. Precondition: lexBtrack is non-empty
+   if (bt->c[len - 1].spanLevel == slFnReturn) {
+      return 2; // `fn foo A -> B f{`
+   } ei (bt->c[len - 1].spanLevel == slFnTp) { 
+      return 1;
+   } else {
+      return 0;
+   }
+}
+
+private void //:lCloseFnType
+lCloseFnType(SRC, LX) {
+// Close an fn type properly
+   LBtToken* bt = lx->lexBtrack;
+   Int const len = bt->len;
+   Bool inToplevelSign = false;
+   Bool signHasType = false;
+   
+   if (len > 2 && bt->c[len - 3].spanLevel == slToplevel 
+               && bt->c[len - 2].tp == tokType )) {
+      inToplevelSign = true; // `fn foo A -> B f{`
+      signHasType = true;
+   } ei (len > 1 && bt->c[len - 2].spanLevel == slToplevel 
+                 && bt->c[len - 1].tp == tokType )) {
+      inToplevelSign = true; //  `fn foo f{`
+      signHasType = false;
+   } 
+   if (!inToplevelSign)
+      { return; }
+      
+   BtToken top = last(bt); 
+   if (signHasType) {
+      setStmtSpanLength(top.tokenInd, lx);
+   } else {
+      // otherwise the type is there but there wasn't an arrow
+      VALIDATEL(top.tokenInd == lx->tokens.len - 1, errFnTypeArrows);
+      lx->tokens.len--;
+      removeLast(bt);
+   }
+      
+   BtToken top = last(lx->lexBtrack);
+   VALIDATEL(top.tp == tokType);
+   if (top.tokenInd == lx->tokens.len - 1) { // scenario 1
+      
+   } else { // scenario 2
+      VALIDATEL(len > 1 && top.spanLevel == slFnReturn, errFnSignature);
+      top = removeLast(lexBtrack);
+      setStmtSpanLength(top.tokenInd, lx);
+   }
+
+   if (lx->lexBtrack->c[len - 1].tp == tokType 
+         && lx->lexBtrack->c[len - 2].spanLevel == slToplevel
+   ) {
+      BtToken fnType = removeLast(lx->lexBtrack);
+      setStmtSpanLength(fnType.tokenInd, lx);
+   }
+}
+
 private void //:lexBracketRight
 lexBracketRight(SRC, LX) {
-   LBtToken* bt = lx->lexBtrack;
+   LBtToken* const bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
+   Int mbInsideFnType = lInsideFnType(bt, source, lx);
+   if (mbInsideFnType > 0) {
+      lCloseFnType(mbInsideFnType, source, lx);
+      return;
+   }
    BtToken top = removeLast(bt);
-   VALIDATEL(top.tp == tokData || top.tp == tokAccessorIn, errPunctuationUnmatched)
+   VALIDATEL(
+      top.tp == tokData || top.tp == tokAccessorIn || top.tp == tokType, errPunctuationUnmatched
+   )
 
    setSpanLengthLexer(top.tokenInd, lx);
-
    if (lx->i + 1 < lx->stats.inpLength && NEXT_BT == aBracketLeft) { // `a[i][j]`
       openPunctuation(tokAccessorIn, slSubexpr, lx->i + 1, lx);
       lx->i++; // CONSUME the `]` so the `[` will be consumed in this fn
-   } else if (bt->len > 0 && last(bt).tp == tokAccessor) {
+   } ei (bt->len > 0 && last(bt).tp == tokAccessor) {
       top = removeLast(bt);
       setSpanLengthLexer(top.tokenInd, lx);
    }
@@ -3924,12 +3999,18 @@ subexSaveDataAllocation(ExprFrame frame, Expr* e, CM) {
 
    Int countElements = 0;
    Int countNodes = scr->len - frame.startNode;
-   for (Int j = frame.startNode; j < scr->len; ++j)  {
-      Node nd = scr->c[j];
-      countElements++;
+   Node allocNd = scr->c[frame.startNode];
+   if (allocNd.pl2 > -1) { // see {eDataAllocation}
+      for (Int j = frame.startNode; j < scr->len; ++j)  {
+         Node nd = scr->c[j];
+         countElements++;
 
-      if (nd.tp == nodExpr)
-         { j += nd.pl2; }
+         if (nd.tp == nodExpr)
+            { j += nd.pl2; }
+      }
+      scr->c[frame.startNode].pl2 = countElements;
+   } ei (allocNd.pl2 == -2) {
+      scr->c[frame.startNode].pl2 = 0;
    }
    SourceLoc const rawLoc = frame.loc;
    newNode((Node){.tp = nodAssignment, .pl1 = 0, .pl2 = countNodes + 2, .pl3 = 2}, rawLoc, cm);
@@ -3939,6 +4020,10 @@ subexSaveDataAllocation(ExprFrame frame, Expr* e, CM) {
            rawLoc, cm);
 
    Int const mainNodeInd = cm->ast.len;
+   print("parser:")
+   printParser(cm);
+   print("saving data alloc nodes:");
+   dbgNodes(scr);
    eSaveDataAllocationNodes(frame.startNode, scr, e->locsScr, cm);
 
    if (countNodes > 0)  {
@@ -4142,24 +4227,45 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
 
 private void //:eDataAllocation
 eDataAllocation(Token cTk, Expr* restrict e, TOKENS, CM) {
+print("init %d", cm->i);
    e->metAnAllocation = true;
    eBumpArgCount(e->frames);
    if (cTk.pl1 >= BIG) { // `[@...]`
       VALIDATEP(cTk.pl2 >= 2 && tokens[cm->i + 1].tp == tokType, errMetaArrSyntax)
+      Int sentinel = calcSentinel(cTk, cm->i);
+      
       cm->i++; // CONSUME the tokData
       Token typeTk = tokens[cm->i];
       Int const typeSentinel = calcSentinel(typeTk, cm->i);
+      print("typeSent %d", typeSentinel)
       TypeId elemType = tParse(typeSentinel, tokens, cm);
+      
       Token countTk = tokens[typeSentinel];
       
+      //if (countTk.tp == tokInt, errMetaArrSyntax)
+      Node newDataAlloc = (Node){.tp = nodDataAlloc, .pl1 = elemType.v, .pl2 = 0};
       
-      VALIDATEP(countTk.tp == tokInt, errMetaArrSyntax)
       
-      Int elemCount = countTk.pl2;
-      add(((Node){.tp = nodDataAlloc, .pl1 = elemType.v, .pl2 = 0, .pl3 = elemCount}), e->scr);
+      if (countTk.tp == tokInt) {
+         newDataAlloc.pl3 = countTk.pl2;
+         newDataAlloc.pl2 = 0;
+         cm->i = sentinel - 1; // CONSUME the whole data allocation
+      } else {
+         newDataAlloc.pl3 = arrLitKnownLength; // we don't know the length to allocate at compile time
+         add(((ExprFrame) {
+               .tp = exfrDataAlloc, .name = nameOfStd(strArray),
+               .sentinel = sentinel, .startNode = e->scr->len,
+               .loc = locOf(cTk)  }),
+              e->frames
+         );
+         cm->i = typeSentinel - 1;
+      }
+      print("After i %d added data alloc pl3 %d", cm->i, (Int)newDataAlloc.pl3);
+      
+      add(newDataAlloc, e->scr);
       add(locOf(cTk), e->locsScr);
    } ei (cTk.pl2 == 0) { // `[]`
-      add(((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0}), e->scr);
+      add(((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = arrLitEmpty}), e->scr);
       add(locOf(cTk), e->locsScr);
    } else { 
       add(((ExprFrame) {
@@ -6850,6 +6956,26 @@ dbgExprFrames(Expr* st) {
       }
    }
    printf("\n>>>\n\n");
+}
+
+void //:dbgNodes
+dbgNodes(LNode* nodes) {
+   for (int i = 0; i < nodes->len; i++) {
+      Node nod = nodes->c[i];
+
+      printf("%d: ", i);
+      if (nod.tp == nodCall) {
+         printf("call %d argc = %d call %d type = \n", nod.pl1, nod.pl2, nod.pl3);
+      } ei (nod.pl1 != 0 || nod.pl2 != 0) {
+         if (nod.pl3 != 0)  {
+            printf("%s %d %d %d\n", nodeNames[nod.tp], nod.pl1, nod.pl2, nod.pl3);
+         } else {
+            printf("%s %d %d \n", nodeNames[nod.tp], nod.pl1, nod.pl2);
+         }
+      } else {
+         printf("%s\n", nodeNames[nod.tp]);
+      }
+   }
 }
 
 Int

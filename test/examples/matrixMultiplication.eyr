@@ -1,9 +1,9 @@
-fn multiply F[[A [A Int]] [A [A Int]] -> [A [A Int]]] {
+fn multiply [A [A Int]] [A [A Int]] -> [A [A Int]] f{
    a b ->
    rows = a.len;
    cols = b[0].len;
    middle = a[0].len;
-   res = [@[A [A Int]] rows];
+   res = [@ [A Int] rows];
    for {i' = 0; i < rows; i++; } {
       rw [A Int] = a[i];
       newRow = [@[A Int] cols];
@@ -19,7 +19,7 @@ fn multiply F[[A [A Int]] [A [A Int]] -> [A [A Int]]] {
    return res;
 }
 
-fn main F[-> Int] {
+fn main [-> Int] f{
    a [A [A Int]] = [[1 2 3 4 5] [10 9 8 7 6]];
    b [A [A Int]] = [[10] [10] [10] [10] [10]];
    product = multiply a b;
