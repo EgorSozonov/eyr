@@ -1,12 +1,12 @@
-fn multiply [A [A Int]] [A [A Int]] -> [A [A Int]] f{
+fn multiply [[A [A Int]] [A [A Int]] -> [A [A Int]]] f{
    a b ->
    rows = a.len;
    cols = b[0].len;
    middle = a[0].len;
-   res = [@ [A Int] rows];
+   res = [@[A Int] rows];
    for {i' = 0; i < rows; i++; } {
       rw [A Int] = a[i];
-      newRow = [@[A Int] cols];
+      newRow = [@Int cols];
       for {j' = 0; j < cols; j++; } {
          elt' = 0;
          for {k' = 0; k < middle; k++; } {
@@ -34,4 +34,3 @@ fn main [-> Int] f{
    print `]`; 
    return 0;
 }
-

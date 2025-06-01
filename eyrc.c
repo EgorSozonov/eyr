@@ -36,6 +36,7 @@ typedef enum gcc_jit_comparison BuiltinComparison;
 //}}}
 //{{{ General definitions & generics
 
+#define BIG 70000000
 #define AST Arr(Node const) const restrict ast // Source text
 #define SRC Arr(char const) const restrict source // Source text
 #define CR CompResult const* const restrict cr // Compilation results
@@ -630,7 +631,7 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
    [0]                        = &writeNop, // scopes do not affect codegen!
    [nodExpr       - nodScope] = &writeExpr,
    [nodAssignment - nodScope] = &writeAssignment,
-   [nodDataAlloc  - nodScope] = &writeDataAlloc,
+   [nodDataLit    - nodScope] = &writeDataAlloc,
    [nodAssert     - nodScope] = &writeAssert,
    [nodBreakCont  - nodScope] = &writeBreakCont,
    [nodTry        - nodScope] = &writeTry,
@@ -724,7 +725,7 @@ registerType(TypeId t, TypeHeader hdr, Int typeCounter, LCgTypePtr* buffer, CG) 
 // searches in @typeRefs interval [0; typeCounter). Adds to @concreteFields
    if (hdr.name == nameOfStd(strF)) { // functions
       return nonStructTypeInfo(createFnType(t.v, hdr, typeCounter, buffer, cg));
-   } else if (hdr.name == nameOfStd(strArray)) {
+   } else if (hdr.name == nameOfStd(strArr)) {
       CompResult* cr = &(cg->compResult);
       Int const fieldInd = cg->concreteFields.len;
       char c[2] = {'c', '\0'};
@@ -1208,7 +1209,7 @@ simpleAssignment(Node nd, Int sentinel, AST, CG) {
 
    mbRegisterNewVar(varNode, cg);
    LValue* lValue = cg->vars[varId];
-   if (rightSide.tp == nodDataAlloc) {
+   if (rightSide.tp == nodDataLit) {
       dataAllocAssignment(lValue, rightSide, sentinel, ast, cg);
    } else {
       assign(lValue, simpleExpr(cg->i - 1, sentinel, ast, cg), cg->cbl.c);

@@ -4388,8 +4388,7 @@ exprUpTo(Int sentinelToken, SourceLoc loc, TOKENS, CM) {
 private TypeId //:exprHeadless
 exprHeadless(Int sentinel, SourceLoc loc, TOKENS, CM) {
 // Precondition: we are looking at the first token of expr which does not have a
-// tokStmt/tokParens header. If "omitSpan" is set, this function will not emit a nodExpr nor
-// create a ParseFrame.
+// tokStmt/tokParens header.
 // Consumes 1 or more tokens. Returns the type of parsed expression
    if (cm->i + 1 == sentinel) { // the [stmt 1, tokInt] case
       Token singleToken = tokens[cm->i];
@@ -5554,7 +5553,7 @@ void //:parseMain
 parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
-      //printLexer(cm);
+      printLexer(cm);
 
       pToplevelTypes(cm);
       // This gives the complete overloads & overloadIds tables + list of toplevel functions
@@ -6406,7 +6405,16 @@ typecheckList(Node nd, Int startInd, CM) {
       { return typeOf(nd.pl1); }
    ei (nd.pl3 == BIG) { // element type has been declared with `@`
       Int sentinel = calcNodeSentinel(nd, startInd);
-      TypeId exprType = typeCheckBigExpr(startInd + 1, sentinel, cm);
+      TypeId exprType;
+      printParser(cm);
+      if (startInd + 2 == sentinel) {
+         Node singleNode = cm->ast.c[startInd + 1];
+         VALIDATEP(singleNode.tp == nodVar, errMetaArrSyntax)
+         exprType = cm->vars.c[singleNode.pl1].typeId;
+      } else {
+         exprType = typeCheckBigExpr(startInd + 1, sentinel, cm);
+      }
+      
       VALIDATEP(eq(exprType, typeOf(tokInt)), errMetaArrSyntax);
       return typeOf(nd.pl1);
    } 
