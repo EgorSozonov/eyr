@@ -425,7 +425,7 @@ private TypeId getFirstParamType(TypeId funcTypeId, CM);
 private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
 private Int typeGetTyrity(TypeId typeId, CM);
 private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
-private TypeId typecheckList(Int startInd, CM);
+private TypeId typecheckList(Node nd, Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(NameId outerName, TypeId param, CM);
 private TypeId tFunctionReturnType(TypeId t, CM);
@@ -485,7 +485,7 @@ void printIntArray(Int count, Arr(Int) arr);
 void printParser(Compiler* cm);
 void dbgType0(TypeId type, CM);
 #define dbgType(t) dbgType0(t, cm)
-private void dbgExprFrames(Expr* st);
+private void dbgExprFrames(CM);
 private void printLInt(LInt* st);
 void dbgTypeFrames(TExpr* st);
 void dbgOverloads(Int nameId, CM);
@@ -1464,9 +1464,10 @@ constexpr TypeId intTy = { .v = tokInt };
 constexpr TypeId ZERO_ARITY_TYPE = { .v = tokMisc };
 constexpr TypeId VOID_TYPE = { .v = voidType };
 
-constexpr Int arrLitKnownElements = 0; // array literal with all elements known
-constexpr Int arrLitEmpty = -1;        // array literal that is empty
-constexpr Int arrLitKnownLength = -2;  // array literal without elements but with known length
+constexpr Int arrLitRuntimeLength = BIG;  // array literal without elements but with runtime-known
+                                          // length, [@Int (x + 2)]
+constexpr Int arrLitKnownElements = BIG + 1; // array literal with all elements known
+constexpr Int arrLitKnownLength = BIG + 2;  // array literal with comp-time known length, [@Str 15]
 
 Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
@@ -1900,7 +1901,7 @@ char const
 errAssignmentToFunctionVar[]    = "Assignment to a function variable should look like "
                                   "`fn F(Int -> Long) = overloadedName;`";
 char const
-errFnSignature[]    = "A function signature should look like `fn F(Int -> Long) f{a-> ...};`";
+errFnSignature[]    = "A function signature should look like `fn [Int -> Long] f{a-> ...};`";
 char const
 errFnTypeArrows[]  = "A function type should contain exactly one arrow and return type (unless "
                      "it's void): `F[Par1 Par2 -> ReturnType]`, `F[Par1 ->]`";
@@ -3332,12 +3333,13 @@ eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
    );
 }
 
-private void //:eSaveDataAllocationNodes
-eSaveDataAllocationNodes(Int startInd, LNode* scr, LSourceLoc* locsScr, CM) {
+private void //:eSaveDataLiteralNodes
+eSaveDataLiteralNodes(Int startInd, LNode* scr, LSourceLoc* locsScr, CM) {
 // Pushes the tail of scratch space (from a specified index onward) into the main AST
    Int const pushCount = scr->len - startInd;
    if (pushCount == 0)
       { return; }
+      
    if (cm->ast.len + pushCount + 1 < cm->ast.cap) {
       memcpy((Node*)(cm->ast.c) + (cm->ast.len), scr->c + startInd,
              pushCount*sizeof(Node));
@@ -3959,16 +3961,16 @@ exprSingleItem(Token tk, CM) {
       newNode((Node){.tp = tk.tp, .pl1 = tk.pl1, .pl2 = tk.pl2}, locOf(tk), cm);
       typeId = typeOf(tk.tp);
    } ei (tk.tp == tokData) { // `[]`
-      newNode((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = 0}, locOf(tk), cm);
+      newNode((Node){.tp = nodDataLit, .pl1 = -1, .pl2 = 0, .pl3 = 0}, locOf(tk), cm);
    } else {
       throwExcParser(errUnexpectedToken);
    }
    return typeId;
 }
 
-private void //:subexSaveDataAllocation
-subexSaveDataAllocation(ExprFrame frame, Expr* e, CM) {
-// Creates an assignment in main. Then walks over the data allocator
+private void //:subexSaveDataLiteral
+subexSaveDataLiteral(ExprFrame frame, Expr* e, CM) {
+// We are at end of a data literal. Creates an assignment in main. Then walks over the data literal
 // nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
 // careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
 // an id linked to the new entity
@@ -3977,44 +3979,42 @@ subexSaveDataAllocation(ExprFrame frame, Expr* e, CM) {
    const VarId newVarId = cm->vars.len;
    pushInvars(((Var) { .access = accessPrivImm, .fnId = -1 }), cm);
 
-   Int countElements = 0;
-   Int countNodes = scr->len - frame.startNode;
+   Int countNodes = scr->len - frame.startNode - 1;
    Node allocNd = scr->c[frame.startNode];
-   if (allocNd.pl2 > -1) { // see {eDataAllocation}
-      for (Int j = frame.startNode; j < scr->len; ++j)  {
+   switch (allocNd.pl3) { // see {eDataLiteral}. arrLitKnownElements is not possible here
+   case arrLitRuntimeLength: {
+      scr->c[frame.startNode].pl2 = countNodes;
+      break;
+   }
+   case arrLitKnownElements: {
+      Int countElements = 0;
+      for (Int j = frame.startNode + 1; j < scr->len; ++j) {// +1 to skip the array itself
          Node nd = scr->c[j];
          countElements++;
 
          if (nd.tp == nodExpr)
             { j += nd.pl2; }
       }
-      scr->c[frame.startNode].pl2 = countElements;
-   } ei (allocNd.pl2 == -2) {
-      scr->c[frame.startNode].pl2 = 0;
+      scr->c[frame.startNode].pl2 = countNodes;
+      scr->c[frame.startNode].pl3 = countElements;
+      break;
    }
+   }
+   
    SourceLoc const rawLoc = frame.loc;
    newNode((Node){.tp = nodAssignment, .pl1 = 0, .pl2 = countNodes + 2, .pl3 = 2}, rawLoc, cm);
    newNode((Node){.tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = assiVarAssignment}, rawLoc, cm);
-   Int const allocInd = cm->ast.len;
-   newNode((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = countNodes, .pl3 = countElements },
-           rawLoc, cm);
+   Int const astInd = cm->ast.len;
 
-   Int const mainNodeInd = cm->ast.len;
-   print("parser:")
-   printParser(cm);
-   print("saving data alloc nodes:");
-   dbgNodes(scr);
-   eSaveDataAllocationNodes(frame.startNode, scr, e->locsScr, cm);
-
-   if (countNodes > 0)  {
-      TypeId eltType = typecheckList(mainNodeInd, cm);
-      TypeId collType = tCreateSingleParamTypeCall(nameOfStd(strArr), eltType, cm);
-      cm->vars.c[newVarId].typeId = collType;
-      cm->ast.c[allocInd].pl1 = collType.v;
-   }
-
-   e->scr->c[frame.startNode] = (Node){ .tp = nodVar, .pl1 = newVarId, .pl2 = 0,
-      .pl3 = 0 };
+   eSaveDataLiteralNodes(frame.startNode, scr, e->locsScr, cm);
+   TypeId eltType = typecheckList(cm->ast.c[astInd], astInd, cm);
+   TypeId collType = tCreateSingleParamTypeCall(nameOfStd(strArr), eltType, cm);
+   
+   // replace the nodes in @scr with a single var
+   cm->vars.c[newVarId].typeId = collType;
+   cm->ast.c[astInd].pl1 = collType.v;
+   
+   e->scr->c[frame.startNode] = (Node){ .tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = 0 };
    scr->len = frame.startNode + 1;
    e->locsScr->len = frame.startNode + 1;
 }
@@ -4066,7 +4066,7 @@ eClose(Expr* restrict e, CM) {
       case exfrCall:
          eWriteCallToScratch(frame, e); break;
       case exfrDataAlloc:
-         subexSaveDataAllocation(frame, e, cm); break;
+         subexSaveDataLiteral(frame, e, cm); break;
       case exfrParen:
          eWriteUnaryCalls(e);
          eBumpArgCount(e->frames);
@@ -4205,11 +4205,11 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
    }
 }
 
-private void //:eDataAllocation
-eDataAllocation(Token cTk, Expr* restrict e, TOKENS, CM) {
-print("init %d", cm->i);
+private void //:eDataLiteral
+eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
    e->metAnAllocation = true;
    eBumpArgCount(e->frames);
+   Node newDataAlloc = (Node){.tp = nodDataLit };
    if (cTk.pl1 >= BIG) { // `[@...]`
       VALIDATEP(cTk.pl2 >= 2 && tokens[cm->i + 1].tp == tokType, errMetaArrSyntax)
       Int sentinel = calcSentinel(cTk, cm->i);
@@ -4217,43 +4217,39 @@ print("init %d", cm->i);
       cm->i++; // CONSUME the tokData
       Token typeTk = tokens[cm->i];
       Int const typeSentinel = calcSentinel(typeTk, cm->i);
-      print("typeSent %d", typeSentinel)
       TypeId elemType = tParse(typeSentinel, tokens, cm);
 
       Token countTk = tokens[typeSentinel];
 
-      //if (countTk.tp == tokInt, errMetaArrSyntax)
-      Node newDataAlloc = (Node){.tp = nodDataAlloc, .pl1 = elemType.v, .pl2 = 0};
-
-
+      newDataAlloc.pl1 = elemType.v;
       if (countTk.tp == tokInt) {
-         newDataAlloc.pl3 = countTk.pl2;
-         newDataAlloc.pl2 = 0;
+         newDataAlloc.pl3 = arrLitKnownLength;
+         newDataAlloc.pl2 = countTk.pl2;
          cm->i = sentinel - 1; // CONSUME the whole data allocation
       } else {
-         newDataAlloc.pl3 = arrLitKnownLength; // we don't know the length to allocate at compile time
+         newDataAlloc.pl3 = arrLitRuntimeLength; // we don't know the length to allocate at compile time
          add(((ExprFrame) {
-               .tp = exfrDataAlloc, .name = nameOfStd(strArr),
-               .sentinel = sentinel, .startNode = e->scr->len,
-               .loc = locOf(cTk)  }),
-              e->frames
+            .tp = exfrDataAlloc, .name = nameOfStd(strArr), .sentinel = sentinel,
+            .startNode = e->scr->len, .loc = locOf(cTk)  }),
+           e->frames
          );
          cm->i = typeSentinel - 1;
       }
-      print("After i %d added data alloc pl3 %d", cm->i, (Int)newDataAlloc.pl3);
-
       add(newDataAlloc, e->scr);
       add(locOf(cTk), e->locsScr);
    } ei (cTk.pl2 == 0) { // `[]`
-      add(((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = arrLitEmpty}), e->scr);
+      add(((Node){.tp = nodDataLit, .pl1 = -1, .pl2 = 0, .pl3 = arrLitKnownLength}), e->scr);
       add(locOf(cTk), e->locsScr);
    } else {
+      newDataAlloc.pl3 = arrLitKnownElements; // we don't know the length to allocate at compile time
       add(((ExprFrame) {
             .tp = exfrDataAlloc, .name = nameOfStd(strArr),
             .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
             .loc = locOf(cTk)  }),
            e->frames
       );
+      add(newDataAlloc, e->scr);
+      add(locOf(cTk), e->locsScr);
    }
 }
 
@@ -4313,7 +4309,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    case tokParens:
       eParens(cTk, parent, e, tokens, cm); break;
    case tokData:
-      eDataAllocation(cTk, e, tokens, cm); break;
+      eDataLiteral(cTk, e, tokens, cm); break;
    default:
       throwExcParser(errExpressionCannotContain);
    }
@@ -5406,20 +5402,6 @@ validateOverloadsFull(CM) {
 
 #endif
 
-//~TypeId //:pFnCreateType
-//~pFnCreateType(TExpr* te, CM) {
-//~   Int const depth = te->fnScratch->len;
-//~   TYPE_CREATE_START(
-//~      ((TypeHeader){ .sort = sorDeclare, .isGeneric = te->isGeneric,
-//~                     .tyrity = te->tParams->len, .arity = depth, .name = nameOfStd(strF) })
-//~   );
-//~   for (Int j = 0; j < depth; j++) {
-//~      pushIntypes(te->fnScratch->c[j], cm);
-//~   }
-//~   TYPE_CREATE_END;
-//~   return mergeType(tentativeType, cm);
-//~}
-
 private void //:pFnSignature
 pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
 // Parses a function signature. Emits no nodes, adds data to @toplevels, @functions, @overloads.
@@ -5431,14 +5413,14 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    NameId name = nameTk.pl1;
 
    cm->i++; // CONSUME the function name
-   Token typeTk = tokens[cm->i];
-   VALIDATEP(typeTk.tp == tokType, errFnSignature)
-
-   TypeId fnType = tParse(calcSentinel(typeTk, cm->i), tokens, cm);
+   Token secondTk = tokens[cm->i];
+   
+   TypeId fnType = voidToVoid;
+   if (secondTk.tp == tokType)
+      { fnType = tParse(calcSentinel(secondTk, cm->i), tokens, cm); }
    TypeHeader hdr = typeReadHeader(fnType, cm);
 
    FunctionId const newFnId = cm->functions.len;
-
    Int genericInd = hdr.isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
    pushInfunctions(((Function){
          .name = nameTk.pl1, .typeId = fnType, .genericInd = genericInd, .tokenInd = tokenInd,
@@ -5459,7 +5441,8 @@ pToplevelBodyWorker(
       Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, Byte callSort, TOKENS, CM
 ) {
    cm->i = tokenInd + 2; // skipping the tokToplevelFn and tokWord (fn name)
-   cm->i = calcSentinel(tokens[cm->i], cm->i); // skipping the function type and tokFn
+   if (tokens[cm->i].tp == tokType)
+      { cm->i = calcSentinel(tokens[cm->i], cm->i); } // skipping the function type
 
    Token fnTk = tokens[cm->i];
    Int const fnSentinel = calcSentinel(fnTk, cm->i);
@@ -6370,14 +6353,12 @@ typeReduceExpr(Int const indExpr, CM) {
       Node nd = cm->ast.c[cm->j];
       if (nd.tp == nodCall) {
          typeCheckCall(nd, exp, cm);
-      } else {
-         if (nd.tp <= topVerbatimTokenVariant) {
-            add((Int)nd.tp, exp);
-         } ei (nd.tp == nodVar) {
-            add(cm->vars.c[nd.pl1].typeId.v, exp);
-         } else { // overloadId
-            add(nd.pl1, exp); // overloadId
-         }
+      } ei (nd.tp <= topVerbatimTokenVariant) {
+         add((Int)nd.tp, exp);
+      } ei (nd.tp == nodVar) {
+         add(cm->vars.c[nd.pl1].typeId.v, exp);
+      } else { // overloadId or nodDataLit
+         add(nd.pl1, exp); // overloadId
       }
    }
 }
@@ -6408,6 +6389,8 @@ typecheckAndProcessListElt(Int* j, CM) {
    } ei (nd.tp == nodVar) {
       *j++;
       return cm->vars.c[nd.pl1].typeId;
+   } ei (nd.tp == nodDataLit) { // an empty data literal with compile-time known length
+      return nd.pl1 == -1 ? ZERO_ARITY_TYPE : typeOf(nd.pl1);
    } else {
       Int sentinel = (*j) + nd.pl2 + 1;
       TypeId exprType = typeCheckBigExpr(*j, sentinel, cm);
@@ -6417,10 +6400,18 @@ typecheckAndProcessListElt(Int* j, CM) {
 }
 
 private TypeId //:typecheckList
-typecheckList(Int startInd, CM) {
-   Int j = startInd;
+typecheckList(Node nd, Int startInd, CM) {
+// startInd = index of the nodDataLit, not the first element
+   if ((nd.pl2 == 0 && nd.pl1 != -1)) // element type has been declared with `@`
+      { return typeOf(nd.pl1); }
+   ei (nd.pl3 == BIG) { // element type has been declared with `@`
+      Int sentinel = calcNodeSentinel(nd, startInd);
+      TypeId exprType = typeCheckBigExpr(startInd + 1, sentinel, cm);
+      VALIDATEP(eq(exprType, typeOf(tokInt)), errMetaArrSyntax);
+      return typeOf(nd.pl1);
+   } 
    TypeId commonEltType = VOID_TYPE;
-   for (; j < cm->ast.len; j++) {
+   for (Int j = startInd + 1; j < cm->ast.len; j++) {
       TypeId eltType = typecheckAndProcessListElt(&j, cm);
       if (eq(eltType, ZERO_ARITY_TYPE))
          { continue; }
@@ -6430,6 +6421,19 @@ typecheckList(Int startInd, CM) {
          { VALIDATEP(eq(eltType, commonEltType), errListDifferentEltTypes) }
    }
    VALIDATEP(!eq(commonEltType, VOID_TYPE), errListUnknownEltType);
+   for (Int j = startInd + 1; j < cm->ast.len; ) {
+      Node elem = cm->ast.c[j];
+      if (elem.tp == nodDataLit && elem.pl1 == -1) {
+         cm->ast.c[j].pl1 = commonEltType.v;
+      } 
+      if (elem.pl3 == arrLitKnownLength) {
+         cm->ast.c[j].pl3 = elem.pl2;
+         cm->ast.c[j].pl2 = 0;
+         j++;
+         continue;
+      }
+      j = calcNodeSentinel(elem, j);
+   }
    return commonEltType;
 }
 
@@ -6911,10 +6915,11 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
 }
 
 void //:dbgExprFrames
-dbgExprFrames(Expr* st) {
+dbgExprFrames(CM) {
+   LExprFrame* st = cm->expr->frames;
    print("Expr frames<<<");
-   for (Int j = 0; j < st->frames->len; j++) {
-      ExprFrame fr = st->frames->c[j];
+   for (Int j = 0; j < st->len; j++) {
+      ExprFrame fr = st->c[j];
       if (fr.tp == exfrCall) {
          printf("Call %d", fr.name);
       } ei (fr.tp == exfrUnaryCall) {
@@ -6930,7 +6935,7 @@ dbgExprFrames(Expr* st) {
       } else {
          printf("tp %d", fr.tp);
       }
-      printf(" arg %d sent %d; ", fr.argCount, fr.sentinel);
+      printf(" arg %d start %d sent %d; ", fr.argCount, fr.startNode, fr.sentinel);
       if (j % 6 == 0) {
           print("\n");
       }
