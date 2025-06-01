@@ -107,7 +107,8 @@ typedef struct { // :Token
 #define tokClause      12  // Element of a comma-separated list
 #define tokToplevelFn  13  // Toplevel function definition
 #define tokParens      14  // subexpressions and struct/sum type instances
-#define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
+#define tokType        15  // `Int`, `[Tu Int Str]` or `F[A -> B]`. Atom if pl2 = 0, span otherwise.
+                           // If span, then pl1 = nameId of the type
 #define tokData        16  // []. If pl1 == 1, it's a list. If pl1 += BIG, it's filled by meta
                            // `[@ Int 15]`
 #define tokAccessor    17  // The umbrella around an accessor subexpression like `x[i][j][k]`
@@ -152,7 +153,7 @@ typedef struct { // :Token
 #define slSingleBraced   6 // A "for" scope that has met exactly 1 curly brace
 #define slFnTp           7 // `F[...]`
 #define slFnReturn       8 // `F[A -> B]` the `B` part (after exactly 1 arrow symbol)
-#define slToplevel       9 // `fn foo A -> B` A toplevel function declaration 
+#define slToplevel       9 // `fn foo A -> B` A toplevel function declaration
 
 // List of keywords that don't correspond directly to a token.
 // Must all be below "firstSpanTokenType"
@@ -348,7 +349,7 @@ typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
 
 #define PARSER_FN(name) private void name(Token tok, TOKENS, CM);
 PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment)
-PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert) 
+PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert)
 PARSER_FN(pBreakCont) PARSER_FN(pMeta) PARSER_FN(pReturn) PARSER_FN(pIf) PARSER_FN(pElseIf)
 PARSER_FN(pElse) PARSER_FN(pFor)
 
@@ -440,6 +441,7 @@ private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
 private void tFreshState(TExpr* st);
 //~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
+private Int calcSentinel(Token tok, Int tokInd);
 
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
@@ -1900,8 +1902,8 @@ errAssignmentToFunctionVar[]    = "Assignment to a function variable should look
 char const
 errFnSignature[]    = "A function signature should look like `fn F(Int -> Long) f{a-> ...};`";
 char const
-errFnTypeArrows[]  = "A function type should contain exactly one arrow and a return type:"
-                     "`F[Par1 Par2 -> ReturnType]`";
+errFnTypeArrows[]  = "A function type should contain exactly one arrow and return type (unless "
+                     "it's void): `F[Par1 Par2 -> ReturnType]`, `F[Par1 ->]`";
 char const
 errArrowOutOfPlace[]  = "Arrows must be either in a function type: `F[Param -> ReturnType]` or "
                         "closing a parameter list: `f{ param -> ...body...}`" ;
@@ -2114,7 +2116,7 @@ checkPrematureEnd(Int requiredSymbols, LX) {
 private void //:setSpanLengthLexer
 setSpanLengthLexer(Int tokenInd, LX) {
 // Finds the top-level punctuation opener by its index, and sets its lengths.
-// Called when the matching closer is lexed. Does not pop anything from the "lexBtrack"
+// Called when the matching closer is lexed. Does not pop anything from @lexBtrack
    lx->tokens.c[tokenInd].lenBts = lx->i - lx->tokens.c[tokenInd].startBt + 1;
    lx->tokens.c[tokenInd].pl2 = lx->tokens.len - tokenInd - 1;
 }
@@ -2512,19 +2514,22 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
    Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId, .pl2 = 0,
          .startBt = realStartBt, .lenBts = lenBts };
    if (wordType == tokWord && wasCapitalized) { // a type
-      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aBracketLeft
+      if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aBracketLeft // `F[...]`
          && uniqueStringId == nameOfStd(strF)
-      ) { // `F[...]`
+      ) {
          add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}),
                lx->lexBtrack
          );
          lx->i++; // CONSUME the `[`
       } ei (lx->tokens.len > 0) {
          Token prevToken = lx->tokens.c[lx->tokens.len - 1];
-         if (prevToken.tp == tokParens) {
+         if (prevToken.tp == tokData && prevToken.pl1 < BIG) { // convert a [] to a type span
             lx->tokens.c[lx->tokens.len - 1] = (Token){
                .tp = tokType, .pl1 = uniqueStringId, .startBt = prevToken.startBt
             };
+            return;
+         } ei (prevToken.tp == tokType && prevToken.pl1 == -1) {
+            lx->tokens.c[lx->tokens.len - 1].pl1 = uniqueStringId;
             return;
          }
       }
@@ -2540,7 +2545,7 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          newToken.pl2 = 1;
          lx->i++; // CONSUME the `'`
       } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {// fn body `f{..}`
-         openPunctuation(tokFn, slScope, lx->i, lx);
+         openPunctuation(tokFn, slScope, realStartBt, lx);
          lx->i++; // CONSUME the `{`
          return;
       }
@@ -2607,7 +2612,7 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
    Int const realStartBt = (wordType == tokWord) ? startBt : (startBt - 1);
    Int lenString = lx->i - startBt;
    VALIDATEL(lenString <= maxWordLength, errWordLengthExceeded)
-   
+
    Int stringId = addStringDict(source, startBt, lenString, lx->names, lx->stringDict);
    if (stringId - countOperators < strFirstNonReserved && wordType == tokWord) {
       wordReserved(wordType, stringId - countOperators, startBt, realStartBt, source, lx);
@@ -2794,8 +2799,8 @@ lexUnderscore(SRC, LX) {
                 .startBt = lx->i - 1, .lenBts = 2 }, lx);
       lx->i += 2; // CONSUME the "__"
       return;
-   } 
-   if (lx->lexBtrack->len > 0) { 
+   }
+   if (lx->lexBtrack->len > 0) {
       BtToken top = last(lx->lexBtrack);
       if (top.tp == tokType && top.spanLevel == slFnReturn) {
          pushIntokens((Token){ .tp = tokType, .pl1 = voidType, .pl2 = 0,
@@ -2803,7 +2808,7 @@ lexUnderscore(SRC, LX) {
          lx->i++; // CONSUME the "_"
          return;
       }
-   } 
+   }
    pushIntokens((Token){ .tp = tokMisc, .pl1 = miscUnderscore, .pl2 = 1,
              .startBt = lx->i - 1, .lenBts = 2 }, lx);
    lx->i++; // CONSUME the "_"
@@ -2862,10 +2867,8 @@ lexArrow(SRC, LX) {
    if (top.spanLevel == slFnTp) { // `F[G -> H]`
       add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnReturn}),
          lx->lexBtrack);
-   } ei (top.tp == tokToplevelFn)       {
-      openPunctuation(tokType, slFnTp, lx->i, lx);
-      openPunctuation(tokType, slFnReturn, lx->i, lx);
-      goto consumeArrow;
+   } ei (top.spanLevel == slFnReturn) {
+      throwExcLexer(errFnTypeArrows);
    } else { // `f{ a -> ...}`
       if (top.tokenInd == lx->tokens.len - 1) {
          VALIDATEL(top.tp == tokFn, errArrowOutOfPlace);
@@ -3036,95 +3039,71 @@ lMaybeOpenFnType(SRC, LX) {
 // In a toplevel signature, an opening bracket implies the start of a function type
    if (lx->lexBtrack->len == 0 || last(lx->lexBtrack).spanLevel != slToplevel)
       { return false; }
-      
-   add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}),
-         lx->lexBtrack);
-   pushIntokens((Token) {
-      .tp = tokType, .pl1 = nameOfStd(strF), .startBt = startBt + lenBts }, lx
-   );
+
+   add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}), lx->lexBtrack);
+   pushIntokens((Token){ .tp = tokType, .pl1 = nameOfStd(strF), .startBt = lx->i }, lx);
    return true;
 }
 
 private void //:lexBracketLeft
 lexBracketLeft(SRC, LX) {
-   if (!lMaybeOpenFnType(source, lx)) {
+   if (lMaybeOpenFnType(source, lx)) {
+   } ei (lx->lexBtrack->len > 0 && last(lx->lexBtrack).tp == tokType) {
+      add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slSubexpr}),
+            lx->lexBtrack);
+      pushIntokens((Token) {.tp = tokType, .pl1 = -1,
+                       .startBt = lx->i }, lx);
+   } else {
       wrapInAStatement(lx->i, source, lx);
+      openPunctuation(tokData, slSubexpr, lx->i, lx);
    }
-   openPunctuation(tokData, slSubexpr, lx->i, lx);
    lx->i++; // CONSUME the `[`
 }
 
-private Int //:lInsideFnType
-lInsideFnType(LBtToken* bt, SRC, LX) {
-// Are we inside an fn type like F[Int Str -> Double]?
-// Returns 1 if we're in fn signature but haven't met an arrow, 2 if we've met it,
-// (`F[B -> C]`), 0 if not inside function type. Precondition: lexBtrack is non-empty
-   if (bt->c[len - 1].spanLevel == slFnReturn) {
-      return 2; // `fn foo A -> B f{`
-   } ei (bt->c[len - 1].spanLevel == slFnTp) { 
-      return 1;
-   } else {
-      return 0;
-   }
-}
-
-private void //:lCloseFnType
-lCloseFnType(SRC, LX) {
-// Close an fn type properly
+private Bool //:lMaybeCloseFnType
+lMaybeCloseFnType(SRC, LX) {
+// Close an fn type properly if we are in one
    LBtToken* bt = lx->lexBtrack;
    Int const len = bt->len;
-   Bool inToplevelSign = false;
-   Bool signHasType = false;
-   
-   if (len > 2 && bt->c[len - 3].spanLevel == slToplevel 
-               && bt->c[len - 2].tp == tokType )) {
-      inToplevelSign = true; // `fn foo A -> B f{`
-      signHasType = true;
-   } ei (len > 1 && bt->c[len - 2].spanLevel == slToplevel 
-                 && bt->c[len - 1].tp == tokType )) {
-      inToplevelSign = true; //  `fn foo f{`
-      signHasType = false;
-   } 
-   if (!inToplevelSign)
-      { return; }
-      
-   BtToken top = last(bt); 
-   if (signHasType) {
-      setStmtSpanLength(top.tokenInd, lx);
+   if (len == 0)
+      { return false; }
+
+   BtToken top = last(bt);
+   if (top.spanLevel == slFnReturn) { // `F[A -> B]`
+      VALIDATEL(len > 1 && bt->c[len - 2].spanLevel == slFnTp, errFnTypeArrows);
+      BtToken returnPart = removeLast(bt);
+      Int returnSentinel = calcSentinel(lx->tokens.c[returnPart.tokenInd], returnPart.tokenInd);
+
+      // a return type should be empty or a single type
+      VALIDATEL(returnPart.tokenInd == lx->tokens.len || returnSentinel == lx->tokens.len,
+         errFnSignature
+      );
+      if (returnPart.tokenInd == lx->tokens.len) { // empty return type - gotta insert "void"
+         pushIntokens(((Token){
+            .tp = tokType, .pl1 = nameOfStd(strVoid), .pl2 = 0, .startBt = lx->i, .lenBts = 0}), lx
+         );
+      }
+   } ei (top.spanLevel == slFnTp) { // `F[]` Push a void token for its return type
+      VALIDATEL(len > 1 && bt->c[len - 1].tokenInd == lx->tokens.len - 1, errFnTypeArrows);
+      pushIntokens(((Token){
+         .tp = tokType, .pl1 = nameOfStd(strVoid), .pl2 = 0, .startBt = lx->i, .lenBts = 0}), lx
+      );
    } else {
-      // otherwise the type is there but there wasn't an arrow
-      VALIDATEL(top.tokenInd == lx->tokens.len - 1, errFnTypeArrows);
-      lx->tokens.len--;
-      removeLast(bt);
-   }
-      
-   BtToken top = last(lx->lexBtrack);
-   VALIDATEL(top.tp == tokType);
-   if (top.tokenInd == lx->tokens.len - 1) { // scenario 1
-      
-   } else { // scenario 2
-      VALIDATEL(len > 1 && top.spanLevel == slFnReturn, errFnSignature);
-      top = removeLast(lexBtrack);
-      setStmtSpanLength(top.tokenInd, lx);
+      return false;
    }
 
-   if (lx->lexBtrack->c[len - 1].tp == tokType 
-         && lx->lexBtrack->c[len - 2].spanLevel == slToplevel
-   ) {
-      BtToken fnType = removeLast(lx->lexBtrack);
-      setStmtSpanLength(fnType.tokenInd, lx);
-   }
+   BtToken fnType = removeLast(bt);
+   setSpanLengthLexer(fnType.tokenInd, lx);
+   return true;
 }
 
 private void //:lexBracketRight
 lexBracketRight(SRC, LX) {
    LBtToken* const bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
-   Int mbInsideFnType = lInsideFnType(bt, source, lx);
-   if (mbInsideFnType > 0) {
-      lCloseFnType(mbInsideFnType, source, lx);
-      return;
-   }
+   if (lMaybeCloseFnType(source, lx))
+      { goto consumption; }
+
    BtToken top = removeLast(bt);
    VALIDATEL(
       top.tp == tokData || top.tp == tokAccessorIn || top.tp == tokType, errPunctuationUnmatched
@@ -3138,6 +3117,7 @@ lexBracketRight(SRC, LX) {
       top = removeLast(bt);
       setSpanLengthLexer(top.tokenInd, lx);
    }
+   consumption:
    lx->i++; // CONSUME the closing `]` or opening `[`
 }
 
@@ -4028,7 +4008,7 @@ subexSaveDataAllocation(ExprFrame frame, Expr* e, CM) {
 
    if (countNodes > 0)  {
       TypeId eltType = typecheckList(mainNodeInd, cm);
-      TypeId collType = tCreateSingleParamTypeCall(nameOfStd(strArray), eltType, cm);
+      TypeId collType = tCreateSingleParamTypeCall(nameOfStd(strArr), eltType, cm);
       cm->vars.c[newVarId].typeId = collType;
       cm->ast.c[allocInd].pl1 = collType.v;
    }
@@ -4233,19 +4213,19 @@ print("init %d", cm->i);
    if (cTk.pl1 >= BIG) { // `[@...]`
       VALIDATEP(cTk.pl2 >= 2 && tokens[cm->i + 1].tp == tokType, errMetaArrSyntax)
       Int sentinel = calcSentinel(cTk, cm->i);
-      
+
       cm->i++; // CONSUME the tokData
       Token typeTk = tokens[cm->i];
       Int const typeSentinel = calcSentinel(typeTk, cm->i);
       print("typeSent %d", typeSentinel)
       TypeId elemType = tParse(typeSentinel, tokens, cm);
-      
+
       Token countTk = tokens[typeSentinel];
-      
+
       //if (countTk.tp == tokInt, errMetaArrSyntax)
       Node newDataAlloc = (Node){.tp = nodDataAlloc, .pl1 = elemType.v, .pl2 = 0};
-      
-      
+
+
       if (countTk.tp == tokInt) {
          newDataAlloc.pl3 = countTk.pl2;
          newDataAlloc.pl2 = 0;
@@ -4253,7 +4233,7 @@ print("init %d", cm->i);
       } else {
          newDataAlloc.pl3 = arrLitKnownLength; // we don't know the length to allocate at compile time
          add(((ExprFrame) {
-               .tp = exfrDataAlloc, .name = nameOfStd(strArray),
+               .tp = exfrDataAlloc, .name = nameOfStd(strArr),
                .sentinel = sentinel, .startNode = e->scr->len,
                .loc = locOf(cTk)  }),
               e->frames
@@ -4261,15 +4241,15 @@ print("init %d", cm->i);
          cm->i = typeSentinel - 1;
       }
       print("After i %d added data alloc pl3 %d", cm->i, (Int)newDataAlloc.pl3);
-      
+
       add(newDataAlloc, e->scr);
       add(locOf(cTk), e->locsScr);
    } ei (cTk.pl2 == 0) { // `[]`
       add(((Node){.tp = nodDataAlloc, .pl1 = -1, .pl2 = 0, .pl3 = arrLitEmpty}), e->scr);
       add(locOf(cTk), e->locsScr);
-   } else { 
+   } else {
       add(((ExprFrame) {
-            .tp = exfrDataAlloc, .name = nameOfStd(strArray),
+            .tp = exfrDataAlloc, .name = nameOfStd(strArr),
             .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
             .loc = locOf(cTk)  }),
            e->frames
@@ -4935,7 +4915,7 @@ buildPreludeTypes(CM) {
    // Array
    Int typeIndA = cm->types.len;
    pushIntypes(TYPE_PREFIX + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX - 1
-   NameId name = nameOfStd(strArray);
+   NameId name = nameOfStd(strArr);
    typeAddHeader(((TypeHeader){
       .sort = sorDeclare, .isGeneric = true, .arity = 2, .tyrity = 1, .name = name }), cm
    );
@@ -6446,7 +6426,7 @@ typecheckList(Int startInd, CM) {
          { continue; }
       if (eq(commonEltType, VOID_TYPE))
          { commonEltType = eltType; }
-      else 
+      else
          { VALIDATEP(eq(eltType, commonEltType), errListDifferentEltTypes) }
    }
    VALIDATEP(!eq(commonEltType, VOID_TYPE), errListUnknownEltType);

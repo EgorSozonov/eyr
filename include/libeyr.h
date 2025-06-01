@@ -427,7 +427,7 @@ typedef struct { //:TypeHeader
 #define strVoid     26
 #define strF        27 // F(unction type)
 #define strL        28 // L(ist)
-#define strArray    29
+#define strArr      29
 #define strD        30 // D(ictionary)
 #define strRec      31 // Record
 #define strEnum     32 // Enum
