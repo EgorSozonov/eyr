@@ -500,7 +500,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          })
       ),
       createTest(
-         s("Data allocation"),
+         s("Data literal"),
          s("x = [1 2 3];"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 9, .pl3 = 2 },
@@ -520,7 +520,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTestWithError(
-         s("Data allocation type error"),
+         s("Data literal type error"),
          s(errListDifferentEltTypes),
          s("x = [1 true];"),
          (((Node[]) {
@@ -539,7 +539,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("Data allocation with expression inside"),
+         s("Data literal with expression inside"),
          s("x = [4 (2 * 7)];"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
@@ -561,7 +561,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("Data allocation with an element of unknown type"),
+         s("Data literal with an element of unknown type"),
          s("x = [[] (2 * 7)];"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
@@ -583,7 +583,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("Data allocation with an empty element with comptime length"),
+         s("Data literal with an empty element with comptime length"),
          s("x = [[] [@ Str 2]];"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 8, .pl3 = 2 },
@@ -602,7 +602,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("Data allocation with specified metadata but length is not a literal"),
+         s("Data literal with specified metadata but length is not a literal"),
          s("theLen = 77;"
            "x = [@ Bool (theLen * 2)];"
          ),
@@ -628,7 +628,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("Nested data allocation with expression inside"),
+         s("Nested data literal with expression inside"),
          s("x = [[1] [4 (2 - 7)] [2 3]];"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 26, .pl3 = 2 },

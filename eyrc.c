@@ -254,6 +254,8 @@ private CgType* boolType(CG);
 private CgType* doubleType(CG);
 private TypeId tFunctionReturnType(TypeId funcTypeId, CR);
 private CgType* searchCgTypePartiallyFilled(TypeId tp, Int typeCounter, CG);
+private RValue* allocateCgArrayKnownLength(TypeId concreteType, Int len, CG);
+private RValue* expr(Node nd, Int sentinel, AST, CG);
 
 #if defined(DEBUG) || defined(TEST)
 
@@ -1039,6 +1041,9 @@ simpleExprAtom(Node nd, Int j, CG) {
    case tokString: {
       return stringConst(cg->compResult.sourceLocs.c[j], cg);
    }
+   case nodDataLit: { // array literal with compile-time-known length
+      return allocateCgArrayKnownLength(typeOf(nd.pl1), nd.pl3, cg);
+   }
    default: { //  nodVar
       return rValueOf(cg->vars[nd.pl1]);
    }
@@ -1064,6 +1069,7 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
       switch (expNode.tp) {
       case tokInt:
       case tokString:
+      case nodDataLit:
       case nodVar: {
          add(simpleExprAtom(expNode, j, cg), exp);
          break;
@@ -1157,42 +1163,71 @@ simpleExpr(Int start, Int sentinel, AST, CG) {
    }
 }
 
-private RValue* //:dataAllocAssignment
-dataAllocAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
-// Precondition: we are 1 past the nodAssignment
-   TypeId concreteType = typeOf(nd.pl1);
-   Int len = nd.pl3;
-   RValue* lenR = intConst(nd.pl3, cg);
+private RValue* //:allocateArray
+allocateCgArray(TypeId concreteType, RValue* length, CG) {
    TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
    TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
    CgType* eltTypeCg = cgType(eltType, cg).c;
-
    RValue* mallocArg = builtinBinary( // len * sizeof(Elt)
       GCC_JIT_BINARY_OP_MULT,
       cg->types[tokInt].c,
       getSizeof(eltTypeCg, cg),
-      lenR
+      length
    );
 
    RValue* vals[2];
    vals[0] =
       ptrCast(callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), ptrOf(eltTypeCg), cg->md);
-   vals[1] = lenR;
+   vals[1] = length;
    // Array{ .c = malloc(...), .len = ... };
-   RValue* arr = initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
+   return initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
+}
+
+private RValue* //:allocateArray
+allocateCgArrayKnownLength(TypeId concreteType, Int len, CG) {
+   RValue* length = intConst(len, cg);
+   if (length > 0) {
+      return allocateCgArray(concreteType, length, cg);
+   } else {
+      TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
+      TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
+      CgType* eltTypeCg = cgType(eltType, cg).c;
+      RValue* vals[2];
+      vals[0] = gcc_jit_context_new_rvalue_from_ptr(cg->md, ptrOf(eltTypeCg), null);
+      vals[1] = length;
+      // Array{ .c = malloc(...), .len = ... };
+      return initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
+   }
+}
+
+private RValue* //:dataLitAssignment
+dataLitAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
+// Precondition: we are 1 past the nodAssignment
+   TypeId concreteType = typeOf(nd.pl1);
+   Bool knowElements = nd.pl3 < BIG;
+   RValue* lenR;
+   Int len;
+   if (knowElements) {
+      len = nd.pl3;
+      lenR = intConst(len, cg);
+   } else {
+      len = 0;
+      lenR = expr(ast[cg->i + 1], sentinel, ast, cg);  
+   }
+   RValue* arr = allocateCgArray(concreteType, lenR, cg);
    assign(lValue, arr, cg->cbl.c);
 
-
-   Int fieldInd = cgType(concreteType, cg).fieldInd;
-   LValue* rawArr = fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg);
-
-   // loop over the atoms or simpleExprs, setting the array elements
-   for (Int j = 0; j < len; j++) {
-      Node elt = ast[cg->i];
-      Int eltSentinel = calcNodeSentinel(elt, cg->i);
-      RValue* eltValue = simpleExpr(cg->i, eltSentinel, ast, cg);
-      assign(arrElem(rValueOf(rawArr), intConst(j, cg), cg->md), eltValue, cg->cbl.c);
-      cg->i = eltSentinel;
+   if (knowElements) { // loop over the atoms or simpleExprs, setting the array elements
+      Int fieldInd = cgType(concreteType, cg).fieldInd;
+      RValue* rawArr = rValueOf(fieldAccessLeft(lValue, cg->concreteFields.c[fieldInd], cg));
+      
+      for (Int j = 0; j < len; j++) {
+         Node elt = ast[cg->i];
+         Int eltSentinel = calcNodeSentinel(elt, cg->i);
+         RValue* eltValue = simpleExpr(cg->i, eltSentinel, ast, cg);
+         assign(arrElem(rawArr, intConst(j, cg), cg->md), eltValue, cg->cbl.c);
+         cg->i = eltSentinel;
+      }
    }
    return arr;
 }
@@ -1210,7 +1245,7 @@ simpleAssignment(Node nd, Int sentinel, AST, CG) {
    mbRegisterNewVar(varNode, cg);
    LValue* lValue = cg->vars[varId];
    if (rightSide.tp == nodDataLit) {
-      dataAllocAssignment(lValue, rightSide, sentinel, ast, cg);
+      dataLitAssignment(lValue, rightSide, sentinel, ast, cg);
    } else {
       assign(lValue, simpleExpr(cg->i - 1, sentinel, ast, cg), cg->cbl.c);
    }

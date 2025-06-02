@@ -5553,7 +5553,7 @@ void //:parseMain
 parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
-      printLexer(cm);
+      //printLexer(cm);
 
       pToplevelTypes(cm);
       // This gives the complete overloads & overloadIds tables + list of toplevel functions
@@ -6406,7 +6406,6 @@ typecheckList(Node nd, Int startInd, CM) {
    ei (nd.pl3 == BIG) { // element type has been declared with `@`
       Int sentinel = calcNodeSentinel(nd, startInd);
       TypeId exprType;
-      printParser(cm);
       if (startInd + 2 == sentinel) {
          Node singleNode = cm->ast.c[startInd + 1];
          VALIDATEP(singleNode.tp == nodVar, errMetaArrSyntax)
