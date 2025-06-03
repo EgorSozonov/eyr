@@ -797,8 +797,8 @@ registerPrimitiveTypes(CG) {
 
    // String type
    Field* stringFields[2];
-   stringFields[0] = field(nameOfStd(strLen), cg->types[tokInt].c, cg);
-   stringFields[1] = field(nameOfStd(strContent), cg->builtins.cString, cg);
+   stringFields[0] = field(nameOfStd(strContent), cg->builtins.cString, cg);
+   stringFields[1] = field(nameOfStd(strLen), cg->types[tokInt].c, cg);
    Struct* stringStruct = newStruct(nameOfStd(strString), 2, stringFields, cg);
    cg->typeRefs[tokString] = tokString;
    cg->types[tokString] = (TypeInfo){
@@ -886,7 +886,7 @@ sizeTConst(int val, Codegen* cg) {
 }
 
 private RValue* //:stringConst
-stringConst(SourceLoc loc, Codegen* cg) {
+stringConst(Int startBt, Int lenBts, Codegen* cg) {
 // To avoid an extra copy we perform a tactical temporary mutation: change the closing `
 // of the string constant to a \0 character, let libgccjit copy it to its internals, then change
 // back so the source code is unchanged.
@@ -1032,14 +1032,14 @@ mbRegisterNewVar(Node varNode, CG) {
 }
 
 private RValue* //:simpleExprAtom
-simpleExprAtom(Node nd, Int j, CG) {
+simpleExprAtom(Node nd, CG) {
    switch (nd.tp) {
    case tokInt: {
       Int value = nd.pl2;
       return intConst(value, cg);
    }
    case tokString: {
-      return stringConst(cg->compResult.sourceLocs.c[j], cg);
+      return stringConst(nd.pl1, nd.pl2, cg);
    }
    case nodDataLit: { // array literal with compile-time-known length
       return allocateCgArrayKnownLength(typeOf(nd.pl1), nd.pl3, cg);
@@ -1061,9 +1061,9 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
    LRValuePtr* exp = cg->exp;
    exp->len = 0;
 
-   Int realStart = rightMode ? start : start + 1;
    if (!rightMode)
       { cg->lValue = cg->vars[ast[start].pl1]; }
+   Int realStart = rightMode ? start : start + 1; // skipping the lvalue we just read
    for (Int j = realStart; j < sentinel; j++) {
       Node expNode = ast[j];
       switch (expNode.tp) {
@@ -1071,7 +1071,7 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
       case tokString:
       case nodDataLit:
       case nodVar: {
-         add(simpleExprAtom(expNode, j, cg), exp);
+         add(simpleExprAtom(expNode, cg), exp);
          break;
       }
       case nodCall: {
@@ -1109,13 +1109,18 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
          }
          case callGetElem: {
             TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
-            Int indField = concreteColl.fieldInd; // "c" field is first in Array as well as List
+            Int indField = concreteColl.fieldInd; // "c" field is first in Array, List & String
 
-            RValue* rawArr = fieldAccess(exp->c[exp->len - 2], cg->concreteFields.c[indField], cg);
-            RValue* elemResult =
-               rValueOf(arrElem(rawArr, exp->c[exp->len - 1], cg->md));
-            exp->c[exp->len - 2] = elemResult;
-            exp->len--;
+            if (exp->len > 1) {
+               RValue* rawArr = fieldAccess(exp->c[exp->len - 2], cg->concreteFields.c[indField], cg);
+               RValue* elemResult = rValueOf(arrElem(rawArr, exp->c[exp->len - 1], cg->md));
+               exp->c[exp->len - 2] = elemResult;
+               exp->len--;
+            } else {
+               LValue* rawArr = fieldAccessLeft(cg->lValue, cg->concreteFields.c[indField], cg);
+               cg->lValue = arrElem(rValueOf(rawArr), exp->c[exp->len - 1], cg->md);
+               exp->len--;
+            }
             break;
          }
          }
@@ -1129,7 +1134,6 @@ simpleExprLeft(Int start, Int sentinel, AST, CG) {
 // Converts a left-side (no assignments or data allocations) Eyr expression into a Libgccjit
 // l-value. Consumes no nodes. Returns the l-value being assigned to.
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
-// Precondition: we are looking 1 past the nodExpr.
    if (start == sentinel - 1) {
       Node varNode = ast[start];
       mbRegisterNewVar(varNode, cg);
@@ -1141,11 +1145,11 @@ simpleExprLeft(Int start, Int sentinel, AST, CG) {
 }
 
 private RValue* //:exprSingleNode
-exprSingleNode(Node nd, Int ind, AST, CG) {
+exprSingleNode(Node nd, AST, CG) {
    if (nd.tp == nodCall) { // `(call)`
       return eCall(nd.pl1, 0, null, cg);
    } else {
-      return simpleExprAtom(nd, ind, cg);
+      return simpleExprAtom(nd, cg);
    }
 }
 
@@ -1156,7 +1160,7 @@ simpleExpr(Int start, Int sentinel, AST, CG) {
 // "start" = first node of the expression body (so, 1 past the nodExpr, if any)
 // Precondition: we are looking 1 past the nodExpr.
    if (start == sentinel - 1) {
-      return exprSingleNode(ast[start], start, ast, cg);
+      return exprSingleNode(ast[start], ast, cg);
    } else {
       simpleExprReduce(start, sentinel, true, ast, cg);
       return cg->exp->c[0]; // the type checker guarantees that there is only one element at this point
@@ -1258,7 +1262,7 @@ expr(Node nd, Int sentinel, AST, CG) {
 // or a series of simpleAssignments followed by a simpleExpr.
 // Consumes all nodes
    if (cg->i == sentinel)
-      { return exprSingleNode(nd, cg->i - 1, ast, cg); } // single atom instead of an expression
+      { return exprSingleNode(nd, ast, cg); } // single atom instead of an expression
    for (; cg->i < sentinel && ast[cg->i].tp == nodAssignment; ) {
       Int assignSentinel = calcNodeSentinel(ast[cg->i], cg->i);
       cg->i++;
@@ -1292,7 +1296,9 @@ assignment(Node nd, Int sentinel, AST, CG) {
    }
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
-   LValue* lValue = simpleExprLeft(cg->i, rightNodeInd, ast, cg);
+   LValue* lValue = simpleExprLeft(
+      ast[cg->i].tp == nodExpr ? cg->i + 1 : cg->i, rightNodeInd, ast, cg
+   );
 
    cg->i = rightNodeInd + 1;
    RValue* rValue = expr(ast[rightNodeInd], sentinel, ast, cg);
@@ -1647,6 +1653,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
 
+print(" toplevel %d", toplevelId)
    cg->currFn = cg->functions[toplevelId];
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
    TypeHeader hdr = libeyr_readTypeHeader(eyrFn.typeId, cr->types.c);
@@ -1671,8 +1678,8 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodToplevelFn and the parameters
 
    for (; cg->i < fnSentinel;) {
+  print("loopin %d", cg->i); 
       Node nd = cr->ast.c[cg->i];
-
       Int const sentinel = calcNodeSentinel(nd, cg->i);
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
          FutureBlock newBlock = removeLast(cg->futureBlocks);
@@ -1710,6 +1717,7 @@ generateMainCode(CG) {
    for (int j = 0; j < cr->toplevels.len; j++) {
       writeToplevelFn(cr->toplevels.c[j], cr, cg);
    }
+   print("end of gen main coe");
 }
 
 private Codegen* //:generateCode
@@ -1791,6 +1799,8 @@ temp2(CG) {
         f_table,
         gcc_jit_context_new_array_constructor(ctxt, NULL, f_table_type, 2, fns)
     );
+
+
 
     gcc_jit_result* result = gcc_jit_context_compile(ctxt);
 
@@ -1909,10 +1919,15 @@ main(int argc, char** argv) {
    }
 
    Module* md = cg->md;
+   
+   gcc_jit_context_add_command_line_option(md, "-freport-bug");
+   gcc_jit_context_add_command_line_option(md, "-g3");
+   
+   gcc_jit_context_set_logfile(md, stderr, 0, 0);
    gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "compiledProgram");
 
    gcc_jit_result* result = gcc_jit_context_compile(md);
-   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
+   gcc_jit_context_dump_to_file(md, "outputDump.c", 1);
 
 
 //~   TaskDescription task = getCommandParams(argc, argv);

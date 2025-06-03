@@ -97,12 +97,14 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
          nd.pl1 = transformFuncId(nd.pl1, &controlRes->stats);
       } else if (nodeType == nodVar || (nodeType == nodCall && nd.pl3 == callVar)) {
          nd.pl1 = transformBindingVarId(nd.pl1, &controlRes->stats);
+      } else if (nodeType == tokString) { 
+         nd.pl1 += controlRes->stats.standardTextLen;
       }
       // transform pl2/pl3 if it holds FuncId
       if (nodeType == nodVar && (nd.pl3 == assiFnVarUse || nd.pl3 == assiFnVarDef)) {
          nd.pl2 = transformFuncId(nd.pl2, &controlRes->stats);
       }
-      newNode(nd, (SourceLoc){.startBt = 0, .lenBts = 0}, control);
+      newNode(nd, (ChInterval){.startBt = 0, .lenBts = 0}, control);
    }
    updateStats(control);
    return (ParserTest){ .name = name, .test = test, .control = control, .compareLocsToo = false };
@@ -130,16 +132,17 @@ private ParserTest createTestWithError0(String name, String message, String inpu
 
 private ParserTest createTestWithLocs0(String name, String input, Arr(Node) nodes,
                Int countNodes, Arr(Int) types, Int countTypes, Arr(TestEntityImport) entities,
-               Int countEntities, Arr(SourceLoc) locs, Int countLocs,
+               Int countEntities, Arr(ChInterval) locs, Int countLocs,
                Arena* a) {
 // Creates a test with two parsers where the source locs are specified (unlike most parser tests)
    ParserTest theTest = createTest0(name, input, nodes, countNodes, types, countTypes, entities,
                             countEntities, a);
+   theTest.compareLocsToo = true; 
    CompResult* controlRes = getCompResult(theTest.control);
    if (controlRes->wasLexerError)
       { return theTest; }
    for (Int j = 0; j < countLocs; ++j) {
-      SourceLoc loc = locs[j];
+      ChInterval loc = locs[j];
       loc.startBt += controlRes->stats.standardTextLen;
       setLoc(loc, j, theTest.control);
    }
@@ -149,7 +152,7 @@ private ParserTest createTestWithLocs0(String name, String input, Arr(Node) node
 #define createTestWithLocs(name, input, nodes, types, entities, locs) \
    createTestWithLocs0((name), (input), (nodes), sizeof(nodes)/sizeof(Node), types,\
    sizeof(types)/4, entities, sizeof(entities)/sizeof(TestEntityImport),\
-   locs, sizeof(locs)/sizeof(SourceLoc), a)
+   locs, sizeof(locs)/sizeof(ChInterval), a)
 
 
 void runTest(ParserTest test, TestContext* ct) {
@@ -214,10 +217,10 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {}),
-         ((SourceLoc[]) {
-            { .startBt = 0, .lenBts = 11 },
-            { .startBt = 4, .lenBts = 1 },
-            { .startBt = 8, .lenBts = 2 }
+         ((ChInterval[]) {
+            { .startBt = 0, .lenBts = 7 },
+            { .startBt = 0, .lenBts = 1 },
+            { .startBt = 4, .lenBts = 2 }
          })
       ),
       createTestWithLocs(
@@ -235,13 +238,13 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {}),
-         ((SourceLoc[]) {
-            { .startBt =  0, .lenBts = 11 },
-            { .startBt =  4, .lenBts = 1 },
-            { .startBt =  8, .lenBts = 2 },
-            { .startBt =  12, .lenBts = 15 },
-            { .startBt =  16, .lenBts = 6 },
-            { .startBt = 25, .lenBts = 1 }
+         ((ChInterval[]) {
+            { .startBt =  0, .lenBts = 7 },
+            { .startBt =  0, .lenBts = 1 },
+            { .startBt =  4, .lenBts = 2 },
+            { .startBt =  8, .lenBts = 11 },
+            { .startBt =  8, .lenBts = 6 },
+            { .startBt =  17, .lenBts = 1 }
          })
       ),
       createTestWithError(
@@ -273,7 +276,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodAssignment, .pl2 = 3, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = nodDataLit, .pl1 = 162, .pl2 = 1, .pl3 = 1 },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 35, .pl2 = 5 },
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = 0 }
          }),
          ((Int[]) {}),
@@ -290,10 +293,10 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 6 },
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 },   // x$ = `foo`
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 26, .pl2 = 5 },
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = `bar`
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment  },
-            (Node){ .tp = tokString }
+            (Node){ .tp = tokString, .pl1 = 40, .pl2 = 5 }
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -484,19 +487,19 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodExpr, .pl2 = 4 },
             (Node){ .tp = tokInt, .pl2 = 10,     },
             (Node){ .tp = tokInt, .pl2 = 2,      },
-            (Node){ .tp = tokString,           },
+            (Node){ .tp = tokString, .pl1 = 13, .pl2 = 4 },
             (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 3 } // foo
          })),
          ((Int[]) { 4, tokInt, tokInt, tokString, tokDouble }),
          ((TestEntityImport[]) {{ .nameInd = 0, .typeInd = 0 }}),
-         ((SourceLoc[]) {
-            { .startBt = 0, .lenBts = 22 },
-            { .startBt = 4, .lenBts = 1 },
-            { .startBt = 6, .lenBts = 16 },
-            { .startBt = 12, .lenBts = 2 },
-            { .startBt = 15, .lenBts = 1 },
-            { .startBt = 17, .lenBts = 4 },
-            { .startBt = 8, .lenBts = 3 }
+         ((ChInterval[]) {
+            { .startBt = 0, .lenBts = 18 },
+            { .startBt = 0, .lenBts = 1 },
+            { .startBt = 2, .lenBts = 16 },
+            { .startBt = 8, .lenBts = 2 },
+            { .startBt = 11, .lenBts = 1 },
+            { .startBt = 13, .lenBts = 4 },
+            { .startBt = 4, .lenBts = 3 }
          })
       ),
       createTest(
@@ -729,7 +732,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodVar,      .pl1 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = nodExpr,         .pl2 = 5 },
             (Node){ .tp = tokInt,         .pl2 = 2 },
-            (Node){ .tp = tokString,                 },
+            (Node){ .tp = tokString, .pl1 = 20, .pl2 = 4 },
             (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 2 }, // bar
             (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 1 }, // foo
             (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 1 }, // foo
@@ -762,7 +765,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodAssignment, .pl2 = 7, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = nodExpr,           .pl2 = 5 },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 4, .pl2 = 4  },
             (Node){ .tp = tokInt, .pl1 = -1,   .pl2 = -3 },
             (Node){ .tp = nodCall, .pl1 = oper(opSize, tokInt), .pl2 = 1 },
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokInt), .pl2 = 1 },
@@ -864,13 +867,13 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {}),
-         ((SourceLoc[]) {
-            (SourceLoc){ .startBt = 12, .lenBts = 28 },
-            (SourceLoc){ .startBt = 14, .lenBts = 1 },
-            (SourceLoc){ .startBt = 21, .lenBts = 1 },
-            (SourceLoc){ .startBt = 33, .lenBts = 6 },
-            (SourceLoc){ .startBt = 33, .lenBts = 1 },
-            (SourceLoc){ .startBt = 37, .lenBts = 1 }
+         ((ChInterval[]) {
+            (ChInterval){ .startBt = 27, .lenBts = 16 },
+            (ChInterval){ .startBt = 29, .lenBts = 1 },
+            (ChInterval){ .startBt = 31, .lenBts = 1 },
+            (ChInterval){ .startBt = 36, .lenBts = 6 },
+            (ChInterval){ .startBt = 36, .lenBts = 1 },
+            (ChInterval){ .startBt = 40, .lenBts = 1 }
           })
       ),
       createTest(
@@ -902,7 +905,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,     .pl2 = 3 },
             (Node){ .tp = nodExpr,      .pl2 = 2 },
-            (Node){ .tp = tokString    },
+            (Node){ .tp = tokString, .pl1 = 26, .pl2 = 6 },
             (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
          }),
          ((Int[]) {}),
@@ -1106,23 +1109,23 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opEquality, tokInt), .pl2 = 2 }, // ==
 
             (Node){ .tp = nodExpr,    .pl2 = 2 },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 31, .pl2 = 3 },
             (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 } // print
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {}),
-         ((SourceLoc[]) {
-            (SourceLoc){ .startBt = 8, .lenBts = 33 },
-            (SourceLoc){ .startBt = 15, .lenBts = 24 },
-            (SourceLoc){ .startBt = 15, .lenBts = 24 },
-            (SourceLoc){ .startBt = 18, .lenBts = 7 },
-            (SourceLoc){ .startBt = 18, .lenBts = 1 },
-            (SourceLoc){ .startBt = 23, .lenBts = 1 },
-            (SourceLoc){ .startBt = 20, .lenBts = 2 },
+         ((ChInterval[]) {
+            (ChInterval){ .startBt = 5, .lenBts = 34 },
+            (ChInterval){ .startBt = 13, .lenBts = 24 },
+            (ChInterval){ .startBt = 13, .lenBts = 24 },
+            (ChInterval){ .startBt = 16, .lenBts = 7 },
+            (ChInterval){ .startBt = 16, .lenBts = 1 },
+            (ChInterval){ .startBt = 21, .lenBts = 1 },
+            (ChInterval){ .startBt = 18, .lenBts = 2 },
 
-            (SourceLoc){ .startBt = 27, .lenBts = 10 },
-            (SourceLoc){ .startBt = 33, .lenBts = 3 },
-            (SourceLoc){ .startBt = 27, .lenBts = 5 }
+            (ChInterval){ .startBt = 25, .lenBts = 10 },
+            (ChInterval){ .startBt = 31, .lenBts = 3 },
+            (ChInterval){ .startBt = 25, .lenBts = 5 }
 
           })
       ),
@@ -1142,10 +1145,10 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt, .pl2 = 5 },
             (Node){ .tp = tokInt, .pl2 = 3 },
             (Node){ .tp = nodCall, .pl1 = oper(opGreaterTh, tokInt), .pl2 = 2 },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 30, .pl2 = 3 },
 
             (Node){ .tp = nodIfClause,  .pl2 = 1, .pl3 = 2 },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 44, .pl2 = 4 },
          }),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
@@ -1198,7 +1201,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt,      .pl2 = 3 },
             (Node){ .tp = nodCall, .pl1 = oper(opGreaterTh, tokInt), .pl2 = 2 },
             (Node){ .tp = nodExpr,   .pl2 = 2      },
-            (Node){ .tp = tokString,   },
+            (Node){ .tp = tokString, .pl1 = 30, .pl2 = 4 },
             (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 },
 
             (Node){ .tp = nodIfClause,     .pl2 = 7, .pl3 = 1 },
@@ -1207,12 +1210,12 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt,      .pl2 = 3 },
             (Node){ .tp = nodCall, .pl1 = oper(opEquality, tokInt), .pl2 = 2 },
             (Node){ .tp = nodExpr,  .pl2 = 2      },
-            (Node){ .tp = tokString,  },
+            (Node){ .tp = tokString, .pl1 = 60, .pl2 = 3 },
             (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 },
 
             (Node){ .tp = nodIfClause,  .pl2 = 3, .pl3 = 2 },
             (Node){ .tp = nodExpr,  .pl2 = 2      },
-            (Node){ .tp = tokString },
+            (Node){ .tp = tokString, .pl1 = 84, .pl2 = 5 },
             (Node){ .tp = nodCall, .pl1 = I - 3, .pl2 = 1 }
          }),
          ((Int[]) {}),

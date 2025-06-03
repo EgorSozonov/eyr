@@ -169,7 +169,7 @@ libeyr_String str(const char* cent);
 #define tokLong         1
 #define tokDouble       2
 #define tokBool         3  // pl2 = value (1 or 0)
-#define tokString       4
+#define tokString       4  // pl1 = startBt, pl2 = lenBts
 
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
@@ -258,8 +258,10 @@ struct Var { //:Var Local variable inside function
 };
 
 struct SourceLoc { // :SourceLoc
-   Int startBt;
-   Int lenBts;
+   Int startLine;
+   Int startChar;
+   Int endLine;
+   Int endChar;
 };
 
 typedef enum {   // :EmitFn

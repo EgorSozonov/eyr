@@ -48,6 +48,11 @@ typedef struct { // :TestEntityImport
     Int typeInd; // index in the intermediary array of types that is imported alongside
 } TestEntityImport;
 
+typedef struct { //:ChInterval
+   Int startBt;
+   Int lenBts;
+} ChInterval;
+
 #define CM Compiler* restrict cm
 void printParser(Compiler* cm);
 Int tryGetOper0(Int opType, Int typeId, Compiler* protoOvs);
@@ -56,12 +61,12 @@ void initializeParser(Compiler* lx, Arena* a);
 void setParserError(String errMsg, Compiler* restrict cm);
 void updateStats(Compiler* restrict cm);
 Int getBinding(Int id, Compiler* restrict cm);
-void setLoc(SourceLoc loc, Int j, CM);
+void setLoc(ChInterval loc, Int j, CM);
 void pushIntypes(Int v, CM);
 void importTestFns(Arr(Int) types, Int countTypes,
                    Arr(TestEntityImport) imports, Int countImports, Arena* a, OUT CM);
 Int equalityParser(Compiler* a, Compiler* b, Bool compareLocsToo);
-void newNode(Node node, SourceLoc loc, CM);
+void newNode(Node node, ChInterval loc, CM);
 
 extern char const errBareAtom[];
 extern char const errImportsNonUnique[];
