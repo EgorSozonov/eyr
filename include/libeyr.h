@@ -390,9 +390,10 @@ typedef struct { //:TypeHeader
    Byte arity;   // for function types, equals arity + 1. For structs, number of fields
    Bool isGeneric;
    NameLoc name;
+   Int size;     // sizeof
 } TypeHeader;
 
-#define TYPE_PREFIX 3 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
+#define TYPE_PREFIX 4 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 
 #define typeOf(x) (TypeId){.v = x}
 
@@ -508,6 +509,7 @@ Compiler* lexicallyAnalyzeFromFile(libeyr_String sourceCode, Arena* a);
 libeyr_String readSourceFile(libeyr_String fName, Arena* a);
 libeyr_CompResult* getCompResult(CM);
 TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
+Int libeyr_sizeOfType(TypeId t, Arr(Int) types);
 Int libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types);
 TypeId libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int ind, Arr(Int) types);
 libeyr_CompResult* libeyr_compileFile(libeyr_String filename);

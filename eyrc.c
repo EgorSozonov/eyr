@@ -27,6 +27,7 @@ typedef gcc_jit_result CgResult;
 typedef gcc_jit_lvalue LValue;
 typedef gcc_jit_rvalue RValue;
 typedef gcc_jit_struct Struct;
+typedef gcc_jit_location Loc;
 typedef enum gcc_jit_function_kind FnKind;
 typedef enum gcc_jit_types BuiltinType;
 typedef enum gcc_jit_comparison BuiltinComparison;
@@ -278,6 +279,11 @@ assign(LValue* left, RValue* right, CodeBlock* block) {
    gcc_jit_block_add_assignment(block, NULL, left, right);
 }
 
+private Loc* //:locOf
+locOf(SourceLoc loc, CG) {
+   return gcc_jit_context_new_location(cg->md, "a", loc.startLine, loc.startChar);
+}
+
 private Fn* //:importFn
 importFn(const char* name, int countParams, Arr(FnParam*) params,
       CgType* returnType, Bool isVariadic, Module* md
@@ -327,8 +333,8 @@ newFn(
 }
 
 private RValue* //:callParsed
-callParsed(Fn* fn, int countArgs, Arr(RValue*) args, Module* md) {
-   return gcc_jit_context_new_call(md, NULL, fn, countArgs, args);
+callParsed(Fn* fn, int countArgs, Arr(RValue*) args, Loc* loc, Module* md) {
+   return gcc_jit_context_new_call(md, loc, fn, countArgs, args);
 }
 
 private void //:evalExpr
@@ -476,7 +482,7 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
 
    switch (fn.emit) {
    case emitParsed: {
-      return callParsed(cg->functions[fnId], countArgs, args, cg->md);
+      return callParsed(cg->functions[fnId], countArgs, args, null, cg->md);
    }
    case emitAdd: {
       return builtinBinary(GCC_JIT_BINARY_OP_PLUS, retType, args[0], args[1]);
@@ -560,19 +566,19 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
       RValue* printfArgs[2];
       printfArgs[0] = cg->builtins.formatInt;
       printfArgs[1] = args[0];
-      return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
+      return callParsed(cg->builtins.printer, 2, printfArgs, null, cg->md);
    }
    case emitPrintDou: {
       RValue* printfArgs[2];
       printfArgs[0] = cg->builtins.formatDou;
       printfArgs[1] = args[0];
-      return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
+      return callParsed(cg->builtins.printer, 2, printfArgs, null, cg->md);
    }
    case emitPrintStr: {
       RValue* printfArgs[2];
       printfArgs[0] = cg->builtins.formatStr;
       printfArgs[1] = args[0];
-      return callParsed(cg->builtins.printer, 2, printfArgs, cg->md);
+      return callParsed(cg->builtins.printer, 2, printfArgs, null, cg->md);
    }
    }
    return null; // unreachable
@@ -599,11 +605,6 @@ newStructWithSuffix(NameId nameId, Int suffix, Int countFields, Arr(Field*) fiel
    Int suffixWritten = snprintf(cg->buffer + lenName, 50, "_%d", suffix);
    cg->buffer[lenName + suffixWritten] = '\0';
    return gcc_jit_context_new_struct_type(cg->md, null, cg->buffer, countFields, fields);
-}
-
-private RValue* //:getSizeof
-getSizeof(CgType* t, CG) {
-   return gcc_jit_context_new_sizeof(cg->md, t);
 }
 
 private RValue* //:initializeStruct
@@ -891,10 +892,10 @@ stringConst(Int startBt, Int lenBts, Codegen* cg) {
 // of the string constant to a \0 character, let libgccjit copy it to its internals, then change
 // back so the source code is unchanged.
    StringBuilder sourceCode = cg->compResult.sourceCode;
-   sourceCode.c[loc.startBt + loc.lenBts - 1] = '\0';
+   sourceCode.c[startBt + lenBts - 1] = '\0';
    RValue* newConstant =
-      gcc_jit_context_new_string_literal(cg->md, (char const*)(sourceCode.c + loc.startBt + 1));
-   sourceCode.c[loc.startBt + loc.lenBts - 1] = '`';
+      gcc_jit_context_new_string_literal(cg->md, (char const*)(sourceCode.c + startBt + 1));
+   sourceCode.c[startBt + lenBts - 1] = '`';
    return newConstant;
 }
 
@@ -1168,20 +1169,21 @@ simpleExpr(Int start, Int sentinel, AST, CG) {
 }
 
 private RValue* //:allocateArray
-allocateCgArray(TypeId concreteType, RValue* length, CG) {
+allocateCgArray(TypeId concreteType, RValue* length, Loc* loc, CG) {
    TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
    TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
    CgType* eltTypeCg = cgType(eltType, cg).c;
    RValue* mallocArg = builtinBinary( // len * sizeof(Elt)
       GCC_JIT_BINARY_OP_MULT,
       cg->types[tokInt].c,
-      getSizeof(eltTypeCg, cg),
+      intConst(libeyr_sizeOfType(eltType, cg->compResult.types.c), cg),
       length
    );
 
    RValue* vals[2];
-   vals[0] =
-      ptrCast(callParsed(cg->builtins.memAlloc, 1, &mallocArg, cg->md), ptrOf(eltTypeCg), cg->md);
+   vals[0] = ptrCast(
+      callParsed(cg->builtins.memAlloc, 1, &mallocArg, null, cg->md), ptrOf(eltTypeCg), cg->md
+   );
    vals[1] = length;
    // Array{ .c = malloc(...), .len = ... };
    return initializeStruct(concreteType, (((LRValuePtr){.c = vals, .len = 2})), cg);
@@ -1191,7 +1193,7 @@ private RValue* //:allocateArray
 allocateCgArrayKnownLength(TypeId concreteType, Int len, CG) {
    RValue* length = intConst(len, cg);
    if (length > 0) {
-      return allocateCgArray(concreteType, length, cg);
+      return allocateCgArray(concreteType, length, null, cg);
    } else {
       TypeHeader hdr = libeyr_readTypeHeader(concreteType, cg->compResult.types.c);
       TypeId eltType = libeyr_typeGetGenericArg(concreteType, hdr, 0, cg->compResult.types.c);
@@ -1205,7 +1207,7 @@ allocateCgArrayKnownLength(TypeId concreteType, Int len, CG) {
 }
 
 private RValue* //:dataLitAssignment
-dataLitAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
+dataLitAssignment(LValue* lValue, Node nd, Int sentinel, Loc* loc, AST, CG) {
 // Precondition: we are 1 past the nodAssignment
    TypeId concreteType = typeOf(nd.pl1);
    Bool knowElements = nd.pl3 < BIG;
@@ -1218,7 +1220,7 @@ dataLitAssignment(LValue* lValue, Node nd, Int sentinel, AST, CG) {
       len = 0;
       lenR = expr(ast[cg->i + 1], sentinel, ast, cg);  
    }
-   RValue* arr = allocateCgArray(concreteType, lenR, cg);
+   RValue* arr = allocateCgArray(concreteType, lenR, loc, cg);
    assign(lValue, arr, cg->cbl.c);
 
    if (knowElements) { // loop over the atoms or simpleExprs, setting the array elements
@@ -1240,16 +1242,16 @@ private void //:simpleAssignment
 simpleAssignment(Node nd, Int sentinel, AST, CG) {
 // The left side is a single var, right side is a simpleExpr or a data alloc
 // Consumes the whole assignment
-
    Node varNode = ast[cg->i];
    Int varId = varNode.pl1;
    Node rightSide = ast[cg->i + 1];
+   SourceLoc loc = cg->compResult.sourceLocs.c[cg->i + 1];
    cg->i += 2;
 
    mbRegisterNewVar(varNode, cg);
    LValue* lValue = cg->vars[varId];
    if (rightSide.tp == nodDataLit) {
-      dataLitAssignment(lValue, rightSide, sentinel, ast, cg);
+      dataLitAssignment(lValue, rightSide, sentinel, locOf(loc, cg), ast, cg);
    } else {
       assign(lValue, simpleExpr(cg->i - 1, sentinel, ast, cg), cg->cbl.c);
    }
