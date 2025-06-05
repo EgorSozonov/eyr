@@ -3817,11 +3817,14 @@ pAssignment(Token tok, TOKENS, CM) {
 }
 
 private void //:reorderFor
-reorderFor(Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int sentinel, TOKENS, CM) {
+reorderFor(
+   Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int sentinel, TOKENS, CM
+) {
 // Reorders tokens in a "for" loop. Preconditions: we are looking at (tokFor + 2),
 // one or both of stepIndInitial, bodyInd is positive.
 // BEFORE: tokFor misc (scope inits cond steps) body
 // AFTER:  tokFor (scope inits cond) body misc steps
+   // If we're monomorphizin', this function may have been already transformed, so we just return
    Int totalLen = sentinel - scopeStart + 1; // +1 for the tokMisc which is before the scope
    Int scopeLen = minPositiveOf(2, stepInd, bodyInd) - scopeStart - 1;
    LToken* const buf = cm->expr->reorderBuf;
@@ -3924,12 +3927,14 @@ pFor(Token forTk, TOKENS, CM) {
    Int stepInd = 0; // index of stepping code (or 0 if there was none)
    Int const forNodeInd = cm->ast.len;
 
-   print("for i %d scope start %d token type %d", cm->i, scopeStart, tokens[scopeStart].tp);
-   VALIDATEP(tokens[scopeStart].tp == tokScope, errLoopSyntaxError)
+   if (tokens[cm->i].tp == tokMisc) {
+      // the loop hasn't been reordered yet. It will already be in case of multiple monomorphizations
+      VALIDATEP(tokens[scopeStart].tp == tokScope, errLoopSyntaxError)
 
-   // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
-   preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, tokens, cm);
-   reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, tokens, cm);
+      // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
+      preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, tokens, cm);
+      reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, tokens, cm);
+   }
 
    Int const newScopeStart = scopeStart - 1;
    openParsedScope(sentinel, (Node){.tp = nodFor }, interOf(forTk), cm);
@@ -4225,6 +4230,9 @@ subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKENS, CM) {
    } else {
       // the `foo a b c` case
       Token theCall = tokens[start];
+      if (theCall.tp != tokWord) {
+         print("ERR at start %d tok tp %d", start, theCall.tp);
+      }
       VALIDATEP(theCall.tp == tokWord, errExpressionFunctionless);
       add(
          ((ExprFrame) {
@@ -6193,7 +6201,6 @@ getFirstParamType(TypeId t, CM) {
 private TypeId //:getFirstParamInd
 getFirstParamInd(TypeId funcTypeId, CM) {
 // Gets the ind of the first param of a function. Precondition: function is not nullary!
-   TypeHeader hdr = typeReadHeader(funcTypeId, cm);
    return typeOf(funcTypeId.v + TYPE_PREFIX);
 }
 
