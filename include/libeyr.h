@@ -386,7 +386,6 @@ struct StructField { //:StructField Struct field names + access are in a separat
 
 typedef struct { //:TypeHeader
    Byte sort;    // "sor" constants above
-   Byte tyrity;  // "tyrity" = type arity, the number of type parameters
    Byte arity;   // for function types, equals arity + 1. For structs, number of fields
    Bool isGeneric;
    NameLoc name;

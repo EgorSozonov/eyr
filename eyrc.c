@@ -842,7 +842,6 @@ registerTypes(CG) {
    LFieldPtr* fields = createLFieldPtr(countFields, cg->a);
    print("count of all: concrete types %d fields %d %p", cg->countConcreteTypes, countFields, fields)
    cg->concreteFields = *fields;
-
    registerPrimitiveTypes(cg);
    registerCompositeTypes(cg);
 }

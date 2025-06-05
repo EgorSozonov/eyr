@@ -2,15 +2,15 @@ fn multiply [[A [A Int]] [A [A Int]] -> [A [A Int]]] f{
    a b ->
    rows = a.len;
    cols = b[0].len;
-   middle = a[0].len;
+   middle = a[0].len; // == b.len but we don't validate
    res = [@[A Int] rows];
    for {i' = 0; i < rows; i++; } {
-      rw [A Int] = a[i];
+      aRow [A Int] = a[i];
       newRow = [@Int cols];
       for {j' = 0; j < cols; j++; } {
          elt' = 0;
          for {k' = 0; k < middle; k++; } {
-            elt += rw[k] * b[k][j];
+            elt += aRow[k] * b[k][j];
          }
          newRow[j] = elt;
       }
@@ -34,3 +34,4 @@ fn main [-> Int] f{
    print `]`; 
    return 0;
 }
+
