@@ -449,6 +449,7 @@ private void tFreshState(TExpr* st);
 //~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 private Int calcSentinel(Token tok, Int tokInd);
+private void reorderFor(Int scopeStart, Int sentinel, TOKENS, LX); 
 
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
@@ -1614,7 +1615,6 @@ struct Expr { //:Expr State for parsing expressions
    LNode* scr;          // "Scratch". Draft nodes written to during expression parsing
    LChInterval* locsScr; // SourceLocs for @scr
    Bool metAnAllocation;    // if we've met an allocation, we need to emit sub-expression nodes
-   LToken* reorderBuf;  // Buffer for reordering tokens for mutation assignments
 };
 
 struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
@@ -1673,6 +1673,8 @@ struct Compiler { // :Compiler
    LBtToken* lexBtrack;    // [aTmp]
    LUnt* names; // Operators, then standard strings, then imported ones, then
                                // parsed. Contains NameLoc pointing into @sourceCode
+                               
+   LToken* reorderBuf;  // Buffer for reordering tokens for mutation assignments
    StringDict* stringDict;
 
    // PARSING
@@ -3001,6 +3003,94 @@ lexParenRight(SRC, LX) {
    lx->i++; // CONSUME the closing ")"
 }
 
+private void //:preambleFor
+preambleFor(Int scopeStart, Int sentinel,
+   OUT Int* condInd, OUT Int* bodyInd, OUT Int* stepInd, TOKENS, LX
+) {
+// Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
+// Consumes no tokens
+// A "for" syntax form is quadripartite:
+// 1) var inits (they must all be assignments),
+// 2) the condition (must be an expression),
+// 3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
+// 4) loop body (arbitrary syntax forms).
+// Precondition: looking at the tokScope right after tokFor.
+// Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
+   Int const scopeSentinel = calcSentinel(tokens[scopeStart], scopeStart);
+   Int j = scopeStart + 1;
+   for (Token currTok = tokens[j];
+        (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
+        currTok = tokens[j]) {
+      j = calcSentinel(currTok, j);
+      VALIDATEL(j < sentinel, errLoopEmptyStepBody)
+   }
+   VALIDATEL(j < scopeSentinel, errLoopNoCondition)
+
+   Token condTok = tokens[j];
+   VALIDATEL((condTok.tp == tokStmt && condTok.pl2 > 0) || condTok.tp == tokBool,
+             errLoopNoCondition)
+   *condInd = j;
+
+   j = calcSentinel(condTok, j); // skipping the cond
+   VALIDATEL(j < sentinel, errLoopEmptyStepBody);
+   *stepInd = j;
+   for (Token currTok = tokens[j]; j < scopeSentinel; currTok = tokens[j]) {
+      VALIDATEL(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
+                errLoopWrongFormInStepper);
+      j = calcSentinel(currTok, j);
+   }
+
+   *bodyInd = (j < sentinel) ? j : 0;
+   VALIDATEL((*stepInd) + (*bodyInd) > 0, errLoopEmptyStepBody)
+}
+
+private void //:reorderFor
+reorderFor(Int scopeStart, Int sentinel, TOKENS, LX) {
+// Reorders tokens in a "for" loop. Preconditions: we are looking at (tokFor + 2),
+// one or both of stepIndInitial, bodyInd is positive.
+// BEFORE: tokFor misc (scope inits cond steps) body
+// AFTER:  tokFor (scope inits cond) body misc steps
+
+   Int condInd, stepInd, bodyInd;
+   preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, tokens, lx);
+
+   Int totalLen = sentinel - scopeStart + 1; // +1 for the tokMisc which is before the scope
+   Int scopeLen = minPositiveOf(2, stepInd, bodyInd) - scopeStart - 1;
+   LToken* const buf = lx->reorderBuf;
+   Token stepMarker = tokens[lx->i];
+   Token scope = tokens[scopeStart];
+   scope.pl2 = scopeLen;
+
+   ensureCapacityTokenBuf(totalLen, buf, lx);
+   Int sndInd = minPositiveOf(2, stepInd, condInd);
+
+   Int const piece1Start = scopeStart + 1; // piece1 = assignments (if any) and condition
+   Int const piece1Len = sndInd - piece1Start;
+   Int const stepStart = stepInd;
+   Int const stepLen = stepInd > 0 ? (minPositiveOf(2, bodyInd, sentinel) - stepInd) : 0;
+   Int const bodyStart = bodyInd;
+   Int const bodyLen = bodyInd > 0 ? sentinel - bodyInd : 0;
+
+   // shifting piece 1 by one token back
+   buf->c[0] = scope;
+   memcpy(buf->c + 1, tokens + piece1Start, piece1Len*sizeof(Token));
+   if (bodyLen > 0) {
+      memcpy(buf->c + 1 + piece1Len, tokens + bodyStart, bodyLen*sizeof(Token));
+   }
+   buf->c[1 + piece1Len + bodyLen] = (Token){
+      .tp = tokMisc, .pl1 = miscForStep, .startBt = stepMarker.startBt
+   };
+   if (stepLen > 0) {
+      memcpy(buf->c + 1 + piece1Len + bodyLen + 1, tokens + stepStart, stepLen*sizeof(Token));
+   }
+
+   memcpy(tokens + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
+
+   Int const newStart = scopeStart - 1;
+   tokens[newStart].pl2 = scopeLen;
+   condInd--;
+   bodyInd = newStart + 1 + piece1Len;
+}
 
 private void //:lexFn
 lexFn(SRC, LX) {
@@ -3067,6 +3157,8 @@ lexCurlyRight(SRC, LX) {
          top = removeLast(bt);
          setSpanLengthLexer(top.tokenInd, lx);
       }
+   } ei (top.tp == tokFor) {
+      reorderFor(top.tokenInd, lx->i, lx->tokens.c, lx);
    }
    lx->i++; // CONSUME the "}"
 }
@@ -3790,6 +3882,9 @@ pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
 // Looks at a tokToplevelFn or tokAssignment to determine its key points: where is the right side,
 // is it a function definition, is the right side empty etc. Consumes no tokens.
 // Precondition: tokInd is 1 past the "tok"
+   if (tokInd == 199) {
+      printLexer(cm);
+   }
    Int const sentinel = calcSentinel(tok, tokInd - 1);
    Int indRight = tokInd;
    NameId firstTokenName = tokens[tokInd].pl1;
@@ -3816,94 +3911,6 @@ pAssignment(Token tok, TOKENS, CM) {
    }
 }
 
-private void //:reorderFor
-reorderFor(
-   Int scopeStart, OUT Int* condInd, Int stepInd, OUT Int* bodyInd, Int sentinel, TOKENS, CM
-) {
-// Reorders tokens in a "for" loop. Preconditions: we are looking at (tokFor + 2),
-// one or both of stepIndInitial, bodyInd is positive.
-// BEFORE: tokFor misc (scope inits cond steps) body
-// AFTER:  tokFor (scope inits cond) body misc steps
-   // If we're monomorphizin', this function may have been already transformed, so we just return
-   Int totalLen = sentinel - scopeStart + 1; // +1 for the tokMisc which is before the scope
-   Int scopeLen = minPositiveOf(2, stepInd, bodyInd) - scopeStart - 1;
-   LToken* const buf = cm->expr->reorderBuf;
-   Token stepMarker = tokens[cm->i];
-   Token scope = tokens[scopeStart];
-   scope.pl2 = scopeLen;
-
-   ensureCapacityTokenBuf(totalLen, buf, cm);
-   Int sndInd = minPositiveOf(2, stepInd, condInd);
-
-   Int const piece1Start = scopeStart + 1; // piece1 = assignments (if any) and condition
-   Int const piece1Len = sndInd - piece1Start;
-   Int const stepStart = stepInd;
-   Int const stepLen = stepInd > 0 ? (minPositiveOf(2, *bodyInd, sentinel) - stepInd) : 0;
-   Int const bodyStart = *bodyInd;
-   Int const bodyLen = *bodyInd > 0 ? sentinel - (*bodyInd) : 0;
-
-   // shifting piece 1 by one token back
-   buf->c[0] = scope;
-   memcpy(buf->c + 1, tokens + piece1Start, piece1Len*sizeof(Token));
-   if (bodyLen > 0) {
-      memcpy(buf->c + 1 + piece1Len, tokens + bodyStart, bodyLen*sizeof(Token));
-   }
-   buf->c[1 + piece1Len + bodyLen] = (Token){
-      .tp = tokMisc, .pl1 = miscForStep, .startBt = stepMarker.startBt
-   };
-   if (stepLen > 0) {
-      memcpy(buf->c + 1 + piece1Len + bodyLen + 1, tokens + stepStart, stepLen*sizeof(Token));
-   }
-
-   memcpy(tokens + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
-
-   Int const newStart = scopeStart - 1;
-   tokens[newStart].pl2 = scopeLen;
-   (*condInd)--;
-   (*bodyInd) = newStart + 1 + piece1Len;
-}
-
-private void //:preambleFor
-preambleFor(Int scopeStart, Int sentinel,
-   OUT Int* condInd, OUT Int* bodyInd, OUT Int* stepInd, TOKENS, CM
-) {
-// Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
-// Consumes no tokens
-// A "for" syntax form is quadripartite:
-// 1) var inits (they must all be assignments),
-// 2) the condition (must be an expression),
-// 3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
-// 4) loop body (arbitrary syntax forms).
-// Precondition: looking at the tokScope right after tokFor.
-// Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
-   Int const scopeSentinel = calcSentinel(tokens[scopeStart], scopeStart);
-   Int j = scopeStart + 1;
-   for (Token currTok = tokens[j];
-        (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
-        currTok = tokens[j]) {
-      j = calcSentinel(currTok, j);
-      VALIDATEP(j < sentinel, errLoopEmptyStepBody)
-   }
-   VALIDATEP(j < scopeSentinel, errLoopNoCondition)
-
-   Token condTok = tokens[j];
-   VALIDATEP((condTok.tp == tokStmt && condTok.pl2 > 0) || condTok.tp == tokBool,
-             errLoopNoCondition)
-   *condInd = j;
-
-   j = calcSentinel(condTok, j); // skipping the cond
-   VALIDATEP(j < sentinel, errLoopEmptyStepBody);
-   *stepInd = j;
-   for (Token currTok = tokens[j]; j < scopeSentinel; currTok = tokens[j]) {
-      VALIDATEP(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
-                errLoopWrongFormInStepper);
-      j = calcSentinel(currTok, j);
-   }
-
-   *bodyInd = (j < sentinel) ? j : 0;
-   VALIDATEP((*stepInd) + (*bodyInd) > 0, errLoopEmptyStepBody)
-}
-
 private void //:pFor
 pFor(Token forTk, TOKENS, CM) {
 // For loops. Look like "for x' = 0;  x < 100; x++ {  ... }"
@@ -3919,22 +3926,12 @@ pFor(Token forTk, TOKENS, CM) {
 //          step(s)
 
    Int const sentinel = calcSentinel(forTk, cm->i - 1);
-   Int const scopeStart = cm->i + 1; // index of the tokScope inside tokFor, skipping the tokMisc
-
+   Int const scopeStart = cm->i;
    
    Int condInd; // index of condition
    Int bodyInd = 0; // index of loop body
    Int stepInd = 0; // index of stepping code (or 0 if there was none)
    Int const forNodeInd = cm->ast.len;
-
-   if (tokens[cm->i].tp == tokMisc) {
-      // the loop hasn't been reordered yet. It will already be in case of multiple monomorphizations
-      VALIDATEP(tokens[scopeStart].tp == tokScope, errLoopSyntaxError)
-
-      // sets inds to 0 if not found. At least bodyInd is guaranteed to be positive
-      preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, tokens, cm);
-      reorderFor(scopeStart, OUT &condInd, stepInd, OUT &bodyInd, sentinel, tokens, cm);
-   }
 
    Int const newScopeStart = scopeStart - 1;
    openParsedScope(sentinel, (Node){.tp = nodFor }, interOf(forTk), cm);
@@ -4252,7 +4249,9 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
 // Consumes 0 or 1 tokens.
    Int parensSentinel = calcSentinel(cTk, cm->i);
    ChInterval loc = interOf(cTk);
+   print("parens sent %d @%d", parensSentinel, cm->i);
    if (parensSentinel == cm->i + 2) { // A nullary call like `(call)`
+      print("inside  @%d", parensSentinel, cm->i);
       Token callTk = tokens[cm->i + 1];
       ChInterval callLoc = interOf(callTk);
       if (parent.tp == exfrDataAlloc) {
@@ -5187,6 +5186,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
       .lexBtrack = createLBtToken(16, aTmp),
       .names = copyNames(PROTO.names, a),
       .stringDict = copyStringDict(PROTO.stringDict, a),
+      .reorderBuf = createLToken(16*sizeof(Token), a),
       .stats = PROTO.stats,
       .a = a, .aTmp = aTmp
    };
@@ -5219,7 +5219,6 @@ initializeParser(Compiler* lx, Arena* a) {
       .frames = createLExprFrame(16*sizeof(ExprFrame), a),
       .scr = createLNode(16*sizeof(Node), a),
       .locsScr = createLChInterval(16*sizeof(ChInterval), a),
-      .reorderBuf = createLToken(16*sizeof(Token), a)
    };
    cm->expr = stForExprs;
 
@@ -5487,6 +5486,7 @@ private void //:pToplevelBodyWorker
 pToplevelBodyWorker(
       Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, Byte callSort, TOKENS, CM
 ) {
+   print("TOPLEVLE %d", tokenInd);
    cm->i = tokenInd + 2; // skipping the tokToplevelFn and tokWord (fn name)
    if (tokens[cm->i].tp == tokType)
       { cm->i = calcSentinel(tokens[cm->i], cm->i); } // skipping the function type
@@ -5601,7 +5601,7 @@ void //:parseMain
 parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
-      printLexer(cm);
+      //printLexer(cm);
 
       pToplevelTypes(cm);
       // This gives the complete overloads & overloadIds tables + list of toplevel functions
