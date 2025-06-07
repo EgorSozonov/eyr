@@ -440,7 +440,6 @@ private TypeId tFunctionReturnType(TypeId t, CM);
 private TypeId tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM);
 private TypeId tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM);
 private void teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM);
-private TypeId teMergeParam(NameId name, TExpr* restrict te, CM);
 private Int teMergeParam2(NameId name, TExpr* restrict te, CM);
 
 private TypeId tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM);
@@ -3012,7 +3011,7 @@ private void //:preambleFor
 preambleFor(
    Int forStart, Int bodyInd, Int sentinel, OUT Int* condInd, OUT Int* stepInd, TOKENS, LX
 ) {
-// Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
+// Analyzes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
 // Consumes no tokens
 // A "for" syntax form is quadripartite:
 // 1) var inits (they must all be assignments),
@@ -3020,15 +3019,16 @@ preambleFor(
 // 3) statements for stepping to the next iteration (must be expressions, assignments or asserts),
 // 4) loop body (arbitrary syntax forms).
 // Precondition: looking at the tokScope right after tokFor.
-// Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
+// Postcond: at least 1 of "condInd" & "stepInd" is guaranteed to be found (=> positive)
    Int j = forStart + 2; // skipped tokFor and tokMisc
+   
    for (Token currTok = tokens[j];
         (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
         currTok = tokens[j]) {
       j = calcSentinel(currTok, j);
       VALIDATEL(j < sentinel, errLoopEmptyStepBody)
    }
-   VALIDATEL(j < sentinel, errLoopNoCondition)
+   VALIDATEL(j < sentinel && (bodyInd == 0 || j < bodyInd), errLoopNoCondition)
 
    Token condTok = tokens[j];
    VALIDATEL((condTok.tp == tokStmt && condTok.pl2 > 0) || condTok.tp == tokBool,
@@ -5587,14 +5587,14 @@ parseMain(CM, Arena* a) {
       validateOverloadsFull(cm);
 #endif
 
-      dbgAllTypes(cm);
       // The main parse (all top-level function bodies)
       pFunctionBodies(toks, cm);
       // Parse & typecheck all the necessary monomorphized versions of generic functions
       generateMonomorphizations(toks, cm);
       updateStats(cm);
 
-      //printParser(cm);
+      printParser(cm);
+      //dbgAllTypes(cm);
    } else {
 #ifndef TEST
       print("Exception!");
@@ -5961,41 +5961,11 @@ tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
 
 private Int //:teMergeParam2
 teMergeParam2(NameId name, TExpr* restrict te, CM) {
-   for (Int j = 0; j < te->frames->len - 1; j++) {
+   for (Int j = 0; j < te->frames->len; j++) {
       te->frames->c[j].isGeneric = true;
    }
    add(-name - 1, te->exp);
    return -name - 1;
-}
-
-private TypeId //:teMergeParam
-teMergeParam(NameId name, TExpr* restrict te, CM) {
-// Creates/reuses a type of sorGenericParam for a newly encountered type param
-   LInt* params = te->tParams;
-   Int deBruijnIndex = -1;
-   for (Int j = 0; j < params->len; j += 2) {
-      if (params->c[j] == name) {
-         deBruijnIndex = j;
-         break;
-      }
-   }
-   if (deBruijnIndex == -1)  {
-      deBruijnIndex = params->len;
-      add(name, params);
-   }
-
-   TYPE_CREATE_START(
-      ((TypeHeader){ .sort = sorGenericParam, .arity = 0, .name = deBruijnIndex,
-         .isGeneric = true })
-   );
-   TYPE_CREATE_END;
-   TypeId paramType = mergeType(tentativeType, cm);
-
-   add(paramType.v, te->exp);
-   for (Int j = 0; j < te->frames->len - 1; j++) {
-      te->frames->c[j].isGeneric = true;
-   }
-   return paramType;
 }
 
 private TypeId //:tCreateFnTypeCall
@@ -6275,9 +6245,12 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    if (name == opSize) { 
       Int argumentType = exp->c[exp->len - 1];
       TypeId outer = typeGetOuter(typeOf(argumentType), cm);
-      if (outer.v == cm->stats.arrayType || outer.v == cm->stats.listType) {
+      if (outer.v == cm->stats.arrayType || outer.v == cm->stats.listType || outer.v == tokString) {
          // field 0 is content, 1 is len. see {buildPreludeTypes}
-         cm->ast.c[cm->j] = (Node){.pl1 = argumentType, .pl2 = 1, .pl3 = callField};
+         if (outer.v == tokString) {
+            print("writing field to %d, argType %d", cm->j, argumentType);
+         }
+         cm->ast.c[cm->j] = (Node){.tp = nodCall, .pl1 = argumentType, .pl2 = 1, .pl3 = callField};
          exp->c[exp->len - 1] = tokInt;
          return;
       }
@@ -6655,9 +6628,6 @@ tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
 
       tGenericTryUnifyTreeNodes(g, c, te->genericSt, te->concreteSt, cm);
    }
-//~   for (Int j = 0; j < te->tParams->len; j++) {
-//~      VALIDATEP(te->tParams->c[j] > -1, errTypeGenericCallDoesntUnify)
-//~   }
    return tGenericSubstituteParams(tFunctionReturnType(generic, cm), cm);
 }
 
@@ -6684,9 +6654,9 @@ tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
    ensureCapacityTypes(sizeArgs + 2, cm); // +2 for the size (in front) and return type (in back)
 
    cm->types.c[tentativeType] = sizeArgs + 1;
-   cm->types.len++;
    TypeHeader argsHdr = typeReadHeader(args, cm);
    TypeHeader fullHdr = argsHdr;
+   cm->types.len++;
    fullHdr.arity++; // for the return type
    typeAddHeader(fullHdr, cm);
 
@@ -6696,7 +6666,7 @@ tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
       4*sizeArgs - sizeof(TypeHeader)
    );
    cm->types.c[tentativeType + sizeArgs + 1] = returnType.v;
-   cm->types.len += (sizeArgs + 2);
+   cm->types.len += (sizeArgs - sizeof(TypeHeader)/4 + 1); // +1 for the size
 
    return mergeType(typeOf(tentativeType), cm);
 }
@@ -6711,6 +6681,7 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 // function type is not unifiable with the arg types).
    Int arity = end - start;
    ensureCapacityTypes(arity + TYPE_PREFIX + 1, cm);
+   
    // For `F Int Str -> Double` this will look like `F Int -> Str`, i.e. the return type is missing
    TYPE_CREATE_START(((TypeHeader){ .sort = sorDeclare, .arity = arity,
       .name = nameOfStd(strF), .isGeneric = false, .size = 8 }));
@@ -6818,9 +6789,11 @@ Int
 equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
 // Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
 // differing token otherwise
-   if (a->wasError != b->wasError
-         || !endsWith(a->errMsg, b->errMsg)) {
+   if (a->wasError != b->wasError || !endsWith(a->errMsg, b->errMsg)) {
       return -1;
+   }
+   if (b->wasError) {
+      return equal(a->errMsg, b->errMsg) ? -2 : -1;
    }
    int commonLength = a->tokens.len < b->tokens.len ? a->tokens.len : b->tokens.len;
    int i = 0;
@@ -7515,8 +7488,10 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
             : ((SliUnt){.len = 0, .c = null}),
       .a = cm->a,
       .stats = cm->stats,
-      .wasParserError = cm->wasError
+      .wasLexerError = (cm->ast.c == null ? cm->wasError : false),
+      .wasParserError = (cm->ast.c == null ? false : cm->wasError)
    };
+   print("types len is %d but %d", cm->types.len, cr->types.len);
 }
 
 //}}}

@@ -822,7 +822,7 @@ registerCompositeTypes(CG) {
    LCgTypePtr* buffer = createLCgTypePtr(16, cg->a);
    CompResult* cr = &(cg->compResult);
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
-   print("REGISTERING type %d", j);
+   
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (hdr.isGeneric)
          { continue; }
@@ -1650,13 +1650,13 @@ registerFn(FunctionId toplevelId, CR, CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
-print("write toplevel %d", toplevelId);
+print("TOPLE %d @%d", toplevelId, cg->i);
    Function eyrFn = cr->functions.c[toplevelId];
+prepareName(eyrFn.name, cg);
+print("%s", cg->buffer);
 
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
       { return; }
-
-print(" toplevel %d", toplevelId)
    cg->currFn = cg->functions[toplevelId];
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
    TypeHeader hdr = libeyr_readTypeHeader(eyrFn.typeId, cr->types.c);
@@ -1681,7 +1681,6 @@ print(" toplevel %d", toplevelId)
    cg->i = eyrFn.nodeInd + arity + 1; // CONSUME nodToplevelFn and the parameters
 
    for (; cg->i < fnSentinel;) {
-  print("loopin %d", cg->i); 
       Node nd = cr->ast.c[cg->i];
       Int const sentinel = calcNodeSentinel(nd, cg->i);
       if (cg->futureBlocks->len > 0 && last(cg->futureBlocks).start == cg->i)  {
@@ -1908,7 +1907,6 @@ main(int argc, char** argv) {
 
    CompResult* compResult = libeyr_compileFile(str("program.eyr"));
 
-
    Codegen* cg;
    if (setjmp(excBuf) == 0) {
       cg = generateCode(compResult);
@@ -1923,10 +1921,10 @@ main(int argc, char** argv) {
 
    Module* md = cg->md;
    
-   gcc_jit_context_add_command_line_option(md, "-freport-bug");
-   gcc_jit_context_add_command_line_option(md, "-g3");
-   
-   gcc_jit_context_set_logfile(md, stderr, 0, 0);
+//~   gcc_jit_context_add_command_line_option(md, "-freport-bug");
+//~   gcc_jit_context_add_command_line_option(md, "-g3");
+//~   
+//~   gcc_jit_context_set_logfile(md, stderr, 0, 0);
    gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "compiledProgram");
 
    gcc_jit_result* result = gcc_jit_context_compile(md);

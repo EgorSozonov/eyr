@@ -134,6 +134,8 @@ extern char const errOperatorMutationInDef[];
 extern char const errCoreNotInsideStmt[];
 extern char const errCoreMisplacedElse[];
 extern char const errCoreMissingParen[];
+extern char const errLoopEmptyStepBody[];
+extern char const errLoopNoCondition[];
 extern char const errIndentation[];
 extern char const errFnTypeArrows[];
 

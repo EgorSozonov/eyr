@@ -74,9 +74,8 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
 // it will be inserted as 1 + (the number of built-in bindings) etc
    Compiler* test = lexicallyAnalyze(sourceCode, a);
    Compiler* control = lexicallyAnalyze(sourceCode, a);
-
    CompResult* controlRes = getCompResult(control);
-   if (controlRes->wasLexerError == true) {
+   if (controlRes->wasLexerError || getCompResult(test)->wasLexerError) {
       return (ParserTest) {
          .name = name, .test = test, .control = control, .compareLocsToo = false };
    }
@@ -1251,7 +1250,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("For loop test set"), a, ((ParserTest[]){
       createTest(
          s("Simple loop"),
-         s("fn f  f{ for {x' = 1; x < 101; x += 1;} { print $x; } };"),
+         s("fn f  f{ for {x' = 1; x < 101; x += 1; -> print $x; } };"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 19, .pl3 = 0 },
             (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 18, .pl3 = 13 },
@@ -1282,7 +1281,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTest(
          s("For with two complex initializers"),
          s("fn f f{\n"
-           "   for {x' = 17; y' = x / 5; y < 101; x--; y++;}{\n"
+           "   for {x' = 17; y' = x / 5; y < 101; x--; y++; ->\n"
            "      print $x;}\n"
            "}"
            ),
@@ -1333,7 +1332,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          s("For without initializers"),
          s("fn f f{\n"
            "   x = 4;\n"
-           "   for {x < 101;}{ \n"
+           "   for {x < 101;-> \n"
            "      print $x; } };"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,       .pl2 = 13 },
@@ -1359,35 +1358,8 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("For loop without body"),
-         s("fn f f{ for {x' = 1; x < 101; x += 1;} {} }"),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 15, .pl3 = 0 },
-            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 14, .pl3 = 9 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,        .pl2 = 1 },
-
-            (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-
-            (Node){ .tp = nodScope,           .pl2 = 6},
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x += 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
-            (Node){ .tp = nodExpr, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
-            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTest(
          s("For loop with no step"),
-         s("fn o f{ for {x' = 1; x < 101; } { print $x; } }"),
+         s("fn o f{ for {x' = 1; x < 101; -> print $x; } }"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 13, .pl3 = 0 },
             (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 12, .pl3 = 13 },
@@ -1413,7 +1385,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTest(
          s("For with no initializers nor step"),
          s("fn u f{ x = 0;\n"
-           " for { x < 101;}{ print $x; } }"),
+           " for { x < 101;-> print $x; } }"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 13, .pl3 = 0 },
 
@@ -1439,7 +1411,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTest(
          s("For loop with no initalizers nor body"),
          s("fn a f{ x' = 7;\n"
-           " for {x < 101; x += 1;}{} }"),
+           " for {x < 101; x += 1;->} }"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 15, .pl3 = 0 },
             (Node){ .tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, // x = 0
@@ -1466,7 +1438,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       createTest(
          s("For loop with single-token condition"),
          s("fn y f{ x' = true;\n"
-           " for {x;} {x = not x;} }"),
+           " for {x; -> x = not x;} }"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 11, .pl3 = 0 },
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
@@ -1486,30 +1458,10 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((Int[]) {}),
          ((TestEntityImport[]) {})
       ),
-      createTestWithError(
-         s("For loop error: neither step nor body"),
-         s(errLoopEmptyStepBody),
-         s("fn o f{ for {x' = 1; x' < 101;} {} }"),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 0, .pl3 = 0 },
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
-      createTestWithError(
-         s("For loop error: no condition"),
-         s(errLoopNoCondition),
-         s("fn w f{ for {x' = 1; x = x + 1;}{ $x .print; } }"),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn,         .pl2 = 0, .pl3 = 0 },
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
       createTest(
          s("For with break and continue"),
          s("fn u f{\n"
-           "   for {x = 0; x < 301;} {\n"
+           "   for {x = 0; x < 301; ->\n"
            "      break;\n"
            "      continue;}\n"
            "}"
@@ -1534,41 +1486,16 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((Int[]) {}),
          ((TestEntityImport[]) {})
       ),
-      createTestWithError(
-         s("For with break error"),
-         s(errBreakContinueInvalidDepth),
-         s("fn e f{\n"
-           "   for {x = 0; x < 101;}{\n"
-           "      break 2;\n"
-           "} }"
-           ),
-         ((Node[]) {
-            (Node){ .tp = nodToplevelFn            },
-            (Node){ .tp = nodFor, .pl1 = 4    },
-
-            (Node){ .tp = nodAssignment,     .pl2 = 2, .pl3 = 2 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // x
-            (Node){ .tp = tokInt,          .pl2 = 0 },
-
-            (Node){ .tp = nodExpr,         .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 1 }, // x
-            (Node){ .tp = tokInt,        .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-            (Node){ .tp = nodScope }
-         }),
-         ((Int[]) {}),
-         ((TestEntityImport[]) {})
-      ),
       createTest(
          s("Nested for with deep break and continue"),
          s("fn h f{\n"
-           "   for {a = 0; a < 101;}{\n"
-           "      for {b = 0; b < 201;}{\n"
-           "         for {c = 0; c < 301;}{\n"
+           "   for {a = 0; a < 101; ->\n"
+           "      for {b = 0; b < 201; ->\n"
+           "         for {c = 0; c < 301; ->\n"
            "            break 3;}\n"
            "      }\n"
-           "      for {d = 0; d < 51;}{\n"
-           "         for {e = 0; e < 401;}{\n"
+           "      for {d = 0; d < 51;->\n"
+           "         for {e = 0; e < 401; ->\n"
            "            continue 2;}\n"
            "      }\n"
            "      print $a;\n"
@@ -1650,10 +1577,62 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((Int[]) {}),
          ((TestEntityImport[]) {})
       ),
+      createTest(
+         s("For loop without body"),
+         s("fn f f{ for {x' = 1; x < 101; x += 1;->} }"),
+         ((Node[]) {
+            (Node){ .tp = nodToplevelFn,         .pl2 = 15, .pl3 = 0 },
+            (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 14, .pl3 = 9 },
+
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x$ = 1
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+            (Node){ .tp = tokInt,        .pl2 = 1 },
+
+            (Node){ .tp = nodExpr, .pl2 = 3 }, // < x 101
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+            (Node){ .tp = tokInt,        .pl2 = 101 },
+            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+
+            (Node){ .tp = nodScope,           .pl2 = 6},
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // x += 1
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiReassignment },
+            (Node){ .tp = nodExpr, .pl2 = 3 },
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+            (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
+            (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
+         }),
+         ((Int[]) {}),
+         ((TestEntityImport[]) {})
+      ),
+      createTestWithError(
+         s("For with break error"),
+         s(errBreakContinueInvalidDepth),
+         s("fn e f{\n"
+           "   for {x = 0; x < 101;->\n"
+           "      break 2;\n"
+           "} }"
+           ),
+         ((Node[]) {
+            (Node){ .tp = nodToplevelFn            },
+            (Node){ .tp = nodFor, .pl1 = 4    },
+
+            (Node){ .tp = nodAssignment,     .pl2 = 2, .pl3 = 2 },
+            (Node){ .tp = nodVar, .pl1 = 1, .pl3 = assiVarAssignment }, // x
+            (Node){ .tp = tokInt,          .pl2 = 0 },
+
+            (Node){ .tp = nodExpr,         .pl2 = 3 },
+            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 1 }, // x
+            (Node){ .tp = tokInt,        .pl2 = 101 },
+            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+            (Node){ .tp = nodScope }
+         }),
+         ((Int[]) {}),
+         ((TestEntityImport[]) {})
+      ),
       createTestWithError(
          s("For with type error"),
          s(errTypeMustBeBool),
-         s("fn oo f{ for {x' = 1; x / 101;}{ print x; } }"),
+         s("fn oo f{ for {x' = 1; x / 101;-> print x; } }"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn },
             (Node){ .tp = nodFor },
