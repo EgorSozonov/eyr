@@ -96,6 +96,9 @@ typedef struct { // :Token
 
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
                            // Also stands for "Void" among the primitive types
+                           // Also works as a marker in "for" loops
+                           // Initially it's placed after tokFor and pl2 = token ind of body start
+                           // After {reorderFor}, it's placed right before stepping code after body
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
 #define tokTypeVar      7  // pl1 same as tokWord. The `$A`
 #define tokKwArg        8  // pl2 = same as tokWord. The ":argName"
@@ -150,10 +153,9 @@ typedef struct { // :Token
 #define slSubexpr        3 // parenthesized forms: newlines have no effect, semi-colons error out
 #define slClauseList     4 // a comma-separated list
 #define slUnbraced       5 // A scope that hasn't met its first brace, like an "if" before its "{"
-#define slSingleBraced   6 // A "for" scope that has met exactly 1 curly brace
-#define slFnTp           7 // `F[...]`
-#define slFnReturn       8 // `F[A -> B]` the `B` part (after exactly 1 arrow symbol)
-#define slToplevel       9 // `fn foo A -> B` A toplevel function declaration
+#define slFnTp           6 // `F[...]`
+#define slFnReturn       7 // `F[A -> B]` the `B` part (after exactly 1 arrow symbol)
+#define slToplevel       8 // `fn foo A -> B` A toplevel function declaration
 
 // List of keywords that don't correspond directly to a token.
 // Must all be below "firstSpanTokenType"
@@ -449,7 +451,7 @@ private void tFreshState(TExpr* st);
 //~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 private Int calcSentinel(Token tok, Int tokInd);
-private void reorderFor(Int scopeStart, Int sentinel, TOKENS, LX); 
+private void reorderFor(Int forStart, Int sentinel, TOKENS, LX); 
 
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
@@ -1876,7 +1878,7 @@ errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name
 char const
 errFnMissingBody[]  = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
 char const
-errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++}{ loopBody } `";
+errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++ -> loopBody } `";
 char const
 errLoopNoCondition[] = "A loop header should contain a condition";
 char const
@@ -2474,7 +2476,10 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
    } ei (reservedWordType == tokToplevelFn) {
       openPunctuation(tokToplevelFn, slToplevel, startBt, lx);
    } ei (reservedWordType == tokFor)  {
-      openPunctuation(tokFor, slUnbraced, startBt, lx);
+      skipSpaces(source, lx);
+      VALIDATEL(lx->i < lx->stats.inpLength && CURR_BT == aCurlyLeft, errLoopSyntaxError)
+      openPunctuation(tokFor, slScope, startBt, lx);
+      lx->i++; // CONSUME the `{`
       // placeholder, will be reordered in {pFor}
       pushIntokens(((Token){.tp = tokMisc, .pl1 = miscForStep0, .startBt = lx->i}), lx);
    } ei (reservedWordType >= firstScopeTokenType) {
@@ -2908,11 +2913,11 @@ lexArrow(SRC, LX) {
          lx->lexBtrack);
    } ei (top.spanLevel == slFnReturn) {
       throwExcLexer(errFnTypeArrows);
+   } ei (top.tp == tokFn) { // `f{ -> ... }`
+      goto consumeArrow;
+   } ei (top.tp == tokFor) {
+      lx->tokens.c[top.tokenInd + 1].pl2 = lx->tokens.len; // wrote loop body start ind to tokMisc
    } else { // `f{ a -> ...}`
-      if (top.tokenInd == lx->tokens.len - 1) {
-         VALIDATEL(top.tp == tokFn, errArrowOutOfPlace);
-         goto consumeArrow;
-      }
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
             && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace
       );
@@ -3004,8 +3009,8 @@ lexParenRight(SRC, LX) {
 }
 
 private void //:preambleFor
-preambleFor(Int scopeStart, Int sentinel,
-   OUT Int* condInd, OUT Int* bodyInd, OUT Int* stepInd, TOKENS, LX
+preambleFor(
+   Int forStart, Int bodyInd, Int sentinel, OUT Int* condInd, OUT Int* stepInd, TOKENS, LX
 ) {
 // Pre-processes a "for" loop and finds its key tokens: the loop condition, the stepper and body.
 // Consumes no tokens
@@ -3016,15 +3021,14 @@ preambleFor(Int scopeStart, Int sentinel,
 // 4) loop body (arbitrary syntax forms).
 // Precondition: looking at the tokScope right after tokFor.
 // Postcond: "condInd" & "bodyInd" are guaranteed to be found (=> positive)
-   Int const scopeSentinel = calcSentinel(tokens[scopeStart], scopeStart);
-   Int j = scopeStart + 1;
+   Int j = forStart + 2; // skipped tokFor and tokMisc
    for (Token currTok = tokens[j];
         (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
         currTok = tokens[j]) {
       j = calcSentinel(currTok, j);
       VALIDATEL(j < sentinel, errLoopEmptyStepBody)
    }
-   VALIDATEL(j < scopeSentinel, errLoopNoCondition)
+   VALIDATEL(j < sentinel, errLoopNoCondition)
 
    Token condTok = tokens[j];
    VALIDATEL((condTok.tp == tokStmt && condTok.pl2 > 0) || condTok.tp == tokBool,
@@ -3034,62 +3038,52 @@ preambleFor(Int scopeStart, Int sentinel,
    j = calcSentinel(condTok, j); // skipping the cond
    VALIDATEL(j < sentinel, errLoopEmptyStepBody);
    *stepInd = j;
-   for (Token currTok = tokens[j]; j < scopeSentinel; currTok = tokens[j]) {
+   Int const stepSentinel = bodyInd > 0 ? bodyInd : sentinel; 
+   for (Token currTok = tokens[j]; j < stepSentinel; currTok = tokens[j]) {
       VALIDATEL(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
                 errLoopWrongFormInStepper);
       j = calcSentinel(currTok, j);
    }
-
-   *bodyInd = (j < sentinel) ? j : 0;
-   VALIDATEL((*stepInd) + (*bodyInd) > 0, errLoopEmptyStepBody)
 }
 
 private void //:reorderFor
-reorderFor(Int scopeStart, Int sentinel, TOKENS, LX) {
+reorderFor(Int forStart, Int sentinel, TOKENS, LX) {
 // Reorders tokens in a "for" loop. Preconditions: we are looking at (tokFor + 2),
 // one or both of stepIndInitial, bodyInd is positive.
-// BEFORE: tokFor misc (scope inits cond steps) body
-// AFTER:  tokFor (scope inits cond) body misc steps
-
-   Int condInd, stepInd, bodyInd;
-   preambleFor(scopeStart, sentinel, OUT &condInd, OUT &bodyInd, OUT &stepInd, tokens, lx);
-
-   Int totalLen = sentinel - scopeStart + 1; // +1 for the tokMisc which is before the scope
-   Int scopeLen = minPositiveOf(2, stepInd, bodyInd) - scopeStart - 1;
+// BEFORE: tokFor tokMisc (inits) cond   steps body
+// AFTER:  tokFor (inits)    cond body tokMisc steps
+   Int condInd, stepInd ;
+   Int bodyInd = tokens[forStart + 1].pl2; // getting it from tokMisc
+   
+   preambleFor(forStart, bodyInd, sentinel, OUT &condInd, OUT &stepInd, tokens, lx);
+  
+   VALIDATEL(stepInd + bodyInd > 0, errLoopEmptyStepBody)
+   
+   Int totalLen = sentinel - forStart; // +1 for the tokMisc which is before the scope
+  
    LToken* const buf = lx->reorderBuf;
-   Token stepMarker = tokens[lx->i];
-   Token scope = tokens[scopeStart];
-   scope.pl2 = scopeLen;
 
    ensureCapacityTokenBuf(totalLen, buf, lx);
-   Int sndInd = minPositiveOf(2, stepInd, condInd);
+   Int sndInd = minPositiveOf(2, stepInd, bodyInd);
 
-   Int const piece1Start = scopeStart + 1; // piece1 = assignments (if any) and condition
+   Int const piece1Start = forStart + 2; // piece1 = assignments (if any) and condition
    Int const piece1Len = sndInd - piece1Start;
    Int const stepStart = stepInd;
    Int const stepLen = stepInd > 0 ? (minPositiveOf(2, bodyInd, sentinel) - stepInd) : 0;
+   Int const stepStartBt = stepInd > 0 ? tokens[stepInd].startBt : 0;
    Int const bodyStart = bodyInd;
    Int const bodyLen = bodyInd > 0 ? sentinel - bodyInd : 0;
+   
+   memcpy(buf->c, tokens + piece1Start, piece1Len*sizeof(Token));
+   if (bodyLen > 0)
+      { memcpy(buf->c + piece1Len, tokens + bodyStart, bodyLen*sizeof(Token)); }
+   buf->c[piece1Len + bodyLen] = (Token){.tp = tokMisc, .pl1 = miscForStep, .startBt = stepStartBt};
+   if (stepLen > 0)
+      { memcpy(buf->c + piece1Len + bodyLen + 1, tokens + stepStart, stepLen*sizeof(Token)); }
+   memcpy(tokens + forStart + 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
 
-   // shifting piece 1 by one token back
-   buf->c[0] = scope;
-   memcpy(buf->c + 1, tokens + piece1Start, piece1Len*sizeof(Token));
-   if (bodyLen > 0) {
-      memcpy(buf->c + 1 + piece1Len, tokens + bodyStart, bodyLen*sizeof(Token));
-   }
-   buf->c[1 + piece1Len + bodyLen] = (Token){
-      .tp = tokMisc, .pl1 = miscForStep, .startBt = stepMarker.startBt
-   };
-   if (stepLen > 0) {
-      memcpy(buf->c + 1 + piece1Len + bodyLen + 1, tokens + stepStart, stepLen*sizeof(Token));
-   }
-
-   memcpy(tokens + scopeStart - 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
-
-   Int const newStart = scopeStart - 1;
-   tokens[newStart].pl2 = scopeLen;
    condInd--;
-   bodyInd = newStart + 1 + piece1Len;
+   bodyInd = forStart  + piece1Len;
 }
 
 private void //:lexFn
@@ -3106,39 +3100,25 @@ lexFn(SRC, LX) {
 private void
 lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
 // Handles scope openings and decorative braces in "if" and "for" forms
-   if (NEXT_BT == aCurlyLeft) {
-      lexFn(source, lx);
-      return;
+   if (lx->lexBtrack->len == 0)
+      { goto punctuation; }
+   BtToken const top = last(lx->lexBtrack);
+   if (top.spanLevel == slStmt) {
+      // process the first curly brace in an "if ... {" form. If all is right,
+      // updates its span level to slScope, so further curly braces work as usual
+      Int const len = lx->lexBtrack->len;
+      VALIDATEL(len > 1 && lx->lexBtrack->c[len - 2].spanLevel == slUnbraced,
+              errPunctuationScope)
+      removeLast(lx->lexBtrack); // pop the top statement (if cond) because it's over
+      setStmtSpanLength(top.tokenInd, lx);
+      BtToken const second = last(lx->lexBtrack);
+      lx->lexBtrack->c[len - 2].spanLevel = slScope;
+      lx->tokens.c[second.tokenInd].pl1 = slScope;
+      goto consumption;
+   } ei (top.tp == tokElse) {
+      goto consumption;
    }
-   if (lx->lexBtrack->len > 0) {
-      BtToken const top = last(lx->lexBtrack);
-      if (top.spanLevel == slStmt) {
-         // process the first curly brace in an "if ... {" form. If all is right,
-         // updates its span level to slScope, so further curly braces work as usual
-         Int const len = lx->lexBtrack->len;
-         VALIDATEL(len > 1 && lx->lexBtrack->c[len - 2].spanLevel == slUnbraced,
-                 errPunctuationScope)
-         removeLast(lx->lexBtrack); // pop the top statement (if cond) because it's over
-         setStmtSpanLength(top.tokenInd, lx);
-         BtToken const second = last(lx->lexBtrack);
-         lx->lexBtrack->c[len - 2].spanLevel = slScope;
-         lx->tokens.c[second.tokenInd].pl1 = slScope;
-         goto consumption;
-      } ei (top.tp == tokElse) {
-         goto consumption;
-      } ei (top.tp == tokFor) {
-         if (top.spanLevel == slUnbraced) {
-            // the first curly brace inside "for" (for init, cond, step)
-            lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slSingleBraced;
-            lx->tokens.c[top.tokenInd].pl1 = slSingleBraced;
-         } ei (top.spanLevel == slSingleBraced) {
-            // the second curly brace inside "for" (for body)
-            lx->lexBtrack->c[lx->lexBtrack->len - 1].spanLevel = slScope;
-            lx->tokens.c[top.tokenInd].pl1 = slScope;
-            goto consumption;
-         }
-      }
-   }
+   punctuation:
    openPunctuation(tokScope, slScope, lx->i, lx);
    consumption:
    lx->i++; // CONSUME the "{"
@@ -3148,18 +3128,23 @@ private void //:lexCurlyRight
 lexCurlyRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
+   
    BtToken top = removeLast(bt);
-
    VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
    setSpanLengthLexer(top.tokenInd, lx);
-   if (top.tp == tokFn) { // close the assignment or toplevel if we are in one
-      if (bt->len >= 1 && bt->c[bt->len - 1].tp == tokToplevelFn) {
+   
+   if (top.tp == tokFor) {
+      reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
+   } ei (bt->len > 0) {
+      // close the assignment or toplevel if we are in one
+      if (top.tp == tokFn && last(bt).tp == tokToplevelFn) {
          top = removeLast(bt);
          setSpanLengthLexer(top.tokenInd, lx);
+      } ei (top.tp == tokFor) {
+         reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
       }
-   } ei (top.tp == tokFor) {
-      reorderFor(top.tokenInd, lx->i, lx->tokens.c, lx);
-   }
+   } 
+   
    lx->i++; // CONSUME the "}"
 }
 
@@ -3882,9 +3867,6 @@ pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
 // Looks at a tokToplevelFn or tokAssignment to determine its key points: where is the right side,
 // is it a function definition, is the right side empty etc. Consumes no tokens.
 // Precondition: tokInd is 1 past the "tok"
-   if (tokInd == 199) {
-      printLexer(cm);
-   }
    Int const sentinel = calcSentinel(tok, tokInd - 1);
    Int indRight = tokInd;
    NameId firstTokenName = tokens[tokInd].pl1;
@@ -3926,38 +3908,34 @@ pFor(Token forTk, TOKENS, CM) {
 //          step(s)
 
    Int const sentinel = calcSentinel(forTk, cm->i - 1);
-   Int const scopeStart = cm->i;
    
-   Int condInd; // index of condition
-   Int bodyInd = 0; // index of loop body
-   Int stepInd = 0; // index of stepping code (or 0 if there was none)
    Int const forNodeInd = cm->ast.len;
 
-   Int const newScopeStart = scopeStart - 1;
    openParsedScope(sentinel, (Node){.tp = nodFor }, interOf(forTk), cm);
 
    // variable initializations
-   for (cm->i = newScopeStart + 1; cm->i < condInd;) {
+   for (; cm->i < sentinel && tokens[cm->i].tp == tokAssignment;) {
       Token tok = tokens[cm->i];
       cm->i++; // CONSUME the assignment span marker
       pAssignment(tok, tokens, cm);
    }
 
    // loop condition
-   Token condTok = tokens[condInd];
-   cm->i = condInd + 1; // +1 cause the expression parser needs to be 1 past the exprToken
+   Token condTok = tokens[cm->i];
+   Int condSentinel = calcSentinel(condTok, cm->i);
+   cm->i++; // +1 cause the expression parser needs to be 1 past the exprToken
    Int const condNodeInd = cm->ast.len;
    TypeId condType = exprUpToWithFrame((ParseFrame){
-         .level = 0, .startNodeInd = cm->ast.len,
-         .sentinel = minPositiveOf(2, bodyInd, sentinel)
+         .level = 0, .startNodeInd = cm->ast.len, .sentinel = condSentinel
       },
       interOf(condTok), tokens, cm
    );
+   
    VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
 
-   Int sndInd = minPositiveOf(2, stepInd, bodyInd);
+   cm->i = condSentinel; // CONSUME the "for" until the loop body
    // readying to parse the body + step statements
-   Int bodyStartBt = tokens[sndInd].startBt;
+   Int bodyStartBt = tokens[cm->i].startBt;
 
    cm->ast.c[forNodeInd].pl1 = condNodeInd - forNodeInd; // distance to the condition
    openParsedScope(
@@ -3965,7 +3943,6 @@ pFor(Token forTk, TOKENS, CM) {
       (ChInterval){.startBt = bodyStartBt, .lenBts = forTk.lenBts - bodyStartBt + forTk.startBt },
       cm
    );
-   cm->i = bodyInd; // CONSUME the "for" until the loop body
 }
 
 private void //:pForStep
@@ -4249,9 +4226,7 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
 // Consumes 0 or 1 tokens.
    Int parensSentinel = calcSentinel(cTk, cm->i);
    ChInterval loc = interOf(cTk);
-   print("parens sent %d @%d", parensSentinel, cm->i);
    if (parensSentinel == cm->i + 2) { // A nullary call like `(call)`
-      print("inside  @%d", parensSentinel, cm->i);
       Token callTk = tokens[cm->i + 1];
       ChInterval callLoc = interOf(callTk);
       if (parent.tp == exfrDataAlloc) {
@@ -5486,7 +5461,6 @@ private void //:pToplevelBodyWorker
 pToplevelBodyWorker(
       Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, Byte callSort, TOKENS, CM
 ) {
-   print("TOPLEVLE %d", tokenInd);
    cm->i = tokenInd + 2; // skipping the tokToplevelFn and tokWord (fn name)
    if (tokens[cm->i].tp == tokType)
       { cm->i = calcSentinel(tokens[cm->i], cm->i); } // skipping the function type
@@ -5613,7 +5587,7 @@ parseMain(CM, Arena* a) {
       validateOverloadsFull(cm);
 #endif
 
-      //dbgAllTypes(cm);
+      dbgAllTypes(cm);
       // The main parse (all top-level function bodies)
       pFunctionBodies(toks, cm);
       // Parse & typecheck all the necessary monomorphized versions of generic functions
@@ -5621,9 +5595,6 @@ parseMain(CM, Arena* a) {
       updateStats(cm);
 
       //printParser(cm);
-      dbgType(typeOf(196));
-      print("is generic 196? %d", typeReadHeader(typeOf(196), cm).isGeneric);
-      printName(88, cm);
    } else {
 #ifndef TEST
       print("Exception!");
@@ -5958,8 +5929,8 @@ typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
 
 private TypeId //:tCreateTypeCall
 tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
-// Creates/merges a new type call from a sequence of pairs in @exp
-// Handles ordinary type calls, NOT function types. Returns the typeId of the new type
+// Creates/merges a new type call from a sequence of types in @exp
+// Handles ordinary type calls like `[L Int]`, NOT function types. Returns the new type's id
    TypeId genericId = frame.id;
    TypeHeader genericHdr = typeReadHeader(genericId, cm);
    TYPE_DEFINE_EXP;
@@ -6971,7 +6942,7 @@ printParser(CM) {
          printf("  ");
       }
       if (nod.tp == nodCall) {
-         printf("call %d argc = %d c %d [%d:%d; %d:%d] type = \n", nod.pl1, nod.pl2, nod.pl3,
+         printf("call %d argc = %d c %d [%d:%d; %d:%d] \n", nod.pl1, nod.pl2, nod.pl3,
             loc.startLine, loc.startChar, loc.endLine, loc.endChar);
       } ei (nod.pl1 != 0 || nod.pl2 != 0) {
          if (nod.pl3 != 0)  {

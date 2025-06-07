@@ -822,6 +822,7 @@ registerCompositeTypes(CG) {
    LCgTypePtr* buffer = createLCgTypePtr(16, cg->a);
    CompResult* cr = &(cg->compResult);
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
+   print("REGISTERING type %d", j);
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (hdr.isGeneric)
          { continue; }
@@ -1649,6 +1650,7 @@ registerFn(FunctionId toplevelId, CR, CG) {
 
 private void //:writeToplevelFn
 writeToplevelFn(FunctionId toplevelId, CR, CG) {
+print("write toplevel %d", toplevelId);
    Function eyrFn = cr->functions.c[toplevelId];
 
    if (eyrFn.genericInd != -1 || eyrFn.tokenInd == -1) // generic or imported fn
