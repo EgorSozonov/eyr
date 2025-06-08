@@ -798,19 +798,19 @@ registerPrimitiveTypes(CG) {
 
    // String type
    Field* stringFields[2];
-   stringFields[0] = field(nameOfStd(strContent), cg->builtins.cString, cg);
+   char c[2] = {'c', '\0'};
+   stringFields[0] = gcc_jit_context_new_field(
+      cg->md, null, gcc_jit_type_get_const(builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md)), c
+   );
    stringFields[1] = field(nameOfStd(strLen), cg->types[tokInt].c, cg);
    Struct* stringStruct = newStruct(nameOfStd(strString), 2, stringFields, cg);
+   print("creating String")
    cg->typeRefs[tokString] = tokString;
    cg->types[tokString] = (TypeInfo){
       .c = gcc_jit_struct_as_type(stringStruct), .fieldInd = cg->concreteFields.len
    };
-   char c[2] = {'c', '\0'};
-   Field* content = gcc_jit_context_new_field(
-      cg->md, null, gcc_jit_type_get_const(builtinType(GCC_JIT_TYPE_CONST_CHAR_PTR, cg->md)), c
-   );
-   add(content, &(cg->concreteFields));
-   add(field(nameOfStd(strLen), cg->types[tokInt].c, cg), &(cg->concreteFields));
+   add(stringFields[0], &(cg->concreteFields));
+   add(stringFields[1], &(cg->concreteFields));
 
    cg->typeRefs[topVerbatimType + 1] = topVerbatimType + 1;
    cg->types[topVerbatimType + 1] = nonStructTypeInfo(null); // never to be used, it's a placeholder!
@@ -1097,6 +1097,7 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
          case callField: {
             TypeInfo concreteColl = cgType(typeOf(expNode.pl1), cg);
             Int indField = concreteColl.fieldInd + expNode.pl2;
+            print("call field %d", indField);
 
             if (!rightMode && exp->len == 0) {
                cg->lValue = fieldAccessLeft(cg->lValue, cg->concreteFields.c[indField], cg);
@@ -1288,13 +1289,29 @@ assignFnToVar(Node nd, Int sentinel, CG) {
    cg->i = sentinel;
 }
 
+private void //:reassignFnToVar
+reassignFnToVar(Node nd, Int sentinel, CG) {
+// assiFnVarReassign
+   Int varId = nd.pl1;
+   Int fnId = nd.pl2;
+   LValue* lValue = cg->vars[varId];
+   assign(lValue, gcc_jit_function_get_address(cg->functions[fnId], NULL), cg->cbl.c);
+   cg->i = sentinel;
+}
+
 private void //:assignment
 assignment(Node nd, Int sentinel, AST, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
 // Consumes the whole assignment
-   if (nd.pl2 == 1 && ast[cg->i].pl3 == assiFnVarDef) {
-      assignFnToVar(ast[cg->i], sentinel, cg);
-      return;
+   if (nd.pl2 == 1) {
+      Int pl3 = ast[cg->i].pl3;
+      if (pl3 == assiFnVarDef) {
+         assignFnToVar(ast[cg->i], sentinel, cg);
+         return;
+      } ei (pl3 == assiFnVarReassign)  {
+         reassignFnToVar(ast[cg->i], sentinel, cg);
+         return;
+      }
    }
 
    Int const rightNodeInd = cg->i + nd.pl3 - 1;
@@ -1311,6 +1328,7 @@ assignment(Node nd, Int sentinel, AST, CG) {
 
 private void //:writeExpr
 writeExpr(Node nd, Int sentinel, AST, CG) {
+print("writing expr @%d", cg->i);
    RValue* exprResult = expr(nd, sentinel, ast, cg);
    evalExpr(exprResult, cg->cbl.c);
 }
@@ -1318,6 +1336,7 @@ writeExpr(Node nd, Int sentinel, AST, CG) {
 private void //:writeAssignment
 writeAssignment(Node nd, Int sentinel, Arr(Node const) ast, CG) {
 // Pre-condition: we are looking at the binding node, 1 past the assignment node
+print("writing ass @%d", cg->i);
    assignment(nd, sentinel, ast, cg);
 }
 

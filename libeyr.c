@@ -3393,10 +3393,6 @@ createVar(NameId name, Byte access, FunctionId fnId, CM) {
 // Consumes no nodes
    Int mbBinding = cm->activeBindings[name];
    // if it's a binding, it should be -1, and if overload, < -1
-   if (mbBinding > -1) {
-      print("ERR name %d mbBind %d i %d", name, mbBinding, cm->i)
-      dbgScopes(cm);
-   }
    VALIDATEP(mbBinding < 0, errAssignmentShadowing)
 
    VarId newVarId = cm->vars.len;
@@ -3673,13 +3669,16 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
    FunctionId fnId = findOverload(
       fnName, libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c), cm
    );
+   TypeId fnType = cm->functions.c[fnId].typeId;
    NameId varName = leftNameTk.pl1;
-   VarId varId = createVarWithType(
-      varName, cm->functions.c[fnId].typeId,
+   Int pl3;
+   Int varId = createVarWithType(
+      varName, fnType,
       (leftNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm), fnId, cm
    );
-   newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = fnId, .pl3 = assiFnVarDef },
-         interOf(leftNameTk), cm
+   pl3 = assiFnVarDef;
+   newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = fnId, .pl3 = assiFnVarDef }, 
+      interOf(leftNameTk), cm
    );
 }
 
@@ -3829,6 +3828,9 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
             );
             cm->vars.c[varId].fnId = newFnId;
             cm->i = assignment.sentinel;
+            newNode(((Node){.tp = nodVar, .pl1 = varId, .pl2 = newFnId, .pl3 = assiFnVarReassign}),
+               interOf(firstTok), cm
+            );
             goto closeSpans;
          }
          assiSort = assiReassignment;
@@ -6247,9 +6249,6 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
       TypeId outer = typeGetOuter(typeOf(argumentType), cm);
       if (outer.v == cm->stats.arrayType || outer.v == cm->stats.listType || outer.v == tokString) {
          // field 0 is content, 1 is len. see {buildPreludeTypes}
-         if (outer.v == tokString) {
-            print("writing field to %d, argType %d", cm->j, argumentType);
-         }
          cm->ast.c[cm->j] = (Node){.tp = nodCall, .pl1 = argumentType, .pl2 = 1, .pl3 = callField};
          exp->c[exp->len - 1] = tokInt;
          return;
@@ -6901,7 +6900,7 @@ printParser(CM) {
    Int indent = 0;
    LInt* sentinels = createLInt(16, a);
    //CompStats stats = getStats(cm);
-   for (int i = 0; i < cm->ast.len; i++) {
+   for (int i = 40; i < cm->ast.len && i < 90; i++) {
       Node nod = cm->ast.c[i];
       SourceLoc loc = cm->sourceLocs->c[i];
       for (int m = sentinels->len - 1; m > -1 && sentinels->c[m] == i; m--) {

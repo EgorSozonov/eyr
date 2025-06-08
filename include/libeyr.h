@@ -317,7 +317,8 @@ struct StructField { //:StructField Struct field names + access are in a separat
 #define assiFnParam        3 // introduction of a function parameter
 #define assiReassignment   4 // reassignment to a previously defined var
 #define assiFnVarDef       5 // definition of a local var that is a function
-#define assiFnVarUse       6 // usage (NOT an assignment) of a variable that is a function
+#define assiFnVarReassign  6 // reassignment to a local var that is a function
+#define assiFnVarUse       7 // usage (NOT an assignment) of a variable that is a function
 
 // if clauses
 #define ifclIf        0
