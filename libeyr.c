@@ -492,6 +492,8 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
 
 void printName(NameId nameId, CM);
 void printIntArray(Int count, Arr(Int) arr);
+defstruct(MultiAssocList);
+void printAssocList(Int listInd, MultiAssocList* ml);
 void printParser(Compiler* cm);
 void dbgType0(TypeId type, CM);
 #define dbgType(t) dbgType0(t, cm)
@@ -656,13 +658,13 @@ private InList##T createInList##T(Int initCap, Arena* a) { \
 // old allocations via an intrusive free list.
 // Internal lists have the structure [len cap ...data...] or [nextFree cap ...] for the free sectors
 // Units of measurement of len and cap are 1's. I.e. len can never be = 1, it starts with 2
-typedef struct { // :MultiAssocList
+struct MultiAssocList { // :MultiAssocList
    Int len;
    Int cap;
    Int freeList;
    Arr(Int) c;
    Arena* a;
-} MultiAssocList;
+};
 
 
 MultiAssocList* //:createMultiAssocList
@@ -795,9 +797,9 @@ private Int //:searchMultiAssocList
 searchMultiAssocList(Int searchKey, Int listInd, MultiAssocList* ml) {
 // Search for a key in a particular list within the MultiAssocList. Returns
 // the value if found, -1 otherwise
-   Int len = ml->c[listInd]/2;
+   Int len = ml->c[listInd];
    Int const endInd = listInd + 2 + len;
-   for (Int j = listInd + 2; j < endInd; j++) {
+   for (Int j = listInd + 2; j < endInd; j += 2) {
       if (ml->c[j] == searchKey) {
          return ml->c[j + len];
       }
@@ -1654,8 +1656,6 @@ DEFINE_INTERNAL_LIST_HEADER(StructField)
 
 
 struct Monomorphization { //:Monomorphization
-   TypeId concrete;  // full concrete type
-   NameId name;      // function name, for codegen
    Int tokenInd;     // points into @tokens - the (generic) tokens. -1 => no codegen
    Int nodeInd;      // points into @ast - the monomorphized AST. -1 for built-ins
    FunctionId fnId;
@@ -3585,13 +3585,13 @@ openParsedScope(Int sentinelToken, Node nd, ChInterval chi, CM) {
 }
 
 private void //:openFnScope
-openFnScope(Int funcOrMonoId, TypeId fnType, Byte callSort, Token tk, Int sentinel, CM) {
+openFnScope(Int funcOrMonoId, TypeId fnType, Token tk, Int sentinel, CM) {
 // Performs coordinated insertions to start a function definition
    add(((ParseFrame){
       .level = pfrFn, .startNodeInd = cm->ast.len, .sentinel = sentinel,
       .typeId = fnType }), cm->backtrack);
    scopesNewLexicalScope(cm); // a function body is also a lexical scope
-   newNode((Node){ .tp = nodToplevelFn, .pl1 = funcOrMonoId, .pl3 = callSort}, interOf(tk), cm);
+   newNode((Node){ .tp = nodToplevelFn, .pl1 = funcOrMonoId, .pl3 = callNormal}, interOf(tk), cm);
 }
 
 private void //:pScope
@@ -5121,11 +5121,11 @@ importPrelude(CM) {
    Int const genericInd = listCreateMultiAssocList(cm->functionMonos); // for the generic list "add"
    Function fnImports[5] =  {
       (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
-         .typeId = intToVoid },
+         .typeId = intToVoid, .isOverloaded = true },
       (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintDou,
-         .typeId = douToVoid },
+         .typeId = douToVoid, .isOverloaded = true },
       (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintStr,
-         .typeId = strToVoid },
+         .typeId = strToVoid, .isOverloaded = true },
       (Function){ .name = nameOfStd(strAdd), .typeId = listAdd, .genericInd = genericInd,
          .tokenInd = -1, .access = accessPrivImm, .emit = emitParsed },
       (Function){ .name = nameOfStd(strPrintErr),
@@ -5305,8 +5305,15 @@ createNameOverloads(NameId name, CM) {
       }
       ov[k + countOverloads] = raw[j + 1]; // entityId
    }
-   sortPairsDistant(newInd + 1, newInd + 1 + 2*countOverloads, countOverloads, ov);
-   validateNameOverloads(newInd, countOverloads, name, cm);
+   Int const sentinel = newInd + 1 + 2*countOverloads;
+   sortPairsDistant(newInd + 1, sentinel, countOverloads, ov);
+   
+   if (countOverloads > 1) {
+      validateNameOverloads(newInd, countOverloads, name, cm);
+      for (Int j = newInd + 1 + countOverloads; j < sentinel; j++) {
+         cm->functions.c[ov[j]].isOverloaded = true;
+      }
+   }
    return newInd;
 }
 
@@ -5444,6 +5451,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    }
 
    FunctionId const newFnId = cm->functions.len;
+   
    Int genericInd = isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
    pushInfunctions(((Function){
          .name = nameTk.pl1, .typeId = fnType, .genericInd = genericInd, .tokenInd = tokenInd,
@@ -5461,7 +5469,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
 
 private void //:pToplevelBodyWorker
 pToplevelBodyWorker(
-      Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, Byte callSort, TOKENS, CM
+      Int tokenInd, Int funcOrMonoId, TypeId concreteType, Int arity, TOKENS, CM
 ) {
    cm->i = tokenInd + 2; // skipping the tokToplevelFn and tokWord (fn name)
    if (tokens[cm->i].tp == tokType)
@@ -5469,7 +5477,7 @@ pToplevelBodyWorker(
 
    Token fnTk = tokens[cm->i];
    Int const fnSentinel = calcSentinel(fnTk, cm->i);
-   openFnScope(funcOrMonoId, concreteType, callSort, fnTk, fnSentinel, cm);
+   openFnScope(funcOrMonoId, concreteType, fnTk, fnSentinel, cm);
    cm->i++; // CONSUME the tokFn token
 
    if (arity > 0) {
@@ -5513,30 +5521,25 @@ pToplevelBody(FunctionId fnId, TOKENS, CM) {
    if (hdr.isGeneric) // generic functions arn't parsed, only their monomorphizations
       { return; }
 
-   pToplevelBodyWorker(fn.tokenInd, fnId, fnType, hdr.arity - 1, callNormal, tokens, cm);
+   pToplevelBodyWorker(fn.tokenInd, fnId, fnType, hdr.arity - 1, tokens, cm);
 }
 
 void //:generateMonomorphizations
 generateMonomorphizations(TOKENS, CM) {
-// Generate monomorphizations for any code in @genericCalls
+// Generate function bodies for monomorphizations
    for (Monomorphization* m = cm->monos->c; m < cm->monos->c + cm->monos->len; m++) {
-      Int const newFnId = cm->functions.len;
       if (m->tokenInd != -1) { // parsed functions
          m->nodeInd = cm->ast.len;
-         pushInfunctions(
-            ((Function){ .name = m->name, .typeId = m->concrete, .emit = emitParsed,
-                         .nodeInd = cm->ast.len, .genericInd = -1, .tokenInd = m->tokenInd }),
-            cm
-         );
-         pushIntoplevels(newFnId, cm);
-         m->fnId = newFnId;
+         TypeId concrete = cm->functions.c[m->fnId].typeId;
          pToplevelBodyWorker(
-            m->tokenInd, m - cm->monos->c, m->concrete, typeReadHeader(m->concrete, cm).arity - 1,
-            callMonomorph, tokens, cm
+            m->tokenInd, m - cm->monos->c, concrete, typeReadHeader(concrete, cm).arity - 1,
+            tokens, cm
          );
       } else { // imported host functions
+         Int newFnId = cm->functions.len;
          pushInfunctions(
-            ((Function){ .name = m->name, .typeId = m->concrete,
+            ((Function){ .name = cm->functions.c[m->fnId].name,
+                         .typeId = cm->functions.c[m->fnId].typeId,
                          .emit = cm->functions.c[m->fnId].emit,
                          .nodeInd = -1, .genericInd = -1, .tokenInd = -1 }),
             cm
@@ -5595,7 +5598,7 @@ parseMain(CM, Arena* a) {
       generateMonomorphizations(toks, cm);
       updateStats(cm);
 
-      printParser(cm);
+      //printParser(cm);
       //dbgAllTypes(cm);
    } else {
 #ifndef TEST
@@ -6207,7 +6210,6 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
 #if defined(DEBUG) //{{{
    if (!ovFound) {
       print("Overload not found: indOverl %d name %d j %d", indOverl, name, cm->j)
-print("CREATING");
       printLInt(cm->expr->exp);
    }
 #endif //}}}
@@ -6234,6 +6236,36 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
       VALIDATEP(tpFstArg.v > -1, errTypeUnknownFirstArg)
    }
    return findOverload(name, tpFstArg, cm);
+}
+
+private void //:typeCheckFnGenericCall
+typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
+      Function fn = cm->functions.c[fnId];
+      
+      TypeId concreteType = tGenericResolveConcrete(fn, exp->c, exp->len - argCount, exp->len, cm);
+      
+      Int concreteFn = searchMultiAssocList(concreteType.v, fn.genericInd, cm->functionMonos);
+      if (concreteFn == -1) {
+         concreteFn = cm->functions.len; // function body coming in {generateMonomorphizations}
+         Int newListInd = 
+            addMultiAssocList(concreteType.v, concreteFn, fn.genericInd, cm->functionMonos);
+         if (newListInd != -1)
+            { cm->functions.c[fnId].genericInd = newListInd; }
+            
+         Int const tokenInd = cm->functions.c[fnId].tokenInd;
+         add(
+            ((Monomorphization){ .fnId = concreteFn, .tokenInd = tokenInd }),
+            cm->monos
+         );
+         pushInfunctions(
+            ((Function){ .name = fn.name, .typeId = concreteType, .emit = emitParsed,
+                         .nodeInd = -1, .genericInd = -1, .tokenInd = tokenInd,
+                         .isOverloaded = true }),
+            cm
+         );
+         pushIntoplevels(concreteFn, cm);
+      }
+      cm->ast.c[cm->j].pl1 = concreteFn;
 }
 
 private void //:typeCheckFnCall
@@ -6278,32 +6310,15 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == argCount + 1, errTypeNoMatchingOverload)
 
    TypeId firstParamInd = getFirstParamInd(typeOfFunc, cm);
-   if (!isGeneric) {
+   if (isGeneric) {
+      typeCheckFnGenericCall(fnId, argCount, exp, cm);
+   } else {
       // We know the type of the function, now to validate arg types against param types
       for (Int k = exp->len - argCount, l = firstParamInd.v; k < exp->len; k++, l++) {
          VALIDATEP(exp->c[k] > - 1, errUnknownType)
          VALIDATEP(exp->c[k] == cm->types.c[l], errTypeWrongArgumentType)
       }
       cm->ast.c[cm->j].pl1 = isVarCall ? varId : fnId;
-   } else {
-      Function fn = cm->functions.c[fnId];
-      
-      TypeId concreteFnType = tGenericResolveConcrete(
-         fn, exp->c, exp->len - argCount, exp->len, cm
-      );
-      Int monoInd = searchMultiAssocList(concreteFnType.v, fn.genericInd, cm->functionMonos);
-
-      if (monoInd == -1) {
-         monoInd = cm->monos->len;
-         addMultiAssocList(concreteFnType.v, monoInd, fn.genericInd, cm->functionMonos);
-         add(
-            ((Monomorphization){ .name = fn.name, .concrete = concreteFnType, .fnId = fnId,
-               .tokenInd = cm->functions.c[fnId].tokenInd }),
-            cm->monos
-         );
-      }
-      cm->ast.c[cm->j].pl1 = monoInd;
-      cm->ast.c[cm->j].pl3 = callMonomorph;
    }
 
    exp->len -= (argCount - 1);
@@ -6731,6 +6746,11 @@ printNameAndLen(Unt unsign, CM) {
    fwrite(cm->sourceCode.c + startBt, 1, len, stdout);
 }
 
+void //:printAssocList
+printAssocList(Int listInd, MultiAssocList* ml) {
+   printIntArrayOff(listInd, ml->c[listInd] + 2, ml->c);
+}
+
 void //:printName
 printName(NameId nameId, CM) {
    Unt unsign = cm->names->c[nameId];
@@ -6900,7 +6920,7 @@ printParser(CM) {
    Int indent = 0;
    LInt* sentinels = createLInt(16, a);
    //CompStats stats = getStats(cm);
-   for (int i = 40; i < cm->ast.len && i < 90; i++) {
+   for (int i = 0; i < cm->ast.len; i++) {
       Node nod = cm->ast.c[i];
       SourceLoc loc = cm->sourceLocs->c[i];
       for (int m = sentinels->len - 1; m > -1 && sentinels->c[m] == i; m--) {

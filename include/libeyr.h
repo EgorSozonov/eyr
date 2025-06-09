@@ -305,6 +305,7 @@ struct Function { //:Function Parsed or built-in function
    Int genericInd; // index into @monos (get full mono type & code from arg types)
    Byte access;    // the "access" constants
    Emit emit;
+   Bool isOverloaded;
 };
 
 struct StructField { //:StructField Struct field names + access are in a separate table,
@@ -329,8 +330,7 @@ struct StructField { //:StructField Struct field names + access are in a separat
 #define callNormal     0
 #define callField      1 // field accessor
 #define callVar        2 // a local variable referencing a function
-#define callMonomorph  3 // monomorphized version of a generic function
-#define callGetElem    4
+#define callGetElem    3
 
 //{{{ Operators header
 
