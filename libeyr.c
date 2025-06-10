@@ -118,7 +118,7 @@ typedef struct { // :Token
 #define tokAccessorIn  18  // The internal `[]` block inside an accessor
 #define tokAssignment  19
 #define tokAssignRight 20  // Right-hand side of assignment
-#define tokMeta        21  // Right-hand side of assignment
+#define tokMeta        21  // @meta(...)
 #define tokAlias       22
 #define tokAssert      23
 #define tokBreakCont   24  // pl1 = 1 iff it's a continue
@@ -450,7 +450,7 @@ private void tFreshState(TExpr* st);
 //~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 private Int calcSentinel(Token tok, Int tokInd);
-private void reorderFor(Int forStart, Int sentinel, TOKENS, LX); 
+private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
@@ -757,7 +757,7 @@ addMultiAssocList(Int newKey, Int newVal, Int listInd, MultiAssocList* ml) {
    return newListInd;
 }
 
-private Int
+private Int //:multiListCreateList
 multiListCreateList(Int initCap, MultiAssocList* ml) {
    Int newInd = multiListFindFree(initCap, ml);
    if (newInd == -1) {
@@ -956,7 +956,6 @@ typedef struct {
    Arena* a;
 } IntMap;
 
-
 private IntMap*
 createIntMap(int initSize, Arena* a) { //:createIntMap
    IntMap* result = allocate(IntMap, a);
@@ -1013,8 +1012,8 @@ addIntMap(int key, int value, IntMap* hm) {
    }
 }
 
-private bool
-hasKeyIntMap(int key, IntMap* hm) { //:hasKeyIntMap
+private bool //:hasKeyIntMap
+hasKeyIntMap(int key, IntMap* hm) {
    if (key < 0) return false;
 
    int hash = key % hm->dictSize;
@@ -1030,8 +1029,8 @@ hasKeyIntMap(int key, IntMap* hm) { //:hasKeyIntMap
    return false;
 }
 
-private int
-getIntMap(int key, int* value, IntMap* hm) { //:getIntMap
+private int //:getIntMap
+getIntMap(int key, int* value, IntMap* hm) {
    int hash = key % (hm->dictSize);
    if (*(hm->dict + hash) == null) {
       return 1;
@@ -1048,8 +1047,8 @@ getIntMap(int key, int* value, IntMap* hm) { //:getIntMap
    return 1;
 }
 
-private int
-getUnsafeIntMap(int key, IntMap* hm) { //:getUnsafeIntMap
+private int //:getUnsafeIntMap
+getUnsafeIntMap(int key, IntMap* hm) {
 // Throws an exception when key is absent
    int hash = key % (hm->dictSize);
    if (*(hm->dict + hash) == null) {
@@ -1064,11 +1063,6 @@ getUnsafeIntMap(int key, IntMap* hm) { //:getUnsafeIntMap
       }
    }
    longjmp(excBuf, 1);
-}
-
-private bool
-hasKeyValueIntMap(int key, int value, IntMap* hm) { //:hasKeyValueIntMap
-   return false;
 }
 
 //}}}
@@ -1094,7 +1088,6 @@ typedef struct { //:StringDict
    int len;
    Arena* a;
 } StringDict;
-
 
 private StringDict* //:createStringDict
 createStringDict(int initSize, Arena* a) {
@@ -1674,7 +1667,7 @@ struct Compiler { // :Compiler
    LBtToken* lexBtrack;    // [aTmp]
    LUnt* names; // Operators, then standard strings, then imported ones, then
                                // parsed. Contains NameLoc pointing into @sourceCode
-                               
+
    LToken* reorderBuf;  // Buffer for reordering tokens for mutation assignments
    StringDict* stringDict;
 
@@ -2665,8 +2658,8 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
    }
 }
 
-private void
-lexWord(SRC, LX) { //:lexWord
+private void //:lexWord
+lexWord(SRC, LX) {
    wordInternal(tokWord, source, lx);
 }
 
@@ -3021,7 +3014,7 @@ preambleFor(
 // Precondition: looking at the tokScope right after tokFor.
 // Postcond: at least 1 of "condInd" & "stepInd" is guaranteed to be found (=> positive)
    Int j = forStart + 2; // skipped tokFor and tokMisc
-   
+
    for (Token currTok = tokens[j];
         (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
         currTok = tokens[j]) {
@@ -3038,7 +3031,7 @@ preambleFor(
    j = calcSentinel(condTok, j); // skipping the cond
    VALIDATEL(j < sentinel, errLoopEmptyStepBody);
    *stepInd = j;
-   Int const stepSentinel = bodyInd > 0 ? bodyInd : sentinel; 
+   Int const stepSentinel = bodyInd > 0 ? bodyInd : sentinel;
    for (Token currTok = tokens[j]; j < stepSentinel; currTok = tokens[j]) {
       VALIDATEL(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
                 errLoopWrongFormInStepper);
@@ -3054,13 +3047,13 @@ reorderFor(Int forStart, Int sentinel, TOKENS, LX) {
 // AFTER:  tokFor (inits)    cond body tokMisc steps
    Int condInd, stepInd ;
    Int bodyInd = tokens[forStart + 1].pl2; // getting it from tokMisc
-   
+
    preambleFor(forStart, bodyInd, sentinel, OUT &condInd, OUT &stepInd, tokens, lx);
-  
+
    VALIDATEL(stepInd + bodyInd > 0, errLoopEmptyStepBody)
-   
+
    Int totalLen = sentinel - forStart; // +1 for the tokMisc which is before the scope
-  
+
    LToken* const buf = lx->reorderBuf;
 
    ensureCapacityTokenBuf(totalLen, buf, lx);
@@ -3073,7 +3066,7 @@ reorderFor(Int forStart, Int sentinel, TOKENS, LX) {
    Int const stepStartBt = stepInd > 0 ? tokens[stepInd].startBt : 0;
    Int const bodyStart = bodyInd;
    Int const bodyLen = bodyInd > 0 ? sentinel - bodyInd : 0;
-   
+
    memcpy(buf->c, tokens + piece1Start, piece1Len*sizeof(Token));
    if (bodyLen > 0)
       { memcpy(buf->c + piece1Len, tokens + bodyStart, bodyLen*sizeof(Token)); }
@@ -3128,11 +3121,11 @@ private void //:lexCurlyRight
 lexCurlyRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
-   
+
    BtToken top = removeLast(bt);
    VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
    setSpanLengthLexer(top.tokenInd, lx);
-   
+
    if (top.tp == tokFor) {
       reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
    } ei (bt->len > 0) {
@@ -3143,8 +3136,8 @@ lexCurlyRight(SRC, LX) {
       } ei (top.tp == tokFor) {
          reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
       }
-   } 
-   
+   }
+
    lx->i++; // CONSUME the "}"
 }
 
@@ -3377,7 +3370,7 @@ private Node //:createNodVarForName
 createNodVarForName(NameId name, CM) {
 // Resolves an active binding, throws if it's not active
    Int rawValue = cm->activeBindings[name];
-   
+
    VALIDATEP(rawValue > -1 && rawValue < BIG, errUnknownBinding)
    Var v = cm->vars.c[rawValue];
    if (v.fnId == -1) {
@@ -3678,7 +3671,7 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
       (leftNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm), fnId, cm
    );
    pl3 = assiFnVarDef;
-   newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = fnId, .pl3 = assiFnVarDef }, 
+   newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = fnId, .pl3 = assiFnVarDef },
       interOf(leftNameTk), cm
    );
 }
@@ -3911,7 +3904,7 @@ pFor(Token forTk, TOKENS, CM) {
 //          step(s)
 
    Int const sentinel = calcSentinel(forTk, cm->i - 1);
-   
+
    Int const forNodeInd = cm->ast.len;
 
    openParsedScope(sentinel, (Node){.tp = nodFor }, interOf(forTk), cm);
@@ -3933,7 +3926,7 @@ pFor(Token forTk, TOKENS, CM) {
       },
       interOf(condTok), tokens, cm
    );
-   
+
    VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
 
    cm->i = condSentinel; // CONSUME the "for" until the loop body
@@ -5308,7 +5301,7 @@ createNameOverloads(NameId name, CM) {
    }
    Int const sentinel = newInd + 1 + 2*countOverloads;
    sortPairsDistant(newInd + 1, sentinel, countOverloads, ov);
-   
+
    if (countOverloads > 1) {
       validateNameOverloads(newInd, countOverloads, name, cm);
       for (Int j = newInd + 2 + countOverloads; j < sentinel; j++) {
@@ -5453,7 +5446,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    }
 
    FunctionId const newFnId = cm->functions.len;
-   
+
    Int genericInd = isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
    pushInfunctions(((Function){
          .name = nameTk.pl1, .typeId = fnType, .genericInd = genericInd, .tokenInd = tokenInd,
@@ -5859,7 +5852,7 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
       } else { // tokTypeParam
          return typeOf(teMergeParam2(firstTypeTk.pl1, te, cm));
       }
-   } 
+   }
    return tParseComplexType(te, sentinel, OUT isGeneric, tokens, cm);
 }
 
@@ -5945,7 +5938,7 @@ tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
    Int const sentinel = exp->len;
 
    TYPE_CREATE_START(
-      ((TypeHeader){ .sort = sort, 
+      ((TypeHeader){ .sort = sort,
          .arity = (sentinel - startInd + 1),
          .name = genericHdr.name, .isGeneric = frame.isGeneric, .size = genericHdr.size })
    );
@@ -6035,8 +6028,8 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
       TypeId const typeId = typeOf(cm->activeBindings[typeName]);
       VALIDATEP(typeId.v > -1, errUnknownTypeConstructor)
       add(((TypeFrame){
-            .tp = tfrTypeCall, .id = typeId, .sentinel = sentinel 
-         }), 
+            .tp = tfrTypeCall, .id = typeId, .sentinel = sentinel
+         }),
          te->frames
       );
    }
@@ -6243,28 +6236,25 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
 private void //:typeCheckFnGenericCall
 typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
    Function fn = cm->functions.c[fnId];
-   
+
    TypeId concreteType = tGenericResolveConcrete(fn, exp->c, exp->len - argCount, exp->len, cm);
-   
+
    Int concreteFn = searchMultiAssocList(concreteType.v, fn.genericInd, cm->functionMonos);
-   
+
    if (concreteFn == -1) {
       concreteFn = cm->functions.len; // function body coming in {generateMonomorphizations}
-      
-      Int newListInd = 
+
+      Int newListInd =
          addMultiAssocList(concreteType.v, concreteFn, fn.genericInd, cm->functionMonos);
       if (newListInd != -1)
          { cm->functions.c[fnId].genericInd = newListInd; }
-         
+
       Int const tokenInd = cm->functions.c[fnId].tokenInd;
-      add(
-         ((Monomorphization){ .fnId = concreteFn, .tokenInd = tokenInd }),
-         cm->monos
-      );
-      pushInfunctions(
-         ((Function){ .name = fn.name, .typeId = concreteType, .emit = emitParsed,
-                      .nodeInd = -1, .genericInd = -1, .tokenInd = tokenInd,
-                      .needsMangling = true }),
+      add(((Monomorphization){ .fnId = concreteFn, .tokenInd = tokenInd }), cm->monos);
+      pushInfunctions(((Function){
+               .name = fn.name, .typeId = concreteType, .emit = emitParsed,
+               .nodeInd = -1, .genericInd = -1, .tokenInd = tokenInd, .needsMangling = true
+         }),
          cm
       );
       pushIntoplevels(concreteFn, cm);
@@ -6278,9 +6268,9 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    Bool isVarCall = nd.pl3 == callVar;
    Int const argCount = nd.pl2;
    Int const name = nd.pl1; // name for function calls, varId for var calls
-   
-   // # on lists and arrays 
-   if (name == opSize) { 
+
+   // # on lists and arrays
+   if (name == opSize) {
       Int argumentType = exp->c[exp->len - 1];
       TypeId outer = typeGetOuter(typeOf(argumentType), cm);
       if (outer.v == cm->stats.arrayType || outer.v == cm->stats.listType || outer.v == tokString) {
@@ -6332,7 +6322,7 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
 
 private void //:typeCheckCall
 typeCheckCall(Node nd, LInt* restrict exp, CM) {
-// Handles the various sorts of calls: function calls, function var calls, field and 
+// Handles the various sorts of calls: function calls, function var calls, field and
 // array accesses
 // Transforms the `#` operator for arrays and lists to a field access
    if (nd.pl3 == callGetElem) {
@@ -6590,7 +6580,7 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
    if (generHdr.sort == sorGenericParam) {
       Int deBruijnInd = generHdr.name;
       Int currParamVal = cm->tExpr->tParams->c[deBruijnInd];
-      
+
       if (currParamVal == -1) {
          cm->tExpr->tParams->c[deBruijnInd] = concr.v;
       } else {
@@ -6699,7 +6689,7 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 // function type is not unifiable with the arg types).
    Int arity = end - start;
    ensureCapacityTypes(arity + TYPE_PREFIX + 1, cm);
-   
+
    // For `F Int Str -> Double` this will look like `F Int -> Str`, i.e. the return type is missing
    TYPE_CREATE_START(((TypeHeader){ .sort = sorDeclare, .arity = arity,
       .name = nameOfStd(strF), .isGeneric = false, .size = 8 }));

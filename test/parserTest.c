@@ -96,7 +96,7 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
          nd.pl1 = transformFuncId(nd.pl1, &controlRes->stats);
       } else if (nodeType == nodVar || (nodeType == nodCall && nd.pl3 == callVar)) {
          nd.pl1 = transformBindingVarId(nd.pl1, &controlRes->stats);
-      } else if (nodeType == tokString) { 
+      } else if (nodeType == tokString) {
          nd.pl1 += controlRes->stats.standardTextLen;
       }
       // transform pl2/pl3 if it holds FuncId
@@ -136,7 +136,7 @@ private ParserTest createTestWithLocs0(String name, String input, Arr(Node) node
 // Creates a test with two parsers where the source locs are specified (unlike most parser tests)
    ParserTest theTest = createTest0(name, input, nodes, countNodes, types, countTypes, entities,
                             countEntities, a);
-   theTest.compareLocsToo = true; 
+   theTest.compareLocsToo = true;
    CompResult* controlRes = getCompResult(theTest.control);
    if (controlRes->wasLexerError)
       { return theTest; }
@@ -612,7 +612,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = tokInt,           .pl2 = 77 },
-         
+
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 10, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 8 },
@@ -1320,7 +1320,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
 
             (Node){ .tp = nodAssignment,         .pl2 = 5, .pl3 = 2}, // y++
             (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0, .pl3 = assiReassignment },
-            (Node){ .tp = nodExpr,           .pl2 = 3, .pl3 = 0}, 
+            (Node){ .tp = nodExpr,           .pl2 = 3, .pl3 = 0},
             (Node){ .tp = nodVar,  .pl1 = 1, .pl2 = 0 },
             (Node){ .tp = tokInt,  .pl1 = 0, .pl2 = 1 },
             (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }

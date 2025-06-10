@@ -54,7 +54,7 @@ all: $(DEBUG_TGT) ## Build the whole compiler
 #  PATH=$(GCC_PATH):$(PATH) \
 #  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
 #  ./$(APP)
-/ cd _target && ./$(APP)
+#/ cd _target && ./$(APP) -v
 
 
 clean: ## Delete cached build results

@@ -160,7 +160,7 @@ void printStringNoLn(libeyr_String s);
 void printString(libeyr_String s);
 
 constexpr libeyr_String empty = {.c = null, .len = 0};
-libeyr_String str(const char* cent);
+libeyr_String str(const char* content);
 
 //}}}
 //{{{ AST nodes & operators

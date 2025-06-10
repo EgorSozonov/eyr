@@ -649,18 +649,18 @@ private CgFunc const CODEGEN_TABLE[countSpanForms] = {
 //{{{ Host text
 
 // Host strings for codegen. Must agree in order with the "host" constants below :hostText
-constexpr char hostText[] = "mallocfree";
-constexpr Byte
-hostStringLens[] = {
-    6, 4
-};
-
-// host string constants
-#define hostMalloc    0
-#define hostFree      1
-
-private Int
-hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
+//~constexpr char hostText[] = "mallocfree";
+//~constexpr Byte
+//~hostStringLens[] = {
+//~    6, 4
+//~};
+//~
+//~// host string constants
+//~#define hostMalloc    0
+//~#define hostFree      1
+//~
+//~private Int
+//~hostOffsets[sizeof(hostStringLens)]; // filled in by "populateStringOffsets"
 
 //}}}
 //{{{ Errors
@@ -695,7 +695,7 @@ cgType(TypeId tp, CG) {
    }
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
    TypeInfo res = cg->types[ind];
-   
+
    VALIDATEI(res.c != null, iErrorTypeNotRegisteredInCodegen);
    return res;
 }
@@ -846,7 +846,6 @@ registerTypes(CG) {
    cg->typeRefs = allocateArray(cg->countConcreteTypes, Int, cg->a);
    cg->types = allocateArray(cg->countConcreteTypes, TypeInfo, cg->a);
    LFieldPtr* fields = createLFieldPtr(countFields, cg->a);
-   print("count of all: concrete types %d fields %d %p", cg->countConcreteTypes, countFields, fields)
    cg->concreteFields = *fields;
    registerPrimitiveTypes(cg);
    registerCompositeTypes(cg);
@@ -1030,7 +1029,7 @@ createCodegen(CR, Arena* a) {
 
 void //:init
 init() {
-   populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
+   //populateStringOffsets(hostStringLens, 0, sizeof(hostStringLens), OUT hostOffsets);
 }
 
 private void //:mbRegisterNewVar
@@ -1640,10 +1639,7 @@ registerFn(FunctionId toplevelId, CR, CG) {
 // Precondition: the function is neither imported nor generic
    Function eyrFn = cr->functions.c[toplevelId];
    Name name = nameOfFn(eyrFn, toplevelId);
-print("REGISTER %d", toplevelId);
-prepareName(name, cg);
-print("%s", cg->buffer);
-   
+
    TypeHeader typeHeader = libeyr_readTypeHeader(eyrFn.typeId, cr->types.c);
    Int arity = typeHeader.arity - 1;
    TypeId returnType = tFunctionReturnType(eyrFn.typeId, cr);
@@ -1748,7 +1744,6 @@ generateMainCode(CG) {
    for (int j = 0; j < cr->toplevels.len; j++) {
       writeToplevelFn(cr->toplevels.c[j], cr, cg);
    }
-   print("end of gen main coe");
 }
 
 private Codegen* //:generateCode
@@ -1891,34 +1886,106 @@ dbgFutureBlocks(CG) {
 //}}}
 //{{{ Main
 
-private void
-displayHelp() {
-   printf("Eyr compiler. Usage:\n\neyrc file.eyr\n\nor\n\neyrc directory\n");
+private void //:printHelp
+printHelp() {
+   print("Eyr compiler. Usage:\n\neyrc source.eyr -o program\n\nother options:\n"
+         "-v    print version\n"
+         "-h    print this help\n"
+   );
+}
+
+private void //:printVersion
+printVersion() {
+   print("Eyr compiler version: 0.2");
 }
 
 
-#define whatToDoDisplayHelp  0
-#define whatToDoBuildExe     1
-#define whatToDoPrintAst     2
+#define whatToDoPrintHelp     0
+#define whatToDoBuildExe      1
+#define whatToDoPrintAst      2
+#define whatToDoPrintVersion  3
 
-typedef struct {
+typedef struct { //:TaskDescription
    String inputFilename;
    String outputFilename;
    Byte whatToDo;
    String errMsg;
 } TaskDescription;
 
-private TaskDescription
-getCommandParams(int argc, char** argv) {
-   Byte whatToDo = argc == 1 ? whatToDoDisplayHelp : whatToDoBuildExe;
+private TaskDescription //:getCommandParams
+getCommandParams(int argc, char** argv, Arena* a) {
+   if (argc == 1) { // no arguments to the compiler
+      return (TaskDescription){
+            .inputFilename = empty,
+            .outputFilename = "", .errMsg = empty, .whatToDo = whatToDoPrintHelp
+         };
+   }
+   String inputFilename = empty;
+   String outputFilename = empty;
+   String errMsg = empty;
+   Byte whatToDo = whatToDoBuildExe;
+   for (Int j = 1; j < argc; j++) {
+      char* argCString = argv[j];
+      String arg = stringOf(argCString);
+      if (arg.c[0] == '-') {
+         if (arg.len == 1) {
+            errMsg = stringOf("Empty option");
+            break;
+         }
+         if (arg.len == 2) {
+            if (arg.c[1] == 'v') {
+               whatToDo = whatToDoPrintVersion;
+               break;
+            } ei (arg.c[1] == 'h')    {
+               whatToDo = whatToDoPrintHelp;
+               break;
+            } ei (arg.c[1] == 'o') {
+               if (j == argc - 1) {
+                  errMsg = stringOf("Option -o requires a value after it!");
+                  break;
+               } ei (outputFilename.len > 0) {
+                  errMsg = stringOf("Output filename already set!");
+                  break;
+               }
+               outputFilename = stringOf(argv[j + 1]);
+               j++;
+            } else {
+               errMsg = stringOf("Unknown option");
+               break;
+            }
+         }
+      } else {
+         if (inputFilename.len == 0) {
+            inputFilename = arg;
+            if (arg.len < 5 || arg.c[arg.len - 4] != '.' || arg.c[arg.len - 3] != 'e'
+                            || arg.c[arg.len - 2] != 'y' || arg.c[arg.len - 1] != 'r'
+            ) {
+               errMsg = stringOf("Source file names should end with `.eyr`");
+               break;
+            }
+         } else {
+            errMsg = stringOf("Only 1 input file is allowed in this early version of the compiler");
+            break;
+         }
+      }
+   }
+   if (inputFilename.len == 0) {
+      errMsg = stringOf("No input file specified");
+   } ei (outputFilename.len == 0) {
+      char* outputBuffer = allocateOnArena(inputFilename.len - 3, a);
+      memcpy(outputBuffer, inputFilename.c, inputFilename.len - 4);
+      outputBuffer[inputFilename.len - 4] = '\0';
+      outputFilename = (String){.c = outputBuffer, .len = inputFilename.len - 4};
+   }
    return (TaskDescription){
-      .inputFilename = stringOf("testFile.eyr"),
-      .outputFilename = "testFile", .errMsg = empty, .whatToDo = whatToDo
+      .inputFilename = inputFilename,
+      .outputFilename = outputFilename, .errMsg = errMsg, .whatToDo = whatToDo
    };
 }
 
 Int //:main
 main(int argc, char** argv) {
+   Arena* a = createArena();
 //{{{ TEMP CODE
 //~   Codegen* cg = allocate(Codegen, a);
 //~   Module* md = gcc_jit_context_acquire();
@@ -1934,7 +2001,24 @@ main(int argc, char** argv) {
 //~   return 0;
 //}}}
 
-   CompResult* compResult = libeyr_compileFile(str("program.eyr"));
+   TaskDescription task = getCommandParams(argc, argv, a);
+   if (task.errMsg.len > 0) {
+      print("Erroneous task description!");
+      printString(task.errMsg);
+      return 0;
+   } ei (task.whatToDo == whatToDoPrintHelp) {
+      printHelp();
+      return 0;
+   } ei (task.whatToDo == whatToDoPrintVersion) {
+      printVersion();
+      return 0;
+   }
+
+   CompResult* compResult = libeyr_compileFile(task.inputFilename);
+   if (compResult->errMsg.len > 0) {
+      printString(compResult->errMsg);
+      return 1;
+   }
 
    Codegen* cg;
    if (setjmp(excBuf) == 0) {
@@ -1954,9 +2038,10 @@ main(int argc, char** argv) {
 //~   gcc_jit_context_add_command_line_option(md, "-g3");
 //~
 //~   gcc_jit_context_set_logfile(md, stderr, 0, 0);
-   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, "compiledProgram");
+   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, task.outputFilename.c);
 
-   gcc_jit_result* result = gcc_jit_context_compile(md);
+   //gcc_jit_result* result = gcc_jit_context_compile(md);
+   gcc_jit_context_compile(md);
    gcc_jit_context_dump_to_file(md, "outputDump.c", 1);
 
 

@@ -1051,7 +1051,7 @@ LexerTestSet* coreFormTests(Arena* a) {
                  (Token){ .tp = tokWord,  .pl1 = (strPrint + S), .pl2 = 0, //print
                             .startBt = 36, .lenBts = 5 },
                  (Token){ .tp = tokWord,                     .startBt = 42, .lenBts = 1 },  // x
-                 
+
                  (Token){ .tp = tokMisc, .pl1 = miscForStep, .startBt = 22 }, // x = x + 1
                  (Token){ .tp = tokAssignment,    .pl2 = 5, .startBt = 22, .lenBts = 10 },
                  (Token){ .tp = tokWord, .pl1 = 0, .pl2 = 0, .startBt = 22, .lenBts = 1 },
@@ -1107,7 +1107,7 @@ LexerTestSet* typeTests(Arena* a) {
              .expectedOutput = expect(((Token[]) {
                  (Token){ .tp = tokToplevelFn, .pl1 = 0,  .pl2 = 13,    .lenBts = 40 },
                  (Token){ .tp = tokWord, .pl1 = 0,        .pl2 = 0, .startBt = 3,   .lenBts = 1 },
-                 (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 4, 
+                 (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 4,
                           .startBt = 5, .lenBts = 14 },
                  (Token){ .tp = tokType, .pl1 = strArr + S, .pl2 = 1,
                           .startBt = 6, .lenBts = 6 },
@@ -1115,7 +1115,7 @@ LexerTestSet* typeTests(Arena* a) {
                  (Token){ .tp = tokTypeVar, .pl1 = 1,     .pl2 = 0, .startBt = 13, .lenBts = 2 },
                  (Token){ .tp = tokType, .pl1 = strVoid + S, .pl2 = 0,
                           .startBt = 18, .lenBts = 0 },
-                 
+
                  (Token){ .tp = tokFn, .pl1 = slScope, .pl2 = 6, .startBt = 20, .lenBts = 20 },
                  (Token){ .tp = tokStmt,           .pl2 = 2, .startBt = 22, .lenBts = 5 },
                  (Token){ .tp = tokWord, .pl1 = 2,           .startBt = 22, .lenBts = 3 }, //lst
