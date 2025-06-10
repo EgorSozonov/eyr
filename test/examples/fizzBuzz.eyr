@@ -1,17 +1,18 @@
 fn fizzBuzz f{
-    for {i' = 1; i < 101; i++; }{
+    for {i' = 1; i < 101; i++; ->
         worker i;
     }
 }
 
-fn worker [Int ->] { i ->
+fn worker [Int ->] f{ i ->
     if i % 3 == 0 && (i % 5 == 0) {print `FizzBuzz`;}
     ei i % 3 == 0 { print `Fizz`; }
     ei i % 5 == 0 { print `Buzz`; }
     else          { print i; }
 }
 
-fn main [ -> Int] {
+fn main [ -> Int] f{
     (fizzBuzz);
     return 0;
 }
+

@@ -715,7 +715,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
 
             (Node){ .tp = nodCall, .pl1 = I - 1, .pl2 = 0 }, // bar
             (Node){ .tp = nodCall, .pl1 = oper(opToString, tokDouble), .pl2 = 1 }, // $
-            (Node){ .tp = nodCall, .pl1 = oper(opSize, tokString), .pl2 = 1}, // ##
+            (Node){ .tp = nodCall, .pl1 = tokString, .pl2 = 1, .pl3 = callField}, // #
             (Node){ .tp = nodCall, .pl1 = I - 2, .pl2 = 1} // foo
          })),
          ((Int[]) {2, tokInt, tokInt, // Int -> Int

@@ -695,6 +695,7 @@ cgType(TypeId tp, CG) {
    }
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
    TypeInfo res = cg->types[ind];
+   
    VALIDATEI(res.c != null, iErrorTypeNotRegisteredInCodegen);
    return res;
 }
@@ -1630,7 +1631,7 @@ openBlock(FutureBlock futureBlock, Node nd, AST, CG) {
 
 private Name //:nameOfFn
 nameOfFn(Function eyrFn, Int fnId) {
-   return (Name){ .nameId = eyrFn.name, .suffix = (eyrFn.isOverloaded ? fnId : -1) };
+   return (Name){ .nameId = eyrFn.name, .suffix = (eyrFn.needsMangling ? fnId : -1) };
 }
 
 private void //:registerFn

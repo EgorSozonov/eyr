@@ -801,7 +801,7 @@ searchMultiAssocList(Int searchKey, Int listInd, MultiAssocList* ml) {
    Int const endInd = listInd + 2 + len;
    for (Int j = listInd + 2; j < endInd; j += 2) {
       if (ml->c[j] == searchKey) {
-         return ml->c[j + len];
+         return ml->c[j + 1];
       }
    }
    return -1;
@@ -3345,7 +3345,7 @@ _Noreturn private void
 throwExcParser0(char const errMsg[], Int lineNumber, CM) {
    cm->wasError = true;
 #ifdef DEBUG
-   printf("Error on i = %d line %d\n", cm->i, lineNumber);
+   printf("Parse error on i = %d line %d\n", cm->i, lineNumber);
 #endif
    cm->errMsg = str(errMsg);
    longjmp(excBuf, 1);
@@ -3377,6 +3377,7 @@ private Node //:createNodVarForName
 createNodVarForName(NameId name, CM) {
 // Resolves an active binding, throws if it's not active
    Int rawValue = cm->activeBindings[name];
+   
    VALIDATEP(rawValue > -1 && rawValue < BIG, errUnknownBinding)
    Var v = cm->vars.c[rawValue];
    if (v.fnId == -1) {
@@ -5121,11 +5122,11 @@ importPrelude(CM) {
    Int const genericInd = listCreateMultiAssocList(cm->functionMonos); // for the generic list "add"
    Function fnImports[5] =  {
       (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintInt,
-         .typeId = intToVoid, .isOverloaded = true },
+         .typeId = intToVoid, .needsMangling = true },
       (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintDou,
-         .typeId = douToVoid, .isOverloaded = true },
+         .typeId = douToVoid, .needsMangling = true },
       (Function){ .name = nameOfStd(strPrint), .access = accessPrivImm, .emit = emitPrintStr,
-         .typeId = strToVoid, .isOverloaded = true },
+         .typeId = strToVoid, .needsMangling = true },
       (Function){ .name = nameOfStd(strAdd), .typeId = listAdd, .genericInd = genericInd,
          .tokenInd = -1, .access = accessPrivImm, .emit = emitParsed },
       (Function){ .name = nameOfStd(strPrintErr),
@@ -5310,8 +5311,9 @@ createNameOverloads(NameId name, CM) {
    
    if (countOverloads > 1) {
       validateNameOverloads(newInd, countOverloads, name, cm);
-      for (Int j = newInd + 1 + countOverloads; j < sentinel; j++) {
-         cm->functions.c[ov[j]].isOverloaded = true;
+      for (Int j = newInd + 2 + countOverloads; j < sentinel; j++) {
+         // +2 because in every overload group one function may keep its original name
+         cm->functions.c[ov[j]].needsMangling = true;
       }
    }
    return newInd;
@@ -6240,32 +6242,34 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
 
 private void //:typeCheckFnGenericCall
 typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
-      Function fn = cm->functions.c[fnId];
+   Function fn = cm->functions.c[fnId];
+   
+   TypeId concreteType = tGenericResolveConcrete(fn, exp->c, exp->len - argCount, exp->len, cm);
+   
+   Int concreteFn = searchMultiAssocList(concreteType.v, fn.genericInd, cm->functionMonos);
+   
+   if (concreteFn == -1) {
+      concreteFn = cm->functions.len; // function body coming in {generateMonomorphizations}
       
-      TypeId concreteType = tGenericResolveConcrete(fn, exp->c, exp->len - argCount, exp->len, cm);
-      
-      Int concreteFn = searchMultiAssocList(concreteType.v, fn.genericInd, cm->functionMonos);
-      if (concreteFn == -1) {
-         concreteFn = cm->functions.len; // function body coming in {generateMonomorphizations}
-         Int newListInd = 
-            addMultiAssocList(concreteType.v, concreteFn, fn.genericInd, cm->functionMonos);
-         if (newListInd != -1)
-            { cm->functions.c[fnId].genericInd = newListInd; }
-            
-         Int const tokenInd = cm->functions.c[fnId].tokenInd;
-         add(
-            ((Monomorphization){ .fnId = concreteFn, .tokenInd = tokenInd }),
-            cm->monos
-         );
-         pushInfunctions(
-            ((Function){ .name = fn.name, .typeId = concreteType, .emit = emitParsed,
-                         .nodeInd = -1, .genericInd = -1, .tokenInd = tokenInd,
-                         .isOverloaded = true }),
-            cm
-         );
-         pushIntoplevels(concreteFn, cm);
-      }
-      cm->ast.c[cm->j].pl1 = concreteFn;
+      Int newListInd = 
+         addMultiAssocList(concreteType.v, concreteFn, fn.genericInd, cm->functionMonos);
+      if (newListInd != -1)
+         { cm->functions.c[fnId].genericInd = newListInd; }
+         
+      Int const tokenInd = cm->functions.c[fnId].tokenInd;
+      add(
+         ((Monomorphization){ .fnId = concreteFn, .tokenInd = tokenInd }),
+         cm->monos
+      );
+      pushInfunctions(
+         ((Function){ .name = fn.name, .typeId = concreteType, .emit = emitParsed,
+                      .nodeInd = -1, .genericInd = -1, .tokenInd = tokenInd,
+                      .needsMangling = true }),
+         cm
+      );
+      pushIntoplevels(concreteFn, cm);
+   }
+   cm->ast.c[cm->j].pl1 = concreteFn;
 }
 
 private void //:typeCheckFnCall
@@ -7510,7 +7514,6 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .wasLexerError = (cm->ast.c == null ? cm->wasError : false),
       .wasParserError = (cm->ast.c == null ? false : cm->wasError)
    };
-   print("types len is %d but %d", cm->types.len, cr->types.len);
 }
 
 //}}}

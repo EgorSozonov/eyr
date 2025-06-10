@@ -1,18 +1,18 @@
-fn main [->Int] f{->
+fn main [->Int] f{
     (sortingIntArrays);
     (sortingStringArrays);
     return 0;
 }
 
-fn swap [Int Int [L $E] ->] f{ i j arr ->
+fn swap [Int Int [A $E] ->] f{ i j arr ->
     tmp = arr[i];
     arr[i] = arr[j];
     arr[j] = tmp;
 }
 
-fn insertionSort [[L $E] F[$E $E -> Int] -> ] f{ arr comparer -> 
-    for {i' = 0; i < #arr; i++; }{
-       for {j' = i + 1; j < #arr; j++; }{
+fn insertionSort [[A $E] F[$E $E -> Int] -> ] f{ arr comparer -> 
+    for { i' = 0; i < #arr; i++; ->
+       for { j' = i + 1; j < #arr; j++; ->
           if comparer arr[i] arr[j] > 0 {
              swap i j arr;
           }
@@ -29,9 +29,9 @@ fn ascending [Str Str -> Int] f{ a b -> return #a - #b; }
 fn descending [Str Str -> Int] f{ a b -> return #b - #a; }
 
 
-fn print [[L $E] -> ] f{ lst ->
+fn print [[A $E] -> ] f{ lst ->
     print `[`;
-    for {i' = 0; i < #lst; i++;}{
+    for {i' = 0; i < #lst; i++; ->
         print lst[i];
     } 
     print `]`;
@@ -41,7 +41,7 @@ fn sortingIntArrays f{
    leArray = [5 1 2 4 3];
    print `Unsorted:`;
    print leArray;
-   sorter' F Int Int Int = ascending;
+   sorter' F[Int Int -> Int] = ascending;
    insertionSort leArray sorter;
    print `Sorted ASC:`;
    print leArray;

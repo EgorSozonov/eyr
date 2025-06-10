@@ -305,7 +305,7 @@ struct Function { //:Function Parsed or built-in function
    Int genericInd; // index into @monos (get full mono type & code from arg types)
    Byte access;    // the "access" constants
    Emit emit;
-   Bool isOverloaded;
+   Bool needsMangling; // do we need to add "_123" to this function's name when generating code?
 };
 
 struct StructField { //:StructField Struct field names + access are in a separate table,

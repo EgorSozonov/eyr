@@ -5,7 +5,7 @@ fn fibonacci [Int -> Int] f{n ->
      accum' = 1;
      for { beforeLast' = 0; swap' = 0; k' = n - 1;
            k > 0; k--;
-         }{
+         ->
           swap = beforeLast;
           beforeLast = accum;
           accum += swap;
@@ -15,7 +15,7 @@ fn fibonacci [Int -> Int] f{n ->
 
 fn main [-> Int] f{->
     print `First 10 Fibonacci numbers:`;
-    for { k' = 0; k < 10; k++; } {
+    for { k' = 0; k < 10; k++; ->
        print (fibonacci k);
     }
     return 0;

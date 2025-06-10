@@ -149,14 +149,13 @@ extern char const errTypeOfListIndex[];
 #define O  280000000 // The base index for operators
 
 
-
 #define assiVarAssignment  1 // definition of a var
 #define assiTypeDefinition 2 // definition of a type
 #define assiFnParam        3 // introduction of a function parameter
 #define assiReassignment   4 // reassignment to a previously defined var
 #define assiFnVarDef       5 // definition of a local var that is a function
-#define assiFnVarUse       6 // usage (NOT an assignment) of a variable that is a function
-
+#define assiFnVarReassign  6 // reassignment to a local var that is a function
+#define assiFnVarUse       7 // usage (NOT an assignment) of a variable that is a function
 
 void parseMain(CM, Arena* a);
 Long longOfDoubleBits(double d);
