@@ -2042,7 +2042,7 @@ main(int argc, char** argv) {
 
    //gcc_jit_result* result = gcc_jit_context_compile(md);
    gcc_jit_context_compile(md);
-   gcc_jit_context_dump_to_file(md, "outputDump.c", 1);
+//~   gcc_jit_context_dump_to_file(md, "outputDump.c", 1);
 
 
 //~   TaskDescription task = getCommandParams(argc, argv);

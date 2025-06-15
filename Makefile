@@ -76,12 +76,12 @@ testCodegen: | $(DEBUG_TGT) ## Test the code generator
 / $(DEBUG_TGT)/codegenTest
 
 
-testI: | $(DEBUG_TGT) ## Test the full compilation and program execution
+testIntegration: | $(DEBUG_TGT) ## Test the full compilation and program execution
 / $(COMPILE_TEST) -o $(DEBUG_TGT)/integrationTest test/integrationTest.c libeyr.c
 / $(DEBUG_TGT)/integrationTest
 
 
-tests: | testLexer testParser testCodegen ## Run all tests
+tests: | testLexer testParser testIntegration ## Run all tests
 
 #}}}
 #{{{ Meta
