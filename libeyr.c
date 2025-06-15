@@ -2003,7 +2003,7 @@ typedef union {
    double   d;
 } FloatingBits;
 
-String //:readSourceFile
+private String //:readSourceFile
 readSourceFile(String fName, Arena* a) {
    FILE *file = fopen(fName.c, "r");
    if (!file)

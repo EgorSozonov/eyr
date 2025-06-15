@@ -1,4 +1,4 @@
-def main [-> Int] f{
+fn main [-> Int] f{
    for {i' = 1; i < 4; i += 1; ->
       print i;
    }

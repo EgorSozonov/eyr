@@ -1,5 +1,5 @@
 
-def conditionalPrinter [Int->] f{x ->
+fn conditionalPrinter [Int->] f{x ->
    print `foo:`;
    if x < 800 {
       print `less than 800`;
@@ -8,18 +8,20 @@ def conditionalPrinter [Int->] f{x ->
    } else {
       print `greater than 800`;
    }
-};
+}
 
-def main [-> Int] f{
+fn main [-> Int] f{
    (conditionalPrinter 799);
    (conditionalPrinter 800);
    (conditionalPrinter 801);
    return 0;
-};
+}
 
 ////EXPECTED{
 //foo:
 //less than 800
+//foo:
 //== 800
+//foo:
 //greater than 800
 ////}

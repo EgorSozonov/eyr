@@ -506,7 +506,6 @@ typedef struct { //:CompResult
 
 Int calcNodeSentinel(Node nd, Int nodeInd);
 Compiler* lexicallyAnalyzeFromFile(libeyr_String sourceCode, Arena* a);
-libeyr_String readSourceFile(libeyr_String fName, Arena* a);
 
 libeyr_CompResult* getCompResult(CM);
 TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);

@@ -1,4 +1,4 @@
-def main [->Int] f{
+fn main [->Int] f{
    i' = 1;
    if i > 1 {
       for {j' = 100; j > 97; j -= 1; ->

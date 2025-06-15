@@ -1,0 +1,117 @@
+fn main [->Int] f{
+    (sortingIntArrays);
+    (sortingStringArrays);
+    return 0;
+}
+
+fn swap [Int Int [A $E] ->] f{ i j arr ->
+    tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+}
+
+fn insertionSort [[A $E] F[$E $E -> Int] -> ] f{ arr comparer -> 
+    for { i' = 0; i < #arr; i++; ->
+       for { j' = i + 1; j < #arr; j++; ->
+          if comparer arr[i] arr[j] > 0 {
+             swap i j arr;
+          }
+       }
+    } 
+}
+
+fn ascending [Int Int -> Int] f{ a b -> return a - b; }
+
+fn descending [Int Int -> Int] f{ a b -> return b - a; }
+
+fn ascending [Str Str -> Int] f{ a b -> return #a - #b; }
+
+fn descending [Str Str -> Int] f{ a b -> return #b - #a; }
+
+
+fn print [[A $E] -> ] f{ lst ->
+    print `[`;
+    for {i' = 0; i < #lst; i++; ->
+        print lst[i];
+    } 
+    print `]`;
+}
+
+fn sortingIntArrays f{
+   leArray = [5 1 2 4 3];
+   print `Unsorted:`;
+   print leArray;
+   sorter' F[Int Int -> Int] = ascending;
+   insertionSort leArray sorter;
+   print `Sorted ASC:`;
+   print leArray;
+   
+   sorter = descending;
+   insertionSort leArray sorter;
+   print `Sorted DESC:`;
+   print leArray;
+}
+
+fn sortingStringArrays f{
+   leArray = [`already` `some` `Get` `sleep`];
+   print `Unsorted:`;
+   print leArray;
+   sorter' F[Str Str -> Int] = ascending;
+   insertionSort leArray sorter;
+   print `Sorted ASC:`;
+   print leArray;
+   
+   sorter = descending;
+   insertionSort leArray sorter;
+   print `Sorted DESC:`;
+   print leArray;
+}
+
+
+////EXPECTED{
+//Unsorted:
+//[
+//5
+//1
+//2
+//4
+//3
+//]
+//Sorted ASC:
+//[
+//1
+//2
+//3
+//4
+//5
+//]
+//Sorted DESC:
+//[
+//5
+//4
+//3
+//2
+//1
+//]
+//Unsorted:
+//[
+//already
+//some
+//Get
+//sleep
+//]
+//Sorted ASC:
+//[
+//Get
+//some
+//sleep
+//already
+//]
+//Sorted DESC:
+//[
+//already
+//sleep
+//some
+//Get
+//]
+////}
