@@ -44,7 +44,7 @@ $(DEBUG_TGT):
 / mkdir -p $(DEBUG_TGT)
 
 
-all: $(DEBUG_TGT) ## Build the whole compiler
+all: | $(DEBUG_TGT) ## Build the whole compiler
 / clear
 / $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
 / @echo "_________________________________________"
@@ -61,19 +61,24 @@ clean: ## Delete cached build results
 / test -f $(DEBUG_TGT) | rm $(DEBUG_TGT)/ *
 
 
-testLexer: $(DEBUG_TGT) ## Test the lexical analyzer
+testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer
 / $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c libeyr.c
 / $(DEBUG_TGT)/lexerTest
 
 
-testParser: $(DEBUG_TGT) ## Test the parser & typechecker
+testParser: | $(DEBUG_TGT) ## Test the parser & typechecker
 / $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
 / $(DEBUG_TGT)/parserTest
 
 
-testCodegen: $(DEBUG_TGT) ## Test the code generator
+testCodegen: | $(DEBUG_TGT) ## Test the code generator
 / $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/codegenTest test/codegenTest.c libeyr.c
 / $(DEBUG_TGT)/codegenTest
+
+
+testI: | $(DEBUG_TGT) ## Test the full compilation and program execution
+/ $(COMPILE_TEST) -o $(DEBUG_TGT)/integrationTest test/integrationTest.c libeyr.c
+/ $(DEBUG_TGT)/integrationTest
 
 
 tests: | testLexer testParser testCodegen ## Run all tests

@@ -8,7 +8,7 @@
 
 - The `test/examples` folder contains example programs
 
-- Compile a file like `eyrc test/examples/fizzBuzz.eyr`
+- Compile a file like `eyrc docs/examples/fizzBuzz.eyr`
 
 - The output will be in an adjacent file
 
@@ -18,6 +18,7 @@
 ### Releases
 
 0.1: Primitive types & lists, a static type system with function overloads generic functions
+
 0.2: Native codegen via Libgccjit, strings and better syntax, a CLI interface
 
 

@@ -1,9 +1,7 @@
-////{PROGRAM
-
-def main Int = {{}
-   for {i' = 1; i < 3; i += 1; } {
-      for {j' = 100; j > 95; j -= 1; }{
-         if (j == 99) {
+def main [-> Int] f{
+   for {i' = 1; i < 3; i += 1; ->
+      for {j' = 100; j > 95; j -= 1; ->
+         if j == 99 {
             continue;
          }
          print j;
@@ -13,7 +11,6 @@ def main Int = {{}
    return 0;
 };
 
-////}
 ////EXPECTED{
 //100
 //98

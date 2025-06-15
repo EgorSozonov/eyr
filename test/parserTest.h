@@ -1,16 +1,3 @@
-//{{{ Arena
-
-typedef struct Arena Arena;
-
-Arena* createArena(void);
-
-void* allocateOnArena(size_t allocSize, Arena* a);
-
-void deleteArena(Arena* ar);
-
-void clearArena(Arena* a);
-
-//}}}
 //{{{ Common for tests
 
 typedef struct {
