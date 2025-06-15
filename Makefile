@@ -6,7 +6,7 @@ ifndef VERBOSE
 .SILENT: # Silent mode unless you run it like "make all VERBOSE=1"
 endif
 
-.PHONY: all clean help lexerTest parserTest codegenTest tests
+.PHONY: all build clean help testLexer testParser testIntegration tests
 
 CC=gcc --std=gnu2x
 CONFIG=-g3
@@ -32,6 +32,7 @@ COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
 RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 
+TGT = _target
 DEBUG_TGT = _target/debug
 EXE=_target/$(APP)
 
@@ -56,6 +57,13 @@ all: | $(DEBUG_TGT) ## Build the whole compiler
 #  ./$(APP)
 #/ cd _target && ./$(APP) -v
 
+build: | $(TGT) ## Build the whole compiler
+/ clear
+/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
+/ @echo "_________________________________________"
+/ @echo "|            BUILD SUCCESS              |"
+/ @echo "========================================="
+
 
 clean: ## Delete cached build results
 / test -f $(DEBUG_TGT) | rm $(DEBUG_TGT)/ *
@@ -76,7 +84,7 @@ testCodegen: | $(DEBUG_TGT) ## Test the code generator
 / $(DEBUG_TGT)/codegenTest
 
 
-testIntegration: | $(DEBUG_TGT) ## Test the full compilation and program execution
+testIntegration: | $(EXE) ## Test the full compilation and program execution
 / $(COMPILE_TEST) -o $(DEBUG_TGT)/integrationTest test/integrationTest.c libeyr.c
 / $(DEBUG_TGT)/integrationTest
 
