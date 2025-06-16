@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -156,14 +157,21 @@ private ParserTest createTestWithLocs0(String name, String input, Arr(Node) node
 
 void runTest(ParserTest test, TestContext* ct) {
 // Runs a single lexer test and prints err msg to stdout in case of failure. Returns error code
-   ct->countTests += 1;
+   ct->countTests++;
+   if (ct->singleId > -1) {
+      if (ct->countTests - 1 == ct->singleId)
+         { ct->ranSingle = true; }
+      else
+         { return; }
+   }
    CompResult* testRes = getCompResult(test.test);
    CompResult* controlRes = getCompResult(test.control);
+   Int testId = ct->countTests - 1;
    if (testRes->stats.toksLen == 0) {
       print("Lexer result empty");
       return;
    } else if (controlRes->wasLexerError) {
-      print("Lexer error");
+      print("[%d]Lexer error", testId);
       printLexer(test.control);
       return;
    }
@@ -173,7 +181,7 @@ void runTest(ParserTest test, TestContext* ct) {
       ct->countPassed += 1;
       return;
    } else if (equalityStatus == -1) {
-      printf("\n\nERROR IN [");
+      printf("\n\nERROR IN [%d][", testId);
       printStringNoLn(test.name);
       printf("]\nError msg: ");
       printString(testRes->errMsg);
@@ -185,7 +193,7 @@ void runTest(ParserTest test, TestContext* ct) {
       print("   PARSER:")
       printParser(test.test);
    } else {
-      printf("ERROR IN ");
+      printf("ERROR IN [%d]", testId);
       printString(test.name);
       printf("On node %d\n", equalityStatus);
       print("   LEXER:")
@@ -1664,12 +1672,45 @@ void runATestSet(ParserTestSet* (*testGenerator)(Compiler*, Arena*),
    }
 }
 
+void
+printTestResults(TestContext ct) {
+   if (ct.countTests == 0) {
+      printf("\nThere were no tests to run!\n");
+   } else if (ct.countPassed == ct.countTests) {
+      if (ct.countTests > 1) {
+         printf("\nPassed all %d tests!\n", ct.countTests);
+      } else {
+         printf("\nThe test was passed.\n");
+      }
+   } else if (ct.singleId > -1) {
+      if (ct.ranSingle) {
+         printf(ct.countPassed == 1 ? "\nThe test was passed.\n" : "\nFailed the test!\n");
+      } else {
+         printf("\nWanted to run test %d but encountered only %d tests\n",
+            ct.singleId, ct.countTests
+         );
+      }
+   } else {
+      printf("\nFailed %d tests out of %d!\n", (ct.countTests - ct.countPassed), ct.countTests);
+   }
+}
+
 int
-main() {
+main(int argc, char** argv) {
    printf("----------------------------\n");
    printf("--  PARSER TEST  --\n");
    printf("----------------------------\n");
-   TestContext ct = {.countTests = 0, .countPassed = 0, .a = createArena() };
+   TestContext ct = {
+      .countTests = 0, .countPassed = 0, .a = createArena(), .singleId = -1, .ranSingle = false
+   };
+
+   if (argc == 2) {
+      char* tail;
+      long testId = strtol(argv[1], &tail, 10);
+      if (*tail == '\0' && testId >= 0) {
+         ct.singleId = (int)testId;
+      }
+   }
 
    // An empty compiler that we need for the built-in overloads
    Compiler* protoOvs = createLexer(empty, true, ct.a);
@@ -1682,18 +1723,8 @@ main() {
    runATestSet(&ifTests, &ct, protoOvs);
    runATestSet(&forTests, &ct, protoOvs);
 
-   if (ct.countTests == 0) {
-      printf("\nThere were no tests to run!\n");
-   } else if (ct.countPassed == ct.countTests) {
-      if (ct.countTests > 1) {
-         printf("\nPassed all %d tests!\n", ct.countTests);
-      } else {
-         printf("\nThe test was passed.\n");
-      }
-
-   } else {
-      printf("\nFailed %d tests out of %d!\n", (ct.countTests - ct.countPassed), ct.countTests);
-   }
+   printTestResults(ct);
 
    deleteArena(ct.a);
 }
+

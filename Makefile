@@ -74,9 +74,9 @@ testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer
 / $(DEBUG_TGT)/lexerTest
 
 
-testParser: | $(DEBUG_TGT) ## Test the parser & typechecker
+testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run just 1 test
 / $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
-/ $(DEBUG_TGT)/parserTest
+/ $(DEBUG_TGT)/parserTest $(TEST)
 
 
 testCodegen: | $(DEBUG_TGT) ## Test the code generator
