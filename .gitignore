@@ -1,2 +1,3 @@
-_target/*
+bin/*
+_debug/*
 

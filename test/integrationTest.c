@@ -198,9 +198,9 @@ append(String s, LByte* buf) {
 LByte*
 buildCommandCompile(String programName, Arena* a) {
    LByte* commandBuf = createLByte(64, a);
-   appendCString("_target/eyrc ./test/integration/", commandBuf);
+   appendCString("bin/eyrc ./test/integration/", commandBuf);
    append(programName, commandBuf);
-   appendCString(" -o _target/debug/", commandBuf);
+   appendCString(" -o _debug/", commandBuf);
    append((String){.c = programName.c, .len = programName.len - 4}, commandBuf);
    ensureCapacityBuf(1, commandBuf);
    commandBuf->c[commandBuf->len] = '\0';
@@ -212,7 +212,7 @@ buildCommandCompile(String programName, Arena* a) {
 LByte*
 buildCommandRun(String programName, Arena* a) {
    LByte* commandBuf = createLByte(64, a);
-   appendCString("_target/debug/", commandBuf);
+   appendCString("_debug/", commandBuf);
    append((String){.c = programName.c, .len = programName.len - 4}, commandBuf);
    ensureCapacityBuf(1, commandBuf);
    commandBuf->c[commandBuf->len] = '\0';

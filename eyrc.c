@@ -7,7 +7,8 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include "include/libeyr.h"
-#include "_target/libgccjit.h"
+#include <libgccjit.h>
+//#include "_debug/libgccjit.h"
 
 typedef libeyr_String String;
 typedef libeyr_StringBuilder StringBuilder;
@@ -1730,8 +1731,6 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       { jump(cg->cbl.c, cg->cbl.after); }
 }
 
-void temp(CG);
-
 private void //:generateMainCode
 generateMainCode(CG) {
    CompResult* cr = &cg->compResult;
@@ -1758,88 +1757,6 @@ generateCode(CR) {
 #endif
    }
    return cg;
-}
-
-//}}}
-//{{{ Temp
-
-struct B_glb;
-struct A_glb {
-  struct B_glb *b;
-};
-struct B_glb {
-  struct A_glb *a;
-};
-
-
-void
-temp2(CG) {
-   Module* ctxt = cg->md;
-
-
-  gcc_jit_type *int_type = gcc_jit_context_get_type (ctxt,
-    GCC_JIT_TYPE_INT);
-    /* fn1 = () -> 10 */
-    gcc_jit_function* fn1 = gcc_jit_context_new_function(
-       ctxt,
-       NULL,
-       GCC_JIT_FUNCTION_EXPORTED,
-       int_type,
-       "fn1",
-       0,
-       NULL,
-       0
-    );
-    gcc_jit_block *block1 = gcc_jit_function_new_block (fn1, "fn1");
-    gcc_jit_rvalue* ten = gcc_jit_context_new_rvalue_from_int(ctxt, int_type, 10);
-    gcc_jit_block_end_with_return(block1, NULL, ten);
-
-    /* fn2 = () -> 2000 */
-    gcc_jit_function* fn2 = gcc_jit_context_new_function(
-       ctxt,
-       NULL,
-       GCC_JIT_FUNCTION_EXPORTED,
-       int_type,
-       "fn2",
-       0,
-       NULL,
-       0
-    );
-    gcc_jit_block *block2 = gcc_jit_function_new_block (fn2, "fn2");
-    gcc_jit_rvalue* twoThousand = gcc_jit_context_new_rvalue_from_int(ctxt, int_type, 2000);
-    gcc_jit_block_end_with_return(block2, NULL, twoThousand);
-
-    gcc_jit_type* fn_type =
-       gcc_jit_context_new_function_ptr_type(ctxt, NULL, int_type, 0, NULL, 0);
-
-    /* F_TABLE = {&fn1, &fn2}; */
-    gcc_jit_type* f_table_type = gcc_jit_context_new_array_type(ctxt, NULL, fn_type, 2);
-    gcc_jit_lvalue* f_table = gcc_jit_context_new_global(
-      ctxt, NULL, GCC_JIT_GLOBAL_EXPORTED, f_table_type, "F_TABLE"
-    );
-    gcc_jit_rvalue* fns[2];
-    fns[0] = gcc_jit_function_get_address(fn1, NULL);
-    fns[1] = gcc_jit_function_get_address(fn2, NULL);
-
-    f_table = gcc_jit_global_set_initializer_rvalue(
-        f_table,
-        gcc_jit_context_new_array_constructor(ctxt, NULL, f_table_type, 2, fns)
-    );
-
-
-
-    gcc_jit_result* result = gcc_jit_context_compile(ctxt);
-
-    typedef int (*intToVoid)(void);
-    intToVoid *compiledFns = gcc_jit_result_get_global (result, "F_TABLE");
-   print("aaa %p %p", compiledFns[0], compiledFns[1]);
-    if (compiledFns[0]() != 10) {
-       print("first fun not 10");
-    } else if (compiledFns[1]() != 2000) {
-       print("second fun not 2000");
-    } else {
-       print("OK %d %d", compiledFns[0](), compiledFns[1]());
-    }
 }
 
 //}}}
@@ -1888,7 +1805,7 @@ dbgFutureBlocks(CG) {
 
 private void //:printHelp
 printHelp() {
-   print("Eyr compiler. Usage:\n\neyrc source.eyr -o program\n\nother options:\n"
+   print("Eyr compiler. Usage:\n\n> eyrc source.eyr -o program\n\nOther options:\n"
          "-v    print version\n"
          "-h    print this help\n"
    );
@@ -1930,28 +1847,28 @@ getCommandParams(int argc, char** argv, Arena* a) {
       if (arg.c[0] == '-') {
          if (arg.len == 1) {
             errMsg = stringOf("Empty option");
-            break;
+            goto finish;
          }
          if (arg.len == 2) {
             if (arg.c[1] == 'v') {
                whatToDo = whatToDoPrintVersion;
-               break;
+               goto finish;
             } ei (arg.c[1] == 'h')    {
                whatToDo = whatToDoPrintHelp;
-               break;
+               goto finish;
             } ei (arg.c[1] == 'o') {
                if (j == argc - 1) {
                   errMsg = stringOf("Option -o requires a value after it!");
-                  break;
+                  goto finish;
                } ei (outputFilename.len > 0) {
                   errMsg = stringOf("Output filename already set!");
-                  break;
+                  goto finish;
                }
                outputFilename = stringOf(argv[j + 1]);
                j++;
             } else {
                errMsg = stringOf("Unknown option");
-               break;
+               goto finish;
             }
          }
       } else {
@@ -1961,11 +1878,11 @@ getCommandParams(int argc, char** argv, Arena* a) {
                             || arg.c[arg.len - 2] != 'y' || arg.c[arg.len - 1] != 'r'
             ) {
                errMsg = stringOf("Source file names should end with `.eyr`");
-               break;
+               goto finish;
             }
          } else {
             errMsg = stringOf("Only 1 input file is allowed in this early version of the compiler");
-            break;
+            goto finish;
          }
       }
    }
@@ -1977,6 +1894,7 @@ getCommandParams(int argc, char** argv, Arena* a) {
       outputBuffer[inputFilename.len - 4] = '\0';
       outputFilename = (String){.c = outputBuffer, .len = inputFilename.len - 4};
    }
+finish:   
    return (TaskDescription){
       .inputFilename = inputFilename,
       .outputFilename = outputFilename, .errMsg = errMsg, .whatToDo = whatToDo
@@ -1986,20 +1904,6 @@ getCommandParams(int argc, char** argv, Arena* a) {
 Int //:main
 main(int argc, char** argv) {
    Arena* a = createArena();
-//{{{ TEMP CODE
-//~   Codegen* cg = allocate(Codegen, a);
-//~   Module* md = gcc_jit_context_acquire();
-//~   (*cg) = (Codegen) {
-//~      .i = 0,
-//~      .md = md,
-//~      .bt = createLBtLoop(16, a),
-//~      .compResult = null,
-//~      .a = a,
-//~      .wasError = false
-//~   };
-//~   temp2(cg);
-//~   return 0;
-//}}}
 
    TaskDescription task = getCommandParams(argc, argv, a);
    if (task.errMsg.len > 0) {
@@ -2045,35 +1949,8 @@ main(int argc, char** argv) {
 //~   gcc_jit_context_dump_to_file(md, "outputDump.c", 1);
 
 
-//~   TaskDescription task = getCommandParams(argc, argv);
-//~   if (task.errMsg.len > 0) {
-//~      print("Erroneous task description!");
-//~      printString(task.errMsg);
-//~      return 0;
-//~   } else if (task.whatToDo == whatToDoDisplayHelp) {
-//~      displayHelp();
-//~      return 0;
-//~   }
-//~   CompResult* compResult = tech_sozonov_eyr_compileFile(task.inputFilename);
-//~   if (compResult->wasLexerError || compResult->wasParserError) {
-//~      print("Compilation error");
-//~      printString(compResult->errMsg);
-//~      return 1;
-//~   }
-//~   Codegen* cg = generateCode(compResult);
-//~   if (cg->wasError) {
-//~      print("Code generation error");
-//~      return 1;
-//~   }
-//~
-//~   Module* md = cg->md;
-//~   gcc_jit_context_compile_to_file(md, GCC_JIT_OUTPUT_KIND_EXECUTABLE, task.outputFilename.c);
-//~
-//~   gcc_jit_result* result = gcc_jit_context_compile(md);
-//~   gcc_jit_context_dump_to_file(md, "outputDump.c", 0);
-
    cleanup:
-
+   deleteArena(a);
    return 0;
 }
 

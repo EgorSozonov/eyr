@@ -6,7 +6,7 @@ ifndef VERBOSE
 .SILENT: # Silent mode unless you run it like "make all VERBOSE=1"
 endif
 
-.PHONY: all build clean help testLexer testParser testIntegration tests
+.PHONY: all debug clean help testLexer testParser testIntegration test
 
 CC=gcc --std=gnu2x
 CONFIG=-g3
@@ -32,9 +32,9 @@ COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
 RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 
-TGT = _target
-DEBUG_TGT = _target/debug
-EXE=_target/$(APP)
+BIN=bin
+DEBUG_TGT=_debug
+EXE=$(BIN)/$(APP)
 
 GCC_PATH=~/repos/build/gcc
 
@@ -45,24 +45,29 @@ $(DEBUG_TGT):
 / mkdir -p $(DEBUG_TGT)
 
 
-all: | $(DEBUG_TGT) ## Build the whole compiler
+$(BIN):
+/ mkdir -p $(BIN)
+
+
+all: | $(BIN) ## Build the whole compiler
 / clear
-/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
+/ $(COMPILE_RELEASE) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
-#/ cd _target && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
+
+
+debug: | $(DEBUG_TGT) ## Debug build
+/ clear
+/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
+/ @echo "_________________________________________"
+/ @echo "|         DEBUG BUILD SUCCESS            |"
+/ @echo "========================================="
+#/ cd $(DEBUG_TGT) && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
 #  PATH=$(GCC_PATH):$(PATH) \
 #  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
 #  ./$(APP)
-#/ cd _target && ./$(APP) -v
-
-build: | $(TGT) ## Build the whole compiler
-/ clear
-/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
-/ @echo "_________________________________________"
-/ @echo "|            BUILD SUCCESS              |"
-/ @echo "========================================="
+/ cd $(TGT) && ./$(APP) insertionSort.eyr
 
 
 clean: ## Delete cached build results
@@ -89,7 +94,7 @@ testIntegration: | $(EXE) ## Test the full compilation and program execution
 / $(DEBUG_TGT)/integrationTest
 
 
-tests: | testLexer testParser testIntegration ## Run all tests
+test: | testLexer testParser testIntegration ## Run all tests
 
 #}}}
 #{{{ Meta

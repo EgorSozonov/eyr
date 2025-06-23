@@ -440,7 +440,7 @@ private TypeId tFunctionReturnType(TypeId t, CM);
 private TypeId tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM);
 private TypeId tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM);
 private void teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM);
-private Int teMergeParam2(NameId name, TExpr* restrict te, CM);
+private Int teMergeParam(NameId name, TExpr* restrict te, CM);
 
 private TypeId tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
@@ -487,12 +487,12 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
    LSourceLoc*: removeLastSourceLoc\
 )(X)
 
+defstruct(MultiAssocList);
 
 #if defined(DEBUG) || defined(TEST)
 
 void printName(NameId nameId, CM);
 void printIntArray(Int count, Arr(Int) arr);
-defstruct(MultiAssocList);
 void printAssocList(Int listInd, MultiAssocList* ml);
 void printParser(Compiler* cm);
 void dbgType0(TypeId type, CM);
@@ -4639,7 +4639,9 @@ importVars(Arr(Var) impts, Int const countVars, CM) {
 
       if (cm->activeBindings[ent.name] != -1) {
          print("already active @ %d bind %d", ent.name, cm->activeBindings[ent.name]);
+#ifdef DEBUG         
          printName(ent.name, cm);
+#endif 
       }
       VALIDATEP(cm->activeBindings[ent.name] == -1, errAssignmentShadowing)
       Int newVarId = cm->vars.len;
@@ -4848,19 +4850,19 @@ addConcrFnType(Int arity, Arr(Int) paramsAndReturn, CM) {
    return mergeType(newInd, cm);
 }
 
-private void //:importGenericTypesList
-importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT TypeId* listAdd, CM) {
+private void //:importGenericTypesForLists
+importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT TypeId* listAdd, CM) {
 // Types for the generic array and its `#` function: `A $T -> Int`. Also for
 // generic list and its `add` function: `L $T, $T -> Void` as well as its `#` function
    // the $0 type
-   TypeId tentativeType = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX - 1, cm);
-   typeAddHeader(((TypeHeader){ .sort = sorGenericParam, .arity = 0, .name = 0,
-        .isGeneric = true }), cm);
-   TypeId p0 = mergeType(tentativeType, cm);
+//~   TypeId tentativeType = typeOf(cm->types.len);
+//~   pushIntypes(TYPE_PREFIX - 1, cm);
+//~   typeAddHeader(((TypeHeader){ .sort = sorGenericParam, .arity = 0, .name = 0,
+//~        .isGeneric = true }), cm);
+//~   TypeId p0 = mergeType(tentativeType, cm);
 
    // # (length): A $0 -> Int
-   tentativeType = typeOf(cm->types.len);
+   TypeId tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
    typeAddHeader(
       ((TypeHeader){ .sort = sorTypeCall, .arity = 2, .name = nameOfStd(strF),
@@ -4883,7 +4885,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
    pushIntypes(tokInt, cm);
    *listLength = mergeType(tentativeType, cm);
 
-   // the type of add: L $0, $0 -> Void
+   // the type of add: [L $0] $0 -> Void
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 2, cm);
    typeAddHeader(
@@ -4892,7 +4894,7 @@ importGenericTypesList(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT Type
          cm
    );
    pushIntypes(cm->stats.listType, cm);
-   pushIntypes(p0.v, cm);
+   pushIntypes(-1, cm);
    pushIntypes(voidType, cm);
    *listAdd = mergeType(tentativeType, cm);
 }
@@ -5081,7 +5083,7 @@ importPrelude(CM) {
 
    // Generic functions
    TypeId arrayLength, listAdd, listLength;
-   importGenericTypesList(OUT& arrayLength, OUT &listLength, OUT &listAdd, cm);
+   importGenericTypesForLists(OUT& arrayLength, OUT &listLength, OUT &listAdd, cm);
 
    // Array length
    Int lengthFnId = cm->functions.len;
@@ -5595,6 +5597,9 @@ parseMain(CM, Arena* a) {
 
       //printParser(cm);
       //dbgAllTypes(cm);
+      // AAA
+      //dbgType(typeOf(266));
+      //dbgType(typeOf(321));
    } else {
 #ifndef TEST
       print("Exception!");
@@ -5823,7 +5828,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
          }
       } ei (cTk.tp == tokTypeVar) {
          NameId name = cTk.pl1;
-         teMergeParam2(name, te, cm);
+         teMergeParam(name, te, cm);
       } else {
          throwExcParser(errTypeExpr);
       }
@@ -5850,7 +5855,7 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
          add(simpleType.v, te->exp);
          return simpleType;
       } else { // tokTypeParam
-         return typeOf(teMergeParam2(firstTypeTk.pl1, te, cm));
+         return typeOf(teMergeParam(firstTypeTk.pl1, te, cm));
       }
    }
    return tParseComplexType(te, sentinel, OUT isGeneric, tokens, cm);
@@ -5959,8 +5964,8 @@ tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
 }
 
 
-private Int //:teMergeParam2
-teMergeParam2(NameId name, TExpr* restrict te, CM) {
+private Int //:teMergeParam
+teMergeParam(NameId name, TExpr* restrict te, CM) {
    for (Int j = 0; j < te->frames->len; j++) {
       te->frames->c[j].isGeneric = true;
    }
@@ -6205,14 +6210,12 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
 #if defined(DEBUG) //{{{
    if (!ovFound) {
       print("Overload not found: indOverl %d name %d j %d", indOverl, name, cm->j)
+      print("exp:");
       printLInt(cm->expr->exp);
-   }
-#endif //}}}
-   if (!ovFound)  {
-      printf("not found ov for fst type %d i %d j %d\nFn name: ", tpFstArg.v, cm->i, cm->j);
       printName(name, cm);
       dbgType(tpFstArg);
    }
+#endif //}}}
    VALIDATEP(ovFound, errTypeNoMatchingOverload)
    return fnId;
 }
@@ -7062,9 +7065,9 @@ void //:dbgTypeOuter
 dbgTypeOuter(TypeHeader currHdr, CM) {
 // Print the name of the outer type. `(Tu Int Double)` -> `Tu`
    if (currHdr.name == nameOfStd(strF)) {
-      printf("(F ");
+      printf("F[");
    } else {
-      printf("(");
+      printf("[");
       printNameNoLn(currHdr.name, cm);
       printf(" ");
    }
@@ -7072,7 +7075,9 @@ dbgTypeOuter(TypeHeader currHdr, CM) {
 
 void
 dbgType1(Int t, TypeHeader hdr, CM) {
-   printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
+print("b t = %d", t);
+   //printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
+   printIntArrayOff(t, 8, cm->types.c);
 
    LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
    TypeLoc* top = null;
@@ -7080,15 +7085,18 @@ dbgType1(Int t, TypeHeader hdr, CM) {
    Int sentinel = t + cm->types.c[t] + 1;
    Int startingT = t + TYPE_PREFIX;
    Bool isFn = hdr.name == nameOfStd(strF);
-   if (!isFn) {
+   if (isFn) {
+      printf("F[");
+   } else {
       if (hdr.sort == sorTypeCall)
-         { startingT++; }
+         { startingT += (hdr.arity + 1); } // skip the fields and field index
       else if (hdr.sort == sorDeclare) {
          sentinel = t + TYPE_PREFIX  + (cm->types.c[t] - (TYPE_PREFIX - 1))/2;
          printf("Data ");
       }
    }
-   dbgTypeOuter(hdr, cm);
+   //dbgTypeOuter(hdr, cm);
+   
    add(((TypeLoc){ .currPos = startingT, .sentinel = sentinel }), st);
    top = st->c;
 
@@ -7104,7 +7112,7 @@ dbgType1(Int t, TypeHeader hdr, CM) {
             top->currPos++;
             goto nextIter;
          }
-         dbgTypeOuter(currHdr, cm);
+         //dbgTypeOuter(currHdr, cm);
 
          Int nextT = currT + TYPE_PREFIX;
          if (currHdr.name != nameOfStd(strF))
@@ -7122,7 +7130,7 @@ dbgType1(Int t, TypeHeader hdr, CM) {
       while (top != null && top->currPos == top->sentinel) {
          st->len--;
          top = st->len > 0 ? &last(st) : null;
-         printf(") ");
+         printf("] ");
       }
    }
    printf("\n");
@@ -7140,6 +7148,7 @@ dbgType0(TypeId type, CM) {
    } else if (hdr.sort == sorGenericParam) {
       printf("$%d\n", hdr.name);
    } else {
+   print("a");
       dbgType1(type.v, hdr, cm);
    }
 }
