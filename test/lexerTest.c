@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include "../include/libeyr.h"
@@ -84,33 +85,41 @@ private LexerTestSet* createTestSet0(String name, Arena *a, int count, Arr(Lexer
 
 void runLexerTest(LexerTest test, TestContext* ct) {
 // Runs a single lexer test and prints err msg to stdout in case of failure. Returns error code
-    ct->countTests++;
-    Compiler* result = lexicallyAnalyze(test.input, ct->a);
-    int equalityStatus = equalityLexer(result, test.expectedOutput);
-    if (equalityStatus == -2) {
-        ct->countPassed += 1;
-        return;
-    } else if (equalityStatus == -1) {
-        printf("\n\nERROR IN [");
-        printStringNoLn(test.name);
-        printf("]\nError msg: ");
-        CompResult* testRes = getCompResult(result);
-        CompResult* expectedRes = getCompResult(test.expectedOutput);
-        printString(testRes->errMsg);
-        if (expectedRes->wasLexerError) {
-            printf("\nBut was expected: ");
-            printString(expectedRes->errMsg);
-        } else {
-            printf("\nBut was expected to be error-free\n");
-        }
-        printLexer(result);
-    } else {
-        printf("ERROR IN [");
-        printStringNoLn(test.name);
-        printf("]\nOn token %d\n", equalityStatus);
-        printLexer(result);
-    }
+   ct->countTests++;
+   if (ct->singleId > -1) {
+      if (ct->countTests - 1 == ct->singleId)
+         { ct->ranSingle = true; }
+      else
+         { return; }
+   }
+   Compiler* result = lexicallyAnalyze(test.input, ct->a);
+   int equalityStatus = equalityLexer(result, test.expectedOutput);
+   Int testId = ct->countTests - 1;
+   if (equalityStatus == -2) {
+      ct->countPassed += 1;
+      return;
+   } else if (equalityStatus == -1) {
+      printf("\n\nERROR IN [%d][", testId);
+      printStringNoLn(test.name);
+      printf("]\nError msg: ");
+      CompResult* testRes = getCompResult(result);
+      CompResult* expectedRes = getCompResult(test.expectedOutput);
+      printString(testRes->errMsg);
+      if (expectedRes->wasLexerError) {
+          printf("\nBut was expected: ");
+          printString(expectedRes->errMsg);
+      } else {
+          printf("\nBut was expected to be error-free\n");
+      }
+      printLexer(result);
+   } else {
+      printf("ERROR IN [%d][", testId);
+      printStringNoLn(test.name);
+      printf("]\nOn token %d\n", equalityStatus);
+      printLexer(result);
+   }
 }
+
 //}}}
 //{{{ Word
 
@@ -1204,30 +1213,55 @@ void runATestSet(LexerTestSet* (*testGenerator)(Arena*), TestContext* ct) {
     }
 }
 
+void
+printTestResults(TestContext ct) {
+   if (ct.countTests == 0) {
+      printf("There were no tests to run!\n");
+   } else if (ct.countPassed == ct.countTests) {
+      if (ct.countTests > 1) {
+         printf("Passed all %d tests!\n", ct.countTests);
+      } else {
+         printf("The test was passed.\n");
+      }
+   } else if (ct.singleId > -1) {
+      if (ct.ranSingle) {
+         printf(ct.countPassed == 1 ? "\nThe test was passed.\n" : "\nFailed the test!\n");
+      } else {
+         printf("Wanted to run test %d but encountered only %d tests\n",
+            ct.singleId, ct.countTests
+         );
+      }
+   } else {
+      printf("Failed %d tests out of %d!\n", (ct.countTests - ct.countPassed), ct.countTests);
+   }
+}
 
 int main(int argc, char** argv) {
-    printf("----------------------------\n");
-    printf("--  LEXER TEST  --\n");
-    printf("----------------------------\n");
+   printf("--------------------\n");
+   printf("---  LEXER TEST  ---\n");
+   printf("--------------------\n");
 
-    TestContext ct = (TestContext){.countTests = 0, .countPassed = 0, .a = createArena() };
+   TestContext ct = (TestContext){.countTests = 0, .countPassed = 0,
+       .singleId = -1, .ranSingle = false, .a = createArena() };
 
-    runATestSet(&wordTests, &ct);
-    runATestSet(&stringTests, &ct);
-    runATestSet(&operatorTests, &ct);
-    runATestSet(&punctuationTests, &ct);
-    runATestSet(&numericTests, &ct);
-    runATestSet(&coreFormTests, &ct);
-    runATestSet(&typeTests, &ct);
+   if (argc == 2) {
+      char* tail;
+      long testId = strtol(argv[1], &tail, 10);
+      if (*tail == '\0' && testId >= 0) {
+         ct.singleId = (int)testId;
+      }
+   }
 
-    //runATestSet(&metaTests, &countPassed, &countTests, a);
-    if (ct.countTests == 0) {
-        print("\nThere were no tests to run!");
-    } else if (ct.countPassed == ct.countTests) {
-        print("\nAll %d tests passed!", ct.countTests);
-    } else {
-        print("\nFailed %d tests out of %d!", (ct.countTests - ct.countPassed), ct.countTests);
-    }
+   runATestSet(&wordTests, &ct);
+   runATestSet(&stringTests, &ct);
+   runATestSet(&operatorTests, &ct);
+   runATestSet(&punctuationTests, &ct);
+   runATestSet(&numericTests, &ct);
+   runATestSet(&coreFormTests, &ct);
+   runATestSet(&typeTests, &ct);
 
-    deleteArena(ct.a);
+   //runATestSet(&metaTests, &countPassed, &countTests, a);
+   printTestResults(ct);
+
+   deleteArena(ct.a);
 }

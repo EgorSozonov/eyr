@@ -1697,9 +1697,9 @@ printTestResults(TestContext ct) {
 
 int
 main(int argc, char** argv) {
-   printf("----------------------------\n");
-   printf("--  PARSER TEST  --\n");
-   printf("----------------------------\n");
+   printf("---------------------\n");
+   printf("---  PARSER TEST  ---\n");
+   printf("---------------------\n");
    TestContext ct = {
       .countTests = 0, .countPassed = 0, .a = createArena(), .singleId = -1, .ranSingle = false
    };

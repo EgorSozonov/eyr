@@ -4639,9 +4639,9 @@ importVars(Arr(Var) impts, Int const countVars, CM) {
 
       if (cm->activeBindings[ent.name] != -1) {
          print("already active @ %d bind %d", ent.name, cm->activeBindings[ent.name]);
-#ifdef DEBUG         
+#ifdef DEBUG
          printName(ent.name, cm);
-#endif 
+#endif
       }
       VALIDATEP(cm->activeBindings[ent.name] == -1, errAssignmentShadowing)
       Int newVarId = cm->vars.len;
@@ -7096,7 +7096,7 @@ print("b t = %d", t);
       }
    }
    //dbgTypeOuter(hdr, cm);
-   
+
    add(((TypeLoc){ .currPos = startingT, .sentinel = sentinel }), st);
    top = st->c;
 

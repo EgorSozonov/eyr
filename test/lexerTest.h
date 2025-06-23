@@ -3,6 +3,8 @@
 typedef struct {
     Int countTests;
     Int countPassed;
+    Int singleId; // if > -1, then only test with this id will be run
+    Bool ranSingle; // did we run the single test? Or we didn't encounter that id?
     Arena* a;
 } TestContext;
 

@@ -74,9 +74,9 @@ clean: ## Delete cached build results
 / test -f $(DEBUG_TGT) | rm $(DEBUG_TGT)/ *
 
 
-testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer
+testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer. Pass TEST=12 to run just 1 test
 / $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c libeyr.c
-/ $(DEBUG_TGT)/lexerTest
+/ $(DEBUG_TGT)/lexerTest $(TEST)
 
 
 testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run just 1 test
