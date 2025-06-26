@@ -1717,6 +1717,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       if (nd.tp < nodScope) {
          print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
+      print("CODEGEN %d", cg->i);
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, sentinel, cr->ast.c, cg);
       mbCloseLoops(cg);

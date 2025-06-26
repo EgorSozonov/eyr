@@ -7,6 +7,8 @@
 #include "../include/libeyr.h"
 #include "lexerTest.h"
 
+//{{{ Utils
+
 typedef struct {
     String name;
     String input;
@@ -19,7 +21,6 @@ typedef struct {
     LexerTest* tests;
 } LexerTestSet;
 
-//{{{ Utils
 
 #define S   70000000 // A constant larger than the largest allowed file size. Separates parsed
                      // names from others

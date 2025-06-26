@@ -1,4 +1,5 @@
 # Eyr
+
 ### A new mid-level programming language (under construction)
 
 
@@ -32,15 +33,19 @@ The library contains the lexer + parser + typechecker and is useful for writing 
 LSPs and so on. The executable uses libeyr as an ordinary library consumer, and contains the code generator
 using the libgccjit library.
 
-The tests can be run with `make testLexer` and `make testParser`.
+Project can be built with `make all`. The release will be in the "bin" directory.
+
+The tests can be run with `make test`.
 
 
 ### Future releases roadmap
 
 
 #### version 0.3
-* more developed static type system (structs, sum types)
-* "for each" loops
-* integration tests
-* better error reporting from the compiler
+
+[ ] operator overloading
+[ ] "each" loops
+[ ] structs (including generic structs)
+[+] integration tests
+[ ] better error reporting from the compiler
 

@@ -330,7 +330,6 @@ OPERATORS[countSignOperators + 1] = { // +1 for the "not" which is not a sign op
    { .prec = precUnary,  .name = 0, .firstSymbol = 'n' }             // not
 }; // real operator overloads filled in by "buildOperators"
 
-
 constexpr Int
 operatorStartSymbols[] = {
    // Symbols an operator may start with. "+" is absent because it's handled by lexPlus,
@@ -1515,9 +1514,9 @@ Bool eq_TypeId(TypeId a, TypeId b) {
 
 struct ParseFrame { // :ParseFrame
    Int startNodeInd;
-   Int sentinel;   // sentinel token
-   Byte level;     // the "pfr" constants above
-   TypeId typeId;  // valid only for fnDef (then it's the function's type)
+   Int sentinel;    // sentinel token
+   Byte level;      // the "pfr" constants above
+   TypeId typeId;   // valid only for fnDef (then it's the function's type)
 };
 
 DEFINE_LIST(ParseFrame) //:createLParseFrame
@@ -1869,6 +1868,8 @@ char const
 errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name must be unique!";
 char const
 errFnMissingBody[]  = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
+char const
+errFnOperatorOverlArity[]  = "Operator overloads must respect the arity of the operator!";
 char const
 errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++ -> loopBody } `";
 char const
@@ -4785,6 +4786,7 @@ addRawOverload(NameId const name, TypeId const typeId, FunctionId const fnId, CM
       cm->stats.countOverloadedNames++;
    } else {
       Int updatedListId = addMultiAssocList(firstParamType.v, fnId, mbListId, cm->rawOverloads);
+      
       if (updatedListId != -1)
          { cm->activeBindings[name] = -updatedListId - 2; }
    }
@@ -5057,7 +5059,7 @@ buildOperators(CM) {
    buildOper(opQuestionMark, intOfIntInt, emitNotEq, cm); // dummy, type
    buildOper(opBitwiseXor,   intOfIntInt, emitBitXor, cm);
    buildOper(opBitwiseOr,    intOfIntInt, emitBitOr, cm);
-   buildOper(opBoolOr,       douOfDou, emitLogicOr, cm);
+   buildOper(opBoolOr,       boolOfBoolBool, emitLogicOr, cm);
    buildOper(opBoolNot,      boolOfBool, emitNegate, cm); // not
    buildOper(opGetElem,      douOfDou, emitNotEq, cm); // dummy
 }
@@ -5284,10 +5286,12 @@ createNameOverloads(NameId name, CM) {
 
    VALIDATEI(rawStart != -1, iErrorImportedFunctionNotInScope)
    Int const countOverloads = raw[listId]/2;
+   
    Int const rawSentinel = rawStart + raw[listId];
 
    Arr(Int) ov = cm->overloads.c;
    Int const newInd = cm->overloads.len;
+   
    ov[newInd] = 2*countOverloads; // length of the subtable for this name
    cm->overloads.len += 2*countOverloads + 1;
 
@@ -5347,6 +5351,9 @@ createOverloads(CM) {
 
    for (Int j = 0; j < uniqueFnNames->len; j++) {
       NameId name = uniqueFnNames->c[j];
+      if (name < countOperators) // operator overloads were created above
+         { continue; }
+         
       Int newIndex = createNameOverloads(name, cm);
       cm->activeBindings[name] = -newIndex - 2;
    }
@@ -5434,7 +5441,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    Int const tokenInd = cm->i - 1;
 
    Token nameTk = tokens[cm->i];
-   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0, errFnSignature)
+   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0 || nameTk.tp == tokOperator, errFnSignature)
    NameId name = nameTk.pl1;
 
    cm->i++; // CONSUME the function name
@@ -5442,11 +5449,17 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
 
    TypeId fnType = voidToVoid;
    Bool isGeneric = false;
+   Int arity = 0;
    if (secondTk.tp == tokType) {
       fnType = tParse(calcSentinel(secondTk, cm->i), OUT &isGeneric, tokens, cm);
-      isGeneric = typeReadHeader(fnType, cm).isGeneric;
+      TypeHeader hdr = typeReadHeader(fnType, cm);
+      isGeneric = hdr.isGeneric;
+      arity = hdr.arity - 1;
    }
-
+   if (nameTk.tp == tokOperator) {
+      Int operArity = OPERATORS[name].prec == precUnary ? 1 : 2;
+      VALIDATEP(arity == operArity, errFnOperatorOverlArity);
+   }
    FunctionId const newFnId = cm->functions.len;
 
    Int genericInd = isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
@@ -5595,7 +5608,7 @@ parseMain(CM, Arena* a) {
       generateMonomorphizations(toks, cm);
       updateStats(cm);
 
-      //printParser(cm);
+      printParser(cm);
       //dbgAllTypes(cm);
       // AAA
       //dbgType(typeOf(266));
@@ -6213,7 +6226,6 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
       print("exp:");
       printLInt(cm->expr->exp);
       printName(name, cm);
-      dbgType(tpFstArg);
    }
 #endif //}}}
    VALIDATEP(ovFound, errTypeNoMatchingOverload)

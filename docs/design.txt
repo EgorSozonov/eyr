@@ -2,6 +2,113 @@
 
 
 ////////////////////
+// Class system
+////////////////////
+
+Structs, interfaces are the basic blocks.
+
+There is no "private", only "protected".
+
+A struct may define also an interface. Interfaces consist of virtual or concrete method decls.
+The definitions for those decls must be provided by the struct and can see protected fields of the 
+struct
+
+KEY: different kinds of pointers:
+
+- pointer to class allows access to its public fields, methods (which see protected elements) and
+functions (which only see public elements) `'Component`
+- pointer to interface `^Component`
+
+
+Inheritance is limited by design. An abstract class may be extended by a concrete class. A concrete
+class may be extended by another. And that's it. So maximum height of an inheritance hierarchy = 3.
+No "final" classes needed: to make a class final, you just inherit from an empty class. Maybe even
+provide ability to inherit from Void type?
+
+Abstract classes: they just don't implement at least one method of their own interface.
+
+Mixins: sharing implementation withou affecting the types. A mixin can have: fields, methods 
+(public, protected, virtual). It cannot be cast to, and adding a mixin does no change the type
+of a struct. Mixin methods may be overridden in the class
+
+Methods real by default (virtual only with the "virtual" keyword).
+
+"pub" keyword for fields, types, functions (not for methods since those are handled by the 
+interfaces - everything in the interface is public, other methods are all protected)
+
+Friends: yes, necessary.
+
+If a class has at least one private field, it is considered opaque and cannot be passed by value.
+
+Centralized syntax to provide all this info?
+
+class Foo {
+interface {
+   allFieldsPublic; // all fields public, can be constructed with data init or passed by value
+   extends Bar; 
+} 
+}
+
+class Foo {
+interface {
+   abstract; // can be inherited from, but only by a concrete class
+   mixin Counter;
+}
+}
+
+class Foo {
+interface {
+   implements Writer;
+   mixin CounterMixin;
+}
+}
+
+
+Interfaces:
+
+interface Writer {
+   write [Self -> Str];
+}
+
+class Foo {
+interface { // no need to specify the name, it will be same as class
+   abstract;
+   foo [Self -> Str];
+   Writer;
+   mixin CounterMixin;
+}
+
+constants {
+   ENV = `Asdf.bar`;
+}
+   
+   id Int;
+   name Str;
+   pubField pub Int;
+   
+   constructor [Int Str -> Self] f{id name ->
+      return Foo(id id, name name, pubField 11);
+   }
+   
+   fn foo f{ // no need to specify the type - it's in the interface!
+      return name + " " + $id;
+   }
+   
+   fn write f{ // no need to specify the type
+      
+   }
+   
+   fn someProtectedMethod [Self Int -> Double] f{ // Protected because not in the interface!
+      
+   }
+   
+   fn someStaticMethod[Int -> Double] f{
+      
+   }
+}
+
+
+////////////////////
 // Memory management
 ////////////////////
 

@@ -59,7 +59,7 @@ all: | $(BIN) ## Build the whole compiler
 
 debug: | $(DEBUG_TGT) ## Debug build
 / clear
-/ $(COMPILE_DEBUG) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
+/ $(COMPILE_DEBUG) -o $(DEBUG_TGT)/$(APP) libeyr.c $(APP).c #-Wl,--verbose
 / @echo "_________________________________________"
 / @echo "|         DEBUG BUILD SUCCESS            |"
 / @echo "========================================="
@@ -67,7 +67,7 @@ debug: | $(DEBUG_TGT) ## Debug build
 #  PATH=$(GCC_PATH):$(PATH) \
 #  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
 #  ./$(APP)
-/ cd $(TGT) && ./$(APP) insertionSort.eyr
+/ cd $(DEBUG_TGT) && ./$(APP) opov.eyr
 
 
 clean: ## Delete cached build results

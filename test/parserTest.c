@@ -1044,6 +1044,22 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt,           .pl2 = 5 },
             (Node){ .tp = nodCall, .pl1 = 0, .pl2 = 1, .pl3 = callVar }, // foo
          })),
+         ((Int[]) {}),
+         ((TestEntityImport[]) {})
+      ),
+      createTest(
+         s("Operator overloading"),
+         s("fn + [Bool Bool -> Int] f{a b ->\n"
+           "    return 1;\n"
+           "}"
+         ),
+         (((Node[]) {
+            (Node){ .tp = nodToplevelFn,         .pl2 = 4, .pl3 = 0 },
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiFnParam },
+            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiFnParam },
+            (Node){ .tp = nodReturn,        .pl2 = 1 },
+            (Node){ .tp = tokInt,           .pl2 = 1 },
+         })),
          ((Int[]) { 2, tokInt, tokString }),
          ((TestEntityImport[]) {(TestEntityImport){ .nameInd = 0, .typeInd = 0} })
       ),
