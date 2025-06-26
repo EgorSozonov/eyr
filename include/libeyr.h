@@ -211,11 +211,12 @@ libeyr_String str(const char* content);
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
-#define nodIf          22
-#define nodIfClause    23  // pl3 = "ifcl" constants
-#define nodImpl        24
-#define nodMatch       25  // pattern matching on sum type tag
-#define countAstForms  26  // sentinel
+#define nodEach        22                           
+#define nodIf          23
+#define nodIfClause    24  // pl3 = "ifcl" constants
+#define nodImpl        25
+#define nodMatch       26  // pattern matching on sum type tag
+#define countAstForms  27  // sentinel
 
 #define countSpanForms (countAstForms - nodScope)
 
@@ -422,37 +423,40 @@ typedef struct { //:TypeHeader
 #define strTry      19
 #define strNot      20
 #define strFirstNonReserved 21
-#define strInt      strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
-#define strLong     22
-#define strDouble   23
-#define strBool     24
-#define strString   25
-#define strVoid     26
-#define strF        27 // F(unction type)
-#define strL        28 // L(ist)
-#define strArr      29
-#define strD        30 // D(ictionary)
-#define strRec      31 // Record
-#define strEnum     32 // Enum
-#define strTu       33 // Tu(ple)
-#define strLen      34
-#define strCap      35
-#define strF1       36
-#define strF2       37
-#define strPrint    38
-#define strPrintErr 39
-#define strMathPi   40
-#define strMathE    41
-#define strTypeVarT 42
-#define strTypeVarU 43
-#define strLength   44
-#define strAdd      45
-#define strMain     46
-#define strContent  47
+#define strStart    strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
+#define strStep     22
+#define strBalk     23
+#define strInt      24 // these types must be together
+#define strLong     25
+#define strDouble   26
+#define strBool     27
+#define strString   28
+#define strVoid     29
+#define strF        30 // F(unction type)
+#define strL        31 // L(ist)
+#define strArr      32
+#define strD        33 // D(ictionary)
+#define strRec      34 // Record
+#define strEnum     35 // Enum
+#define strTu       36 // Tu(ple)
+#define strLen      37
+#define strCap      38
+#define strF1       39
+#define strF2       40
+#define strPrint    41
+#define strPrintErr 42
+#define strMathPi   43
+#define strMathE    44
+#define strTypeVarT 45
+#define strTypeVarU 46
+#define strLength   47
+#define strAdd      48
+#define strMain     49
+#define strContent  50
 #ifndef TEST
-#define strSentinel 48
-#else
 #define strSentinel 51
+#else
+#define strSentinel 54
 #endif
 
 void populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(Int) offsets);

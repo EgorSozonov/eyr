@@ -1042,7 +1042,7 @@ LexerTestSet* coreFormTests(Arena* a) {
                  (Token){ .tp = tokReturn,       .pl2 = 1, .startBt = 30, .lenBts = 9 },
                  (Token){ .tp = tokInt,          .pl2 = 5, .startBt = 37, .lenBts = 1 }
          }))},
-         (LexerTest) { .name = s("Loop simple"),
+         (LexerTest) { .name = s("For loop simple"),
              .input = s("for {x' = 1; x < 101; x = x + 1; -> print x; }"),
              .expectedOutput = expect(((Token[]) {
                  (Token){ .tp = tokFor, .pl1 = slScope, .pl2 = 18, .lenBts = 46 },
@@ -1086,7 +1086,22 @@ LexerTestSet* coreFormTests(Arena* a) {
             ((Token[]) {
                 (Token){ .tp = tokFor }
             }))
-         }
+         },
+         (LexerTest) { .name = s("Each loop simple"),
+             .input = s("each { coll -> print coll.@; }"),
+             .expectedOutput = expect(((Token[]) {
+                 (Token){ .tp = tokEach, .pl1 = slScope, .pl2 = 18, .lenBts = 46 },
+                 (Token){ .tp = tokMisc,         .pl2 = miscForStep0, .startBt = 13, .lenBts = 8 },
+                 
+                 (Token){ .tp = tokStmt,         .pl2 = 1, .startBt = 13, .lenBts = 8 },
+                 (Token){ .tp = tokWord,     .pl1 = 0, .pl2 = 0, .startBt = 13, .lenBts = 1 }, // x
+
+                 (Token){ .tp = tokStmt,           .pl2 = 2, .startBt = 36, .lenBts = 8 }, // loop body
+                 (Token){ .tp = tokMisc,  .pl1 = miscEachElem, .pl2 = 0, // .@
+                            .startBt = 36, .lenBts = 5 },
+                 (Token){ .tp = tokWord,                     .startBt = 42, .lenBts = 1 }  // coll
+
+         }))},
     }));
 }
 

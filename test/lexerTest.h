@@ -154,6 +154,7 @@ extern char const errFnTypeArrows[];
 #define miscArrow      2    // ->
 #define miscForStep0   3    // token that provides space for a "for" loop reorganization
 #define miscForStep    4    // token that marks stepping code in a "for" loop
-
+#define miscEachElem   5    // `coll.@` in an "each" loop - element
+#define miscEachInd    6    // `coll.#` in an "each" loop - index of element
 
 //}}}

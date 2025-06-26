@@ -94,16 +94,17 @@ typedef struct { // :Token
 #define tokBool         3  // pl2 = value (1 or 0)
 #define tokString       4
 
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
+#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff 
+                           // miscUnderscore
                            // Also stands for "Void" among the primitive types
-                           // Also works as a marker in "for" loops
-                           // Initially it's placed after tokFor and pl2 = token ind of body start
-                           // After {reorderFor}, it's placed right before stepping code after body
+                           // Also works as a marker in "for" loops: initially it's placed after 
+                           // tokFor and pl2 = token ind of body start.
+                           // After {reorderFor}, it's placed right between body and stepping code.
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
-#define tokTypeVar      7  // pl1 same as tokWord. The `$A`
-#define tokKwArg        8  // pl2 = same as tokWord. The ":argName"
+#define tokTypeVar      7  // pl1 same as tokWord. `$A`
+#define tokKwArg        8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
 #define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
-#define tokFieldAcc    10  // pl2 = nameId
+#define tokFieldAcc    10  // pl1 = nameId. `.field` 
 
 // Statement or subexpr span types. pl2 = count of inner tokens
 #define tokStmt        11  // firstSpanTokenType
@@ -157,7 +158,7 @@ typedef struct { // :Token
 #define slFnReturn       7 // `F[A -> B]` the `B` part (after exactly 1 arrow symbol)
 #define slToplevel       8 // `fn foo A -> B` A toplevel function declaration
 
-// List of keywords that don't correspond directly to a token.
+// List of keywords that don't correspond directly to a token type.
 // Must all be below "firstSpanTokenType"
 #define keywTrue       1
 #define keywFalse      2
@@ -170,6 +171,8 @@ typedef struct { // :Token
 #define miscArrow      2    // ->
 #define miscForStep0   3    // token that provides space for a "for" loop reorganization
 #define miscForStep    4    // token that marks stepping code in a "for" loop
+#define miscEachElem   5    // `coll.@` in an "each" loop - element
+#define miscEachInd    6    // `coll.#` in an "each" loop - index of element
 
 typedef struct { //:ChInterval
    Int startBt;
@@ -200,7 +203,7 @@ standardText[] = "!.!0!=##$%&&.'*:+:-:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
-                "IntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
+                "startstepbalkIntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
                 "printErrmath:pimath:eTUlengthaddmaincont"
 #ifdef TEST
                 "foobarinner"
@@ -222,6 +225,7 @@ standardStringLens[] = {
     3, 6, 5, 4, 3,
     3,
     // reserved words end here
+    5, 4, 4,       // balk
     3, 4, 6, 4, 3, // Str(ing)
     4, 1, 1, 1, 1, // D(ict)
     3, 4, 2, 3,    // len
@@ -1744,6 +1748,41 @@ private void initCompiler();
 
 //}}}
 //{{{ Errors
+//{{{ Types
+
+typedef union { //:OneOrTwoInds
+   Int ind;
+   struct {
+      Int ind1;
+      Int ind2;
+   };
+} OneOrTwoInds;
+
+typedef struct { //:ErrPosition
+   Int span; // index in @tokens
+   OneOrTwoInds locations; // in @tokens
+} ErrPosition;
+
+typedef union { //:ErrTextUnion
+   struct {
+      TypeId type1;
+      TypeId type2;
+   };
+   NameId name;
+} ErrTextUnion;
+
+typedef struct { //:ErrText
+   Int tp;
+   ErrTextUnion c;
+} ErrText;
+
+
+typedef struct { //:CompileError
+   ErrPosition position;
+   ErrText textual;
+} CompileError;
+
+//}}}
 //{{{ Internal errors
 
 #define iErrorInconsistentSpans          1 // Inconsistent span length / structure of token
@@ -2171,18 +2210,18 @@ addStatementSpan(Unt stmtType, Int startBt, LX) {
 private void //:wrapInAStatement
 wrapInAStatement(Int startBt, Arr(char const) source, LX) {
 // Wraps a new token in a statement. Sets the startBt to a specific value
-   if (lx->lexBtrack->len > 0) {
-      BtToken const top = last(lx->lexBtrack);
-      if (top.tp == tokToplevelFn) {
-         return;
-      } ei (top.spanLevel == slScope || top.spanLevel == slUnbraced) {
-         // the second case is for the conditions of "if" statements
-         addStatementSpan(tokStmt, startBt, lx);
-      } ei (top.spanLevel == slClauseList) {
-         addStatementSpan(tokClause, startBt, lx);
-      }
-   } else {
+   if (lx->lexBtrack->len == 0) {
       addStatementSpan(tokStmt, startBt, lx);
+      return;
+   }
+   BtToken const top = last(lx->lexBtrack);
+   if (top.tp == tokToplevelFn) {
+      return;
+   } ei (top.spanLevel == slScope || top.spanLevel == slUnbraced) {
+      // the second case is for the conditions of "if" statements
+      addStatementSpan(tokStmt, startBt, lx);
+   } ei (top.spanLevel == slClauseList) {
+      addStatementSpan(tokClause, startBt, lx);
    }
 }
 
@@ -2445,8 +2484,10 @@ lexReservedScope(Int reservedWordType, SRC, LX) {
 // A reserved word must be the first inside parentheses, but parentheses are always
 // wrapped in statements, so we need to check the TWO last tokens and two top BtTokens
    LBtToken* bt = lx->lexBtrack;
+   
    VALIDATEL(bt->len >= 2 && last(bt).tp == tokParens
       && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
+   
    Int const indLastToken = lx->tokens.len - 1;
    VALIDATEL(lx->tokens.c[indLastToken].tp == tokParens
       && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
@@ -2468,10 +2509,10 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
       lexIf(reservedWordType, startBt, source, lx);
    } ei (reservedWordType == tokToplevelFn) {
       openPunctuation(tokToplevelFn, slToplevel, startBt, lx);
-   } ei (reservedWordType == tokFor)  {
+   } ei (reservedWordType == tokFor || reservedWordType == tokEach) {
       skipSpaces(source, lx);
       VALIDATEL(lx->i < lx->stats.inpLength && CURR_BT == aCurlyLeft, errLoopSyntaxError)
-      openPunctuation(tokFor, slScope, startBt, lx);
+      openPunctuation(reservedWordType, slScope, startBt, lx);
       lx->i++; // CONSUME the `{`
       // placeholder, will be reordered in {pFor}
       pushIntokens(((Token){.tp = tokMisc, .pl1 = miscForStep0, .startBt = lx->i}), lx);
@@ -2691,9 +2732,22 @@ lexDot(SRC, LX) {
    VALIDATEL(lx->tokens.len > 0, errUnexpectedToken);
    Bool isCall = lx->i > 0 && (source[lx->i - 1] == aSpace || source[lx->i - 1] == aNewline);
    lx->i++; // CONSUME the dot
-   VALIDATEL(lx->i < lx->stats.inpLength && isLetter(CURR_BT), errPrematureEndOfInput)
-
-   wordInternal((isCall ? tokOperator : tokFieldAcc), source, lx);
+   VALIDATEL(lx->i < lx->stats.inpLength, errPrematureEndOfInput)
+   if (isLetter(CURR_BT)) {
+      wordInternal((isCall ? tokOperator : tokFieldAcc), source, lx);
+   } ei (CURR_BT == aAt || CURR_BT == aSharp) { // `coll.@` or `coll.#` in an "each" loop
+      Token prevTok = lx->tokens.c[lx->tokens.len - 1];
+      VALIDATEL(prevTok.tp == tokWord, errUnexpectedToken);
+      
+      pushIntokens(prevTok, lx);
+      lx->tokens.c[lx->tokens.len - 2] = (Token){
+         .tp = tokMisc, .pl1 = CURR_BT == aAt ? miscEachElem : miscEachInd, 
+         .startBt = lx->i, .lenBts = 2
+      };
+      lx->i++; // CONSUME the @ or #
+   } else {
+      throwExcLexer(errPrematureEndOfInput);
+   }
 }
 
 private void //:lexSemicolon
@@ -2775,7 +2829,7 @@ lexOperator(SRC, LX) { //:lexOperator
          continue;
       }
       opByte++;
-      if (opByte == sentinel)  {
+      if (opByte == sentinel) {
          opType = k;
          break;
       } ei (*opByte != thirdSymbol) {
@@ -2899,8 +2953,9 @@ lInDeCrement(Bool isIncrement, SRC, LX) {
 
 private void //:lexArrow
 lexArrow(SRC, LX) {
-   VALIDATEL(lx->lexBtrack->len > 0, errFnTypeArrows)
-   BtToken top = last(lx->lexBtrack);
+   LBtToken* bt = lx->lexBtrack;
+   VALIDATEL(bt->len > 0, errFnTypeArrows)
+   BtToken top = last(bt);
    if (top.spanLevel == slFnTp) { // `F[G -> H]`
       add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnReturn}),
          lx->lexBtrack);
@@ -2908,8 +2963,11 @@ lexArrow(SRC, LX) {
       throwExcLexer(errFnTypeArrows);
    } ei (top.tp == tokFn) { // `f{ -> ... }`
       goto consumeArrow;
-   } ei (top.tp == tokFor) {
-      lx->tokens.c[top.tokenInd + 1].pl2 = lx->tokens.len; // wrote loop body start ind to tokMisc
+   } ei (top.tp == tokFor 
+         || (top.tp == tokStmt && bt->len > 1 && bt->c[bt->len - 2].tp == tokEach)) {
+      lx->tokens.c[top.tokenInd + 1].pl2 = lx->tokens.len; // write loop body start ind to tokMisc
+      if (top.tp != tokFor)
+         { removeLast(bt); }
    } else { // `f{ a -> ...}`
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
             && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace
@@ -2919,7 +2977,7 @@ lexArrow(SRC, LX) {
 
       lx->tokens.c[top.tokenInd].lenBts = endBt - lx->tokens.c[top.tokenInd].startBt;
       lx->tokens.c[top.tokenInd].pl2 = lx->tokens.len - top.tokenInd - 1;
-      removeLast(lx->lexBtrack);
+      removeLast(bt);
    }
 consumeArrow:
    lx->i += 2; // CONSUME the `->`
@@ -3129,14 +3187,10 @@ lexCurlyRight(SRC, LX) {
 
    if (top.tp == tokFor) {
       reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
-   } ei (bt->len > 0) {
-      // close the assignment or toplevel if we are in one
-      if (top.tp == tokFn && last(bt).tp == tokToplevelFn) {
-         top = removeLast(bt);
-         setSpanLengthLexer(top.tokenInd, lx);
-      } ei (top.tp == tokFor) {
-         reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
-      }
+   } ei (bt->len > 0 && top.tp == tokFn && last(bt).tp == tokToplevelFn) {
+      // close the function (maybe toplevel) if we are in one
+      top = removeLast(bt);
+      setSpanLengthLexer(top.tokenInd, lx);
    }
 
    lx->i++; // CONSUME the "}"
@@ -6900,7 +6954,7 @@ char const* nodeNames[] = {
    "{", "Expr", "=", "[]",
    "assert", "breakCont", "catch", "import",
    "f{ }", "trait", "return", "try",
-   "for", "if", "if clause", "impl", "match"
+   "for{}", "each{}", "if", "if clause", "impl", "match"
 };
 
 
