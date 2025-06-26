@@ -5608,7 +5608,7 @@ parseMain(CM, Arena* a) {
       generateMonomorphizations(toks, cm);
       updateStats(cm);
 
-      printParser(cm);
+      //printParser(cm);
       //dbgAllTypes(cm);
       // AAA
       //dbgType(typeOf(266));

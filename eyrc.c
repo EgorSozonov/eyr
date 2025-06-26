@@ -480,7 +480,7 @@ fieldAccessLeft(LValue* val, Field* fld, CG) {
    cg->md, null, op, arg1, arg2)
 
 
-private NULLABLE RValue* //:eCall
+private RValue* //:eCall
 eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
 // A call within an expression.
 // It returns null for void-returning functions. This is safe because the return value
@@ -590,7 +590,7 @@ eCall(FunctionId fnId, Int countArgs, Arr(RValue*) args, CG) {
       return callParsed(cg->builtins.printer, 2, printfArgs, null, cg->md);
    }
    }
-   return null; // unreachable
+   longjmp(excBuf, 1); // unreachable
 }
 
 private Field* //:field
@@ -882,6 +882,14 @@ intConst(int val, Codegen* cg) {
    return gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[tokInt].c, val);
 }
 
+private RValue* //:intConst
+boolConst(int val, Codegen* cg) {
+   return gcc_jit_context_new_cast(
+      cg->md, null,
+      gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[tokInt].c, val), cg->types[tokBool].c
+   ); 
+}
+
 private RValue* //:sizeTConst
 sizeTConst(int val, Codegen* cg) {
    return gcc_jit_context_new_rvalue_from_int(
@@ -1055,6 +1063,10 @@ simpleExprAtom(Node nd, CG) {
       Int value = nd.pl2;
       return intConst(value, cg);
    }
+   case tokBool: {
+      Int value = nd.pl2;
+      return boolConst(value, cg);
+   }
    case tokString: {
       return stringConst(nd.pl1, nd.pl2, cg);
    }
@@ -1086,6 +1098,7 @@ simpleExprReduce(Int start, Int sentinel, Bool rightMode, AST, CG) {
       switch (expNode.tp) {
       case tokInt:
       case tokString:
+      case tokBool:
       case nodDataLit:
       case nodVar: {
          add(simpleExprAtom(expNode, cg), exp);
@@ -1717,7 +1730,6 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       if (nd.tp < nodScope) {
          print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
-      print("CODEGEN %d", cg->i);
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, sentinel, cr->ast.c, cg);
       mbCloseLoops(cg);
