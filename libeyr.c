@@ -362,7 +362,7 @@ typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
 PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment)
 PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert)
 PARSER_FN(pBreakCont) PARSER_FN(pMeta) PARSER_FN(pReturn) PARSER_FN(pIf) PARSER_FN(pElseIf)
-PARSER_FN(pElse) PARSER_FN(pFor)
+PARSER_FN(pElse) PARSER_FN(pFor) PARSER_FN(pEach)
 
 private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokInt]        = parseErrorBareAtom,
@@ -396,7 +396,8 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokIf]         = &pIf,
    [tokElseIf]     = &pElseIf,
    [tokElse]       = &pElse,
-   [tokFor]        = &pFor
+   [tokFor]        = &pFor,
+   [tokEach]       = &pEach
 };
 
 //}}}
@@ -1512,15 +1513,21 @@ Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
 }
 
+typedef struct {
+   Int indexVarId;
+   Int elementVarId;
+} EachData;
+
 #define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
 #define pfrLoop  2 // this frame is a scope and a loop (allows break and continue)
 #define pfrFn    3 // this frame is a function definition
 
 struct ParseFrame { // :ParseFrame
    Int startNodeInd;
-   Int sentinel;    // sentinel token
-   Byte level;      // the "pfr" constants above
-   TypeId typeId;   // valid only for fnDef (then it's the function's type)
+   Int sentinel;      // sentinel token
+   Byte level;        // the "pfr" constants above
+   TypeId typeId;     // valid only for fnDef (then it's the function's type)
+   EachData eachData; // For tracking hidden variables that make "each" loops run
 };
 
 DEFINE_LIST(ParseFrame) //:createLParseFrame
@@ -1925,6 +1932,8 @@ errBreakContinueTooComplex[] = "This statement is too complex! Continues and bre
                                " continue/break!";
 char const
 errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a positive 32-bit integer!";
+char const
+errEachLoopWrongSyntax[]  = "Wrong syntax of an 'each' loop";
 char const
 errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
 char const
@@ -2963,11 +2972,12 @@ lexArrow(SRC, LX) {
       throwExcLexer(errFnTypeArrows);
    } ei (top.tp == tokFn) { // `f{ -> ... }`
       goto consumeArrow;
-   } ei (top.tp == tokFor 
-         || (top.tp == tokStmt && bt->len > 1 && bt->c[bt->len - 2].tp == tokEach)) {
+   } ei (top.tp == tokFor) {
       lx->tokens.c[top.tokenInd + 1].pl2 = lx->tokens.len; // write loop body start ind to tokMisc
-      if (top.tp != tokFor)
-         { removeLast(bt); }
+   } ei ((top.tp == tokStmt && bt->len > 1 && bt->c[bt->len - 2].tp == tokEach)) {
+      setSpanLengthLexer(top.tokenInd, lx);
+      removeLast(bt); 
+      lx->tokens.c[last(bt).tokenInd + 1].pl2 = lx->tokens.len; // write loop body start ind
    } else { // `f{ a -> ...}`
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
             && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace
@@ -4009,6 +4019,71 @@ pForStepMarker(Token tok, TOKENS, CM) {
    VALIDATEI(j > -1, iErrorInconsistentSpans); // we must be inside a loop
    ParseFrame topLoopFrame = cm->backtrack->c[j];
    cm->ast.c[topLoopFrame.startNodeInd].pl3 = cm->ast.len - topLoopFrame.startNodeInd;
+}
+
+private Int //:eachLoopValidate
+eachLoopValidate() {
+// Makes sure that the name of the collection is valid. Returns sentinel of the loop header block
+   Token miscTk = tokens[cm->i];
+   
+   VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscForStep0 && miscTk.pl2 > 0,
+      errEachLoopWrongSyntax); // pl2 will be 0 if there was no arrow inside the loop
+   
+   Token nameTk = tokens[cm->i + 2]; // skipping the tokMisc and tokStmt
+   VALIDATEP(nameTk.tp == tokWord, errEachLoopWrongSyntax);
+   NameId collName = nameTk.pl1;
+   Int varId = cm->activeBindings[collName];
+   VALIDATEP(cm->activeBindings[collName] > -1, errUnknownBinding);
+   Var collVar = cm->vars.c[varId];
+   TypeId collType = collVar.typeId;
+
+   return calcSentinel(tokens[cm->i + 1], cm->i + 1);
+}
+
+private void //:eachLoopProcess
+eachLoopProcess(TypeId eltType, Int headerSentinel, OUT Int* start, OUT Int* step, OUT Int* balk) {
+// Processes the heading of the each loop (the part between the `{` and the arrow).
+// Determines the start (how many elements to skip), the step (increment, may be negative)
+// and the balk (how many elements at the end to stop before)
+
+   Int indVarId = cm->vars.len; 
+   pushInvars((Var){.access = accessPrivImm, .typeId = typeOf(tokInt), .fnId = -1}, cm->vars);
+   Int elementVarId = cm->vars.len; 
+   pushInvars((Var){.access = accessPrivImm, .typeId = , .fnId = -1}, cm->vars);
+   
+   add(((ParseFrame){
+         .startNodeInd = startNodeInd, .sentinel = sentinelToken,
+         .eachData = (EachData){.indexVarId = , .elementVarId = elementVarId} }), 
+      cm->backtrack
+   );
+}
+
+private void //:eachLoopAddNodes
+eachLoopAddNodes(Token eachTk, Int start, Int step, Int balk, TOKENS, CM) {
+   
+   newNode((Node){.tp = nodFor, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = nodAssignment, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = nodFor, .pl1 = ?, }, interOf(eachTk), cm);
+   
+   
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x' = 1
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
+            (Node){ .tp = tokInt,           .pl2 = 1 },
+            (Node){ .tp = nodExpr,          .pl2 = 3 }, // x < 101
+            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
+            (Node){ .tp = tokInt,           .pl2 = 101 },
+            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
+}
+
+private void //:pEach
+pEach(Token eachTk, TOKENS, CM) {
+   TypeId eltType;
+   Int headerSentinel = eachLoopValidate(OUT &eltType);
+   
+   Int start, step, balk;
+   eachLoopProcess(eltType, headerSentinel, OUT start, OUT step, OUT balk);
+   
+   eachLoopAddNodes(eachTk, start, step, balk, tokens, cm);
 }
 
 private void //:parseErrorBareAtom
