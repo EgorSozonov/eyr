@@ -95,7 +95,7 @@ typedef struct { // :Token
 #define tokString       4
 
 #define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff 
-                           // miscUnderscore
+                           // miscUnderscore, step iff nonzero and miscLoopStep
                            // Also stands for "Void" among the primitive types
                            // Also works as a marker in "for" loops: initially it's placed after 
                            // tokFor and pl2 = token ind of body start.
@@ -169,8 +169,8 @@ typedef struct { // :Token
 #define miscPub        0    // pub. It must be 0 because it's the only one denoted by a keyword
 #define miscUnderscore 1    // _
 #define miscArrow      2    // ->
-#define miscForStep0   3    // token that provides space for a "for" loop reorganization
-#define miscForStep    4    // token that marks stepping code in a "for" loop
+#define miscLoopStep0  3    // token that provides space for a "for" loop reorganization
+#define miscLoopStep   4    // token that marks stepping code in a "for" loop
 #define miscEachElem   5    // `coll.@` in an "each" loop - element
 #define miscEachInd    6    // `coll.#` in an "each" loop - index of element
 
@@ -184,13 +184,15 @@ typedef struct { //:ChInterval
 typedef void (*LexerFn)(const Arr(char), Compiler* restrict); // LexerFunc = &((A Char) *Lexer -> void)
 private LexerFn LEX_TABLE[256]; // filled in by "tabulateLexer"
 
-Byte const maxInt[19] = {
+// The ASCII notation for the highest signed 64-bit integer abs value, 9_223_372_036_854_775_807
+private Byte const
+maxInt[19] = {
    9, 2, 2, 3, 3, 7, 2, 0, 3, 6,
    8, 5, 4, 7, 7, 5, 8, 0, 7
 };
-// The ASCII notation for the highest signed 64-bit integer abs value, 9_223_372_036_854_775_807
 
-Byte const maximumPreciselyRepresentedFloatingInt[16] = {
+private Byte const
+maximumPreciselyRepresentedFloatingInt[16] = {
    9, 0, 0, 7, 1, 9, 9, 2, 5, 4, 7, 4, 0, 9, 9, 2 };
 // 2**53
 
@@ -356,21 +358,21 @@ defstruct(TypeLoc);
 
 #define TOKENS Arr(Token) restrict tokens // tokens that are used as input to the parser
 #define AST Arr(Node const) restrict ast  // nodes that are used as input to the library consumers
-typedef void (*ParserFn)(Token, Arr(Token), Compiler* restrict);
+typedef void (*ParseFn)(Token, Int, Arr(Token), Compiler* restrict);
 
-#define PARSER_FN(name) private void name(Token tok, TOKENS, CM);
-PARSER_FN(parseErrorBareAtom) PARSER_FN(pScope) PARSER_FN(pExpr) PARSER_FN(pAssignment)
-PARSER_FN(pForStepMarker) PARSER_FN(pAlias) PARSER_FN(parseAssert)
-PARSER_FN(pBreakCont) PARSER_FN(pMeta) PARSER_FN(pReturn) PARSER_FN(pIf) PARSER_FN(pElseIf)
-PARSER_FN(pElse) PARSER_FN(pFor) PARSER_FN(pEach)
+#define PARSE_FN(name) private void name(Token tok, Int sentinel, TOKENS, CM);
+PARSE_FN(parseErrorBareAtom) PARSE_FN(pScope) PARSE_FN(pExpr) PARSE_FN(pAssignment)
+PARSE_FN(pLoopStepMarker) PARSE_FN(pAlias) PARSE_FN(pAssert)
+PARSE_FN(pBreakCont) PARSE_FN(pMeta) PARSE_FN(pReturn) PARSE_FN(pIf) PARSE_FN(pElseIf)
+PARSE_FN(pElse) PARSE_FN(pFor) PARSE_FN(pEach)
 
-private ParserFn const PARSE_TABLE[countSyntaxForms] = {
+private ParseFn const PARSE_TABLE[countSyntaxForms] = {
    [tokInt]        = parseErrorBareAtom,
    [tokLong]       = &parseErrorBareAtom,
    [tokDouble]     = &parseErrorBareAtom,
    [tokBool]       = &parseErrorBareAtom,
    [tokString]     = &parseErrorBareAtom,
-   [tokMisc]       = &pForStepMarker,
+   [tokMisc]       = &pLoopStepMarker,
    [tokWord]       = &parseErrorBareAtom,
    [tokTypeVar]    = &parseErrorBareAtom,
    [tokKwArg]      = &parseErrorBareAtom,
@@ -383,7 +385,7 @@ private ParserFn const PARSE_TABLE[countSyntaxForms] = {
    [tokAssignment] = &pAssignment,
 
    [tokAlias]      = &pAlias,
-   [tokAssert]     = &parseAssert,
+   [tokAssert]     = &pAssert,
    [tokBreakCont]  = &pBreakCont,
    [tokCatch]      = &pAlias,
    [tokFn]         = &pAlias,
@@ -428,6 +430,7 @@ defstruct(Scopes);
 void printLexer(LX);
 
 private void eSaveNodes(Int startNodeInd, CM);
+private void eachLoopAddStep(ParseFrame fr, TOKENS, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
 private TypeId exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
@@ -1513,9 +1516,9 @@ Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
 }
 
-typedef struct {
-   Int indexVarId;
-   Int elementVarId;
+typedef struct { //:EachData
+   Int indexVar;
+   Int elementVar;
 } EachData;
 
 #define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
@@ -2524,7 +2527,7 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
       openPunctuation(reservedWordType, slScope, startBt, lx);
       lx->i++; // CONSUME the `{`
       // placeholder, will be reordered in {pFor}
-      pushIntokens(((Token){.tp = tokMisc, .pl1 = miscForStep0, .startBt = lx->i}), lx);
+      pushIntokens(((Token){.tp = tokMisc, .pl1 = miscLoopStep0, .startBt = lx->i}), lx);
    } ei (reservedWordType >= firstScopeTokenType) {
       lexReservedScope(reservedWordType, source, lx);
    } ei (reservedWordType >= firstSpanTokenType) {
@@ -2651,7 +2654,6 @@ wordReserved(Unt wordType, Int wordId, Int startBt, Int realStartBt, SRC, LX) {
          wrapInAStatement(startBt, source, lx);
          pushIntokens((Token){.tp = tokBool, .pl2=0, .startBt=realStartBt, .lenBts=5}, lx);
       } ei (keywordTp == keywBreak) {
-
          add(((BtToken){ .tp = tokBreakCont, .tokenInd = lx->tokens.len, .spanLevel = slStmt}),
                lx->lexBtrack);
          pushIntokens((Token) {.tp = tokBreakCont, .pl1 = 0, .startBt = realStartBt }, lx);
@@ -3139,7 +3141,7 @@ reorderFor(Int forStart, Int sentinel, TOKENS, LX) {
    memcpy(buf->c, tokens + piece1Start, piece1Len*sizeof(Token));
    if (bodyLen > 0)
       { memcpy(buf->c + piece1Len, tokens + bodyStart, bodyLen*sizeof(Token)); }
-   buf->c[piece1Len + bodyLen] = (Token){.tp = tokMisc, .pl1 = miscForStep, .startBt = stepStartBt};
+   buf->c[piece1Len + bodyLen] = (Token){.tp = tokMisc, .pl1 = miscLoopStep, .startBt = stepStartBt};
    if (stepLen > 0)
       { memcpy(buf->c + piece1Len + bodyLen + 1, tokens + stepStart, stepLen*sizeof(Token)); }
    memcpy(tokens + forStart + 1, buf->c, totalLen*sizeof(Token)); // -1 because into tokMisc
@@ -3197,6 +3199,8 @@ lexCurlyRight(SRC, LX) {
 
    if (top.tp == tokFor) {
       reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
+   } ei (top.tp == tokEach) {
+      pushIntokens((Token){.tp = tokMisc, .pl1 = miscLoopStep}, lx); // to trigger {pLoopStepMarker}
    } ei (bt->len > 0 && top.tp == tokFn && last(bt).tp == tokToplevelFn) {
       // close the function (maybe toplevel) if we are in one
       top = removeLast(bt);
@@ -3654,8 +3658,8 @@ openFnScope(Int funcOrMonoId, TypeId fnType, Token tk, Int sentinel, CM) {
 }
 
 private void //:pScope
-pScope(Token tok, TOKENS, CM) {
-   openParsedScope(cm->i + tok.pl2, (Node){.tp = nodScope}, interOf(tok), cm);
+pScope(Token tok, Int sentinel, TOKENS, CM) {
+   openParsedScope(sentinel, (Node){.tp = nodScope}, interOf(tok), cm);
 }
 
 private void //:parseTry
@@ -3682,11 +3686,10 @@ pIfDetermineSentinel(Int ifSentinel, TOKENS, CM) {
 }
 
 private void //:pElse
-pElse(Token tok, TOKENS, CM) {
+pElse(Token tok, Int sentinel, TOKENS, CM) {
 // "Else" is a special case of "ElseIf" marked with .pl3 = 0
    mbCloseSpans(cm);
-   Int const ifSentinel = cm->i + tok.pl2;
-   ifOpenSpan(nodIfClause, ifSentinel, ifclElse, interOf(tok), cm);
+   ifOpenSpan(nodIfClause, sentinel, ifclElse, interOf(tok), cm);
 }
 
 private void //:pIfClause
@@ -3703,12 +3706,12 @@ pIfClause(Token tok, Int ifcl, TOKENS, CM) {
 }
 
 private void //:pElseIf
-pElseIf(Token tok, TOKENS, CM) {
+pElseIf(Token tok, Int sentinel, TOKENS, CM) {
    pIfClause(tok, ifclElseIf, tokens, cm);
 }
 
 private void //:pIf
-pIf(Token tok, TOKENS, CM) {
+pIf(Token tok, Int sentinel, TOKENS, CM) {
 // Parses and "if" expression with any following else-if clauses and an ending else clause.
    Int const firstClauseSentinel = calcSentinel(tok, cm->i - 1);
    Int const ifSentinel = pIfDetermineSentinel(firstClauseSentinel, tokens, cm);
@@ -3924,13 +3927,12 @@ closeSpans:
 }
 
 private Assignment //:pPreparseAssignment
-pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
+pPreparseAssignment(Int start, Int sentinel, TOKENS, CM) {
 // Looks at a tokToplevelFn or tokAssignment to determine its key points: where is the right side,
 // is it a function definition, is the right side empty etc. Consumes no tokens.
-// Precondition: tokInd is 1 past the "tok"
-   Int const sentinel = calcSentinel(tok, tokInd - 1);
-   Int indRight = tokInd;
-   NameId firstTokenName = tokens[tokInd].pl1;
+// Note: "start" is 1 past the tokAssignment
+   Int indRight = start;
+   NameId firstTokenName = tokens[start].pl1;
    for (;
        indRight < sentinel && tokens[indRight].tp != tokAssignRight;
        indRight++) {}
@@ -3938,24 +3940,24 @@ pPreparseAssignment(Token tok, Int tokInd, TOKENS, CM) {
    VALIDATEP((indRight < sentinel && tokens[indRight].pl2 > 0), errAssignmentEmptyRight);
 
    return (Assignment){
-      .nameTokenInd = tokInd, .rightTokenInd = indRight, .sentinel = sentinel, .name = firstTokenName,
-      .isFunction = tokens[indRight + 1].tp == tokFn
+      .nameTokenInd = start, .rightTokenInd = indRight, .sentinel = sentinel, 
+      .name = firstTokenName, .isFunction = tokens[indRight + 1].tp == tokFn
    };
 }
 
 private void //:pAssignment
-pAssignment(Token tok, TOKENS, CM) {
+pAssignment(Token tok, Int sentinel, TOKENS, CM) {
 // Parses both assignments and compile-time defs
    if (tok.pl1 == assiTypeDefinition) {
       pTypeDef(tokens, cm);
    } else {
-      Assignment assi = pPreparseAssignment(tok, cm->i, tokens, cm);
+      Assignment assi = pPreparseAssignment(cm->i, sentinel, tokens, cm);
       pAssignmentWorker(tok, assi, tokens, cm);
    }
 }
 
 private void //:pFor
-pFor(Token forTk, TOKENS, CM) {
+pFor(Token forTk, Int sentinel, TOKENS, CM) {
 // For loops. Look like "for x' = 0;  x < 100; x++ {  ... }"
 //                           ^initInd ^condInd ^stepInd ^bodyInd
 // At least a step or a body is syntactically required.
@@ -3967,9 +3969,6 @@ pFor(Token forTk, TOKENS, CM) {
 //       scope (if body not empty)
 //          body
 //          step(s)
-
-   Int const sentinel = calcSentinel(forTk, cm->i - 1);
-
    Int const forNodeInd = cm->ast.len;
 
    openParsedScope(sentinel, (Node){.tp = nodFor }, interOf(forTk), cm);
@@ -3978,7 +3977,7 @@ pFor(Token forTk, TOKENS, CM) {
    for (; cm->i < sentinel && tokens[cm->i].tp == tokAssignment;) {
       Token tok = tokens[cm->i];
       cm->i++; // CONSUME the assignment span marker
-      pAssignment(tok, tokens, cm);
+      pAssignment(tok, sentinel, tokens, cm);
    }
 
    // loop condition
@@ -4006,27 +4005,105 @@ pFor(Token forTk, TOKENS, CM) {
    );
 }
 
-private void //:pForStep
-pForStepMarker(Token tok, TOKENS, CM) {
-// tokMisc as a span token must be the marker for stepping code in for loops
-   VALIDATEI(tok.pl1 == miscForStep, iErrorInconsistentSpans);
-
-   Int j = cm->backtrack->len - 1;
-   for (; j > -1; j--) {
-      if (cm->backtrack->c[j].level == pfrLoop)
-         { break; }
+private void //:pLoopStepMarker
+pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
+// tokMisc as a span token must be the marker for stepping code in loops
+   VALIDATEI(tok.pl1 == miscLoopStep && cm->backtrack->len > 0, iErrorInconsistentSpans);
+   
+   ParseFrame loop = last(cm->backtrack);
+   cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
+   
+   VALIDATEI(loop.level == pfrLoop, iErrorInconsistentSpans);
+   cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
+   if (cm->ast.c[loop.startNodeInd].tp == tokEach) {
+      eachLoopAddStep(loop, tokens, cm);
    }
-   VALIDATEI(j > -1, iErrorInconsistentSpans); // we must be inside a loop
-   ParseFrame topLoopFrame = cm->backtrack->c[j];
-   cm->ast.c[topLoopFrame.startNodeInd].pl3 = cm->ast.len - topLoopFrame.startNodeInd;
 }
 
-private Int //:eachLoopValidate
-eachLoopValidate() {
-// Makes sure that the name of the collection is valid. Returns sentinel of the loop header block
+private ParseFrame //:eachLoopProcess
+eachLoopProcess(
+   TypeId eltType, Int sentinel, Int headerStart, Int headerSentinel, TOKENS, CM,
+   OUT Int* start, OUT Int* balk
+) {
+// Processes the heading of the each loop (the part between the `{` and the arrow).
+// Determines the start (how many elements to skip), the step (increment, may be negative)
+// and the balk (how many elements at the end to stop before)
+// Step is written to the tokMisc that terminates the "each" loop in tokens!
+   Int indVarId = cm->vars.len; 
+   pushInvars((Var){.access = accessPrivImm, .typeId = typeOf(tokInt), .fnId = -1}, cm);
+   Int elementVarId = cm->vars.len; 
+   pushInvars((Var){.access = accessPrivImm, .typeId = eltType, .fnId = -1}, cm);
+   ParseFrame eachFrame =  (ParseFrame){
+         .startNodeInd = cm->ast.len, .sentinel = sentinel,
+         .eachData = (EachData){ .indexVar = indVarId, .elementVar = elementVarId } };
+   add(eachFrame, cm->backtrack);
+   
+   Int j = headerStart + 1;
+   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStart)) {
+      VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
+      *start = tokens[j + 1].pl2;
+      j += 2;
+   } else {
+      *start = 0;
+   }
+   
+   Int step = 1;
+   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
+      VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
+      step = tokens[j + 1].pl2;
+      j += 2;
+   }
+   tokens[sentinel - 1].pl2 = step; // will be read by pLoopStepMarker
+   
+   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strBalk)) {
+      VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
+      *balk = tokens[j + 1].pl2;
+      j += 2;
+   } else {
+      *balk = 0;
+   }
+   VALIDATEP(j == headerSentinel, errEachLoopWrongSyntax);
+   return eachFrame;
+}
+
+private void //:eachLoopAddNodes
+eachLoopAddNodes(Token eachTk, ParseFrame fr, Int start, Int step, Int balk, TOKENS, CM) {
+   
+   pushInast((Node){.tp = nodFor, .pl1 = 3 }, cm);
+   pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 1 }, cm); // i = start
+   pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
+   pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
+   
+   pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 4 }, cm); // i < coll.len
+   pushInast((Node){.tp = nodVar, .pl1 = ?, }, cm);
+   pushInast((Node){.tp = nodVar, .pl1 = ?, }, cm);
+   pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
+   pushInast((Node){.tp = nodCall, .pl1 = ?, .pl3 = callNormal }, cm);
+   
+   SourceLoc loc = locOf(interOf(eachTk));
+   for (Int l = 0; l < 9; l++) {
+      add(loc, cm->sourceLocs);
+   }
+   
+}
+
+private void //:eachLoopAddStep
+eachLoopAddStep(ParseFrame fr, TOKENS, CM) {
+   newNode((Node){.tp = nodAssignment, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = nodVar, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = nodExpr, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = nodVar, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = tokInt, .pl1 = ?, }, interOf(eachTk), cm);
+   newNode((Node){.tp = nodCall, .pl1 = ?, }, interOf(eachTk), cm);
+}
+
+private void //:pEach
+pEach(Token eachTk, Int sentinel, TOKENS, CM) {
+   TypeId eltType;
+   
    Token miscTk = tokens[cm->i];
    
-   VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscForStep0 && miscTk.pl2 > 0,
+   VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscLoopStep0 && miscTk.pl2 > 0,
       errEachLoopWrongSyntax); // pl2 will be 0 if there was no arrow inside the loop
    
    Token nameTk = tokens[cm->i + 2]; // skipping the tokMisc and tokStmt
@@ -4037,57 +4114,20 @@ eachLoopValidate() {
    Var collVar = cm->vars.c[varId];
    TypeId collType = collVar.typeId;
 
-   return calcSentinel(tokens[cm->i + 1], cm->i + 1);
-}
-
-private void //:eachLoopProcess
-eachLoopProcess(TypeId eltType, Int headerSentinel, OUT Int* start, OUT Int* step, OUT Int* balk) {
-// Processes the heading of the each loop (the part between the `{` and the arrow).
-// Determines the start (how many elements to skip), the step (increment, may be negative)
-// and the balk (how many elements at the end to stop before)
-
-   Int indVarId = cm->vars.len; 
-   pushInvars((Var){.access = accessPrivImm, .typeId = typeOf(tokInt), .fnId = -1}, cm->vars);
-   Int elementVarId = cm->vars.len; 
-   pushInvars((Var){.access = accessPrivImm, .typeId = , .fnId = -1}, cm->vars);
+   Int headerStart = cm->i + 2;
+   Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
    
-   add(((ParseFrame){
-         .startNodeInd = startNodeInd, .sentinel = sentinelToken,
-         .eachData = (EachData){.indexVarId = , .elementVarId = elementVarId} }), 
-      cm->backtrack
+   Int start, balk;
+   ParseFrame eachFrame = eachLoopProcess(
+      eltType, sentinel, headerStart, headerSentinel, tokens, cm, 
+      OUT start, OUT balk
    );
-}
-
-private void //:eachLoopAddNodes
-eachLoopAddNodes(Token eachTk, Int start, Int step, Int balk, TOKENS, CM) {
    
-   newNode((Node){.tp = nodFor, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = nodAssignment, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = nodFor, .pl1 = ?, }, interOf(eachTk), cm);
-   
-   
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // x' = 1
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
-            (Node){ .tp = tokInt,           .pl2 = 1 },
-            (Node){ .tp = nodExpr,          .pl2 = 3 }, // x < 101
-            (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
-            (Node){ .tp = tokInt,           .pl2 = 101 },
-            (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
-}
-
-private void //:pEach
-pEach(Token eachTk, TOKENS, CM) {
-   TypeId eltType;
-   Int headerSentinel = eachLoopValidate(OUT &eltType);
-   
-   Int start, step, balk;
-   eachLoopProcess(eltType, headerSentinel, OUT start, OUT step, OUT balk);
-   
-   eachLoopAddNodes(eachTk, start, step, balk, tokens, cm);
+   eachLoopAddNodes(eachTk, eachFrame, start, step, balk, tokens, cm);
 }
 
 private void //:parseErrorBareAtom
-parseErrorBareAtom(Token tok, TOKENS, CM) {
+parseErrorBareAtom(Token tok, Int sentinel, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
@@ -4584,7 +4624,7 @@ exprHeadless(Int sentinel, ChInterval loc, TOKENS, CM) {
 }
 
 private TypeId //:pExprWorker
-pExprWorker(Token tok, TOKENS, CM) {
+pExprWorker(Token tok, Int sentinel, TOKENS, CM) {
 // Precondition: we are looking 1 past the first token of expr, which is the first parameter.
 // Consumes 1 or more tokens. Handles single items also Returns the type of parsed expression
    if (tok.tp == tokStmt || tok.tp == tokParens) {
@@ -4597,14 +4637,14 @@ pExprWorker(Token tok, TOKENS, CM) {
          }
       }
 
-      return exprUpTo(cm->i + tok.pl2, interOf(tok), tokens, cm);
+      return exprUpTo(sentinel, interOf(tok), tokens, cm);
    } else {
       return exprSingleItem(tok, cm);
    }
 }
 
 private void //:pExpr
-pExpr(Token tok, TOKENS, CM) { pExprWorker(tok, tokens, cm); }
+pExpr(Token tok, Int sentinel, TOKENS, CM) { pExprWorker(tok, sentinel, tokens, cm); }
 
 
 private void //:mbCloseSpans
@@ -4634,8 +4674,9 @@ parseUpTo(Int sentinelToken, TOKENS, CM) {
 // Parses anything from current cm->i to "sentinelToken"
    while (cm->i < sentinelToken) {
       Token currTok = tokens[cm->i];
+      Int sentinel = calcSentinel(currTok, cm->i);
       cm->i++;
-      (PARSE_TABLE[currTok.tp])(currTok, tokens, cm);
+      (PARSE_TABLE[currTok.tp])(currTok, sentinel, tokens, cm);
       mbCloseSpans(cm);
    }
 }
@@ -4645,8 +4686,8 @@ pAlias(Token tok, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
-private void
-parseAssert(Token tok, TOKENS, CM) {
+private void //:pAssert
+pAssert(Token tok, Int sentinel, TOKENS, CM) {
    throwExcParser(errTemp);
 }
 
@@ -4686,7 +4727,7 @@ breakContinue(Token tok, TOKENS, CM) {
 }
 
 private void //:pBreakCont
-pBreakCont(Token tok, TOKENS, CM) {
+pBreakCont(Token tok, Int sentinel, TOKENS, CM) {
    Node breakContNode = breakContinue(tok, tokens, cm);
    newNode(breakContNode, interOf(tok), cm);
    cm->i = calcSentinel(tok, cm->i - 1); // CONSUME the whole break statement
@@ -4737,9 +4778,8 @@ private void parsePackage(Token tok, TOKENS, CM) {
 }
 
 private void //:pReturn
-pReturn(Token tok, TOKENS, CM) {
+pReturn(Token tok, Int sentinel, TOKENS, CM) {
    Int lenTokens = tok.pl2;
-   Int sentinelToken = cm->i + lenTokens;
    if (lenTokens == 0) {
       newNode((Node){.tp = nodReturn}, interOf(tok), cm);
       return;
@@ -4751,12 +4791,12 @@ pReturn(Token tok, TOKENS, CM) {
       { j--; }
    TypeId fnTy = cm->backtrack->c[j].typeId;
    add(((ParseFrame){ .level = 0, .startNodeInd = cm->ast.len,
-                  .sentinel = sentinelToken }), cm->backtrack);
+                  .sentinel = sentinel }), cm->backtrack);
    newNode((Node){.tp = nodReturn}, interOf(tok), cm);
 
    Token rTk = tokens[cm->i];
    ChInterval loc = {.startBt = rTk.startBt, .lenBts = tok.lenBts - rTk.startBt + tok.startBt};
-   TypeId const exprTy = exprHeadless(sentinelToken, loc, tokens, cm);
+   TypeId const exprTy = exprHeadless(sentinel, loc, tokens, cm);
    VALIDATEP(exprTy.v > -1, errReturn)
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
    VALIDATEP(eq(returnType, exprTy), errTypeWrongReturnType);
@@ -7029,7 +7069,7 @@ char const* nodeNames[] = {
    "{", "Expr", "=", "[]",
    "assert", "breakCont", "catch", "import",
    "f{ }", "trait", "return", "try",
-   "for{}", "each{}", "if", "if clause", "impl", "match"
+   "for{}", "if", "if clause", "impl", "match"
 };
 
 

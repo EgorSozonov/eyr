@@ -21,6 +21,7 @@ LIBS_TEST=-lm
 LIBS_EXE=-lm -lgccjit
 
 APP=eyrc
+LIB_NAME=libeyr
 
 TEST_INCLUDES = -iquote test
 TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DTEST -DSAFETY 
@@ -35,6 +36,8 @@ COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 BIN=bin
 DEBUG_TGT=_debug
 EXE=$(BIN)/$(APP)
+LIB_OUTPUT=$(BIN)/$(LIB_NAME).o
+SHARED_LIB_OUTPUT=$(BIN)/$(LIB_NAME).so
 
 GCC_PATH=~/repos/build/gcc
 
@@ -52,6 +55,8 @@ $(BIN):
 all: | $(BIN) ## Build the whole compiler
 / clear
 / $(COMPILE_RELEASE) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
+/ $(COMPILE_RELEASE) -c $(LIB_OUTPUT) libeyr.c
+/ $(COMPILE_RELEASE) -c -fpic -shared $(SHARED_LIB_OUTPUT) libeyr.c
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="

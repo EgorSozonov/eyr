@@ -1097,11 +1097,12 @@ LexerTestSet* coreFormTests(Arena* a) {
                  (Token){ .tp = tokWord,     .pl1 = 0, .pl2 = 0, .startBt = 7, .lenBts = 4 }, // coll
 
                  (Token){ .tp = tokStmt,         .pl2 = 3, .startBt = 15, .lenBts = 13 },
-                 (Token){ .tp = tokWord,  .pl1 = strPrint + S, .pl2 = 0, 
+                 (Token){ .tp = tokWord, .pl1 = strPrint + S, .pl2 = 0, 
                           .startBt = 15, .lenBts = 5 },
-                 (Token){ .tp = tokMisc,  .pl1 = miscEachElem, .pl2 = 0, // .@
+                 (Token){ .tp = tokMisc, .pl1 = miscEachElem, .pl2 = 0, // .@
                           .startBt = 26, .lenBts = 2 },
-                 (Token){ .tp = tokWord,                     .startBt = 21, .lenBts = 4 }  // coll
+                 (Token){ .tp = tokWord,                     .startBt = 21, .lenBts = 4 },  // coll
+                 (Token){ .tp = tokMisc, .pl1 = miscForStep }
 
          }))},
     }));

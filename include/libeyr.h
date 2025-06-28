@@ -211,12 +211,11 @@ libeyr_String str(const char* content);
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
-#define nodEach        22                           
-#define nodIf          23
-#define nodIfClause    24  // pl3 = "ifcl" constants
-#define nodImpl        25
-#define nodMatch       26  // pattern matching on sum type tag
-#define countAstForms  27  // sentinel
+#define nodIf          22
+#define nodIfClause    23  // pl3 = "ifcl" constants
+#define nodImpl        24
+#define nodMatch       25  // pattern matching on sum type tag
+#define countAstForms  26  // sentinel
 
 #define countSpanForms (countAstForms - nodScope)
 
