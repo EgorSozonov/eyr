@@ -18,7 +18,7 @@ typedef bool Bool;
 #define null NULL
 #define VarId int32_t
 #define FunctionId int32_t
-#ifdef TEST
+#ifdef DEBUG
    #define private
 #else
    #define private static
@@ -313,6 +313,7 @@ struct StructField { //:StructField Struct field names + access are in a separat
    Byte access;      // single generic struct)
 };
 
+// nodVar.pl3 == 0 for uses of ordinary vars
 #define assiVarAssignment  1 // definition of a var
 #define assiTypeDefinition 2 // definition of a type
 #define assiFnParam        3 // introduction of a function parameter
@@ -452,7 +453,7 @@ typedef struct { //:TypeHeader
 #define strAdd      48
 #define strMain     49
 #define strContent  50
-#ifndef TEST
+#ifndef DEBUG
 #define strSentinel 51
 #else
 #define strSentinel 54

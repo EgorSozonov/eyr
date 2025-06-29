@@ -94,17 +94,17 @@ typedef struct { // :Token
 #define tokBool         3  // pl2 = value (1 or 0)
 #define tokString       4
 
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff 
+#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff
                            // miscUnderscore, step iff nonzero and miscLoopStep
                            // Also stands for "Void" among the primitive types
-                           // Also works as a marker in "for" loops: initially it's placed after 
+                           // Also works as a marker in "for" loops: initially it's placed after
                            // tokFor and pl2 = token ind of body start.
                            // After {reorderFor}, it's placed right between body and stepping code.
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
 #define tokTypeVar      7  // pl1 same as tokWord. `$A`
 #define tokKwArg        8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
 #define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
-#define tokFieldAcc    10  // pl1 = nameId. `.field` 
+#define tokFieldAcc    10  // pl1 = nameId. `.field`
 
 // Statement or subexpr span types. pl2 = count of inner tokens
 #define tokStmt        11  // firstSpanTokenType
@@ -207,7 +207,7 @@ standardText[] = "!.!0!=##$%&&.'*:+:-:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 // reserved words end here; what follows may have arbitrary order
                 "startstepbalkIntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
                 "printErrmath:pimath:eTUlengthaddmaincont"
-#ifdef TEST
+#ifdef DEBUG
                 "foobarinner"
 #endif
                 "\n"
@@ -234,7 +234,7 @@ standardStringLens[] = {
     3, 2, 2, 5, 8, // printErr
     7, 6, 1, 1, 6, // length
     3, 4, 4,       // cont
-#ifdef TEST
+#ifdef DEBUG
     3, 3, 5        // foo, bar, inner
 #endif
 };
@@ -430,7 +430,7 @@ defstruct(Scopes);
 void printLexer(LX);
 
 private void eSaveNodes(Int startNodeInd, CM);
-private void eachLoopAddStep(ParseFrame fr, TOKENS, CM);
+private void eachLoopAddStep(EachData ed, Int step, TOKENS, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
 private TypeId exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
@@ -496,7 +496,7 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
 
 defstruct(MultiAssocList);
 
-#if defined(DEBUG) || defined(TEST)
+#ifdef DEBUG
 
 void printName(NameId nameId, CM);
 void printIntArray(Int count, Arr(Int) arr);
@@ -1516,7 +1516,8 @@ Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
 }
 
-typedef struct { //:EachData
+typedef struct { //:EachData Data for "each" loops
+   Int collVar;
    Int indexVar;
    Int elementVar;
 } EachData;
@@ -1938,6 +1939,8 @@ errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a
 char const
 errEachLoopWrongSyntax[]  = "Wrong syntax of an 'each' loop";
 char const
+errEachLoopInvalidValue[] = "Invalid value provided for an 'each' loop!";
+char const
 errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
 char const
 errExpressionError[]   = "Cannot parse expression!";
@@ -2034,23 +2037,23 @@ char const errTypeFieldNotFound[]          = "Field access error in a type";
 #define CURR_BT source[lx->i]
 #define NEXT_BT source[lx->i + 1]
 #define IND_BT (lx->i - lx->stats.standardTextLen)
-#if defined(SAFETY) || defined(TEST)
+#ifdef DEBUG
 #define VALIDATEI(cond, errInd) if (!(cond)) { throwExcInternal0(errInd, __LINE__, cm); }
 #endif
-#if !defined(SAFETY) && !defined(TEST)
+#if !defined(DEBUG)
 #define VALIDATEI(cond, errInd)
 #endif
 #define VALIDATEL(cond, errMsg) if (!(cond)) { throwExcLexer0(errMsg, __LINE__, lx); }
 
 
-#if defined(TEST) || defined (DEBUG)
+#ifdef DEBUG
 
 Int pos(Compiler* lx);
 void dbgLexBtrack(Compiler* lx);
 
 #endif
 
-typedef union {
+typedef union { //:FloatingBits
    uint64_t i;
    double   d;
 } FloatingBits;
@@ -2496,10 +2499,10 @@ lexReservedScope(Int reservedWordType, SRC, LX) {
 // A reserved word must be the first inside parentheses, but parentheses are always
 // wrapped in statements, so we need to check the TWO last tokens and two top BtTokens
    LBtToken* bt = lx->lexBtrack;
-   
+
    VALIDATEL(bt->len >= 2 && last(bt).tp == tokParens
       && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
-   
+
    Int const indLastToken = lx->tokens.len - 1;
    VALIDATEL(lx->tokens.c[indLastToken].tp == tokParens
       && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
@@ -2749,10 +2752,10 @@ lexDot(SRC, LX) {
    } ei (CURR_BT == aAt || CURR_BT == aSharp) { // `coll.@` or `coll.#` in an "each" loop
       Token prevTok = lx->tokens.c[lx->tokens.len - 1];
       VALIDATEL(prevTok.tp == tokWord, errUnexpectedToken);
-      
+
       pushIntokens(prevTok, lx);
       lx->tokens.c[lx->tokens.len - 2] = (Token){
-         .tp = tokMisc, .pl1 = CURR_BT == aAt ? miscEachElem : miscEachInd, 
+         .tp = tokMisc, .pl1 = CURR_BT == aAt ? miscEachElem : miscEachInd,
          .startBt = lx->i, .lenBts = 2
       };
       lx->i++; // CONSUME the @ or #
@@ -2978,7 +2981,7 @@ lexArrow(SRC, LX) {
       lx->tokens.c[top.tokenInd + 1].pl2 = lx->tokens.len; // write loop body start ind to tokMisc
    } ei ((top.tp == tokStmt && bt->len > 1 && bt->c[bt->len - 2].tp == tokEach)) {
       setSpanLengthLexer(top.tokenInd, lx);
-      removeLast(bt); 
+      removeLast(bt);
       lx->tokens.c[last(bt).tokenInd + 1].pl2 = lx->tokens.len; // write loop body start ind
    } else { // `f{ a -> ...}`
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
@@ -3626,6 +3629,7 @@ updateStats(Compiler* restrict cm) {
 //{{{ Forward decls
 
 private TypeId pTypeDef(TOKENS, CM);
+private void tIsList(TypeId t, CM);
 
 #ifdef DEBUG
 void printIntArrayOff(Int startInd, Int count, Arr(Int) arr);
@@ -3940,7 +3944,7 @@ pPreparseAssignment(Int start, Int sentinel, TOKENS, CM) {
    VALIDATEP((indRight < sentinel && tokens[indRight].pl2 > 0), errAssignmentEmptyRight);
 
    return (Assignment){
-      .nameTokenInd = start, .rightTokenInd = indRight, .sentinel = sentinel, 
+      .nameTokenInd = start, .rightTokenInd = indRight, .sentinel = sentinel,
       .name = firstTokenName, .isFunction = tokens[indRight + 1].tp == tokFn
    };
 }
@@ -4009,120 +4013,170 @@ private void //:pLoopStepMarker
 pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 // tokMisc as a span token must be the marker for stepping code in loops
    VALIDATEI(tok.pl1 == miscLoopStep && cm->backtrack->len > 0, iErrorInconsistentSpans);
-   
+
    ParseFrame loop = last(cm->backtrack);
    cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
-   
+
    VALIDATEI(loop.level == pfrLoop, iErrorInconsistentSpans);
    cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
    if (cm->ast.c[loop.startNodeInd].tp == tokEach) {
-      eachLoopAddStep(loop, tokens, cm);
+      eachLoopAddStep(loop.eachData, tok.pl2, tokens, cm);
    }
 }
 
-private ParseFrame //:eachLoopProcess
+private EachData //:eachLoopProcess
 eachLoopProcess(
-   TypeId eltType, Int sentinel, Int headerStart, Int headerSentinel, TOKENS, CM,
+   Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel, Int sentinel, TOKENS, CM,
    OUT Int* start, OUT Int* balk
 ) {
 // Processes the heading of the each loop (the part between the `{` and the arrow).
 // Determines the start (how many elements to skip), the step (increment, may be negative)
 // and the balk (how many elements at the end to stop before)
 // Step is written to the tokMisc that terminates the "each" loop in tokens!
-   Int indVarId = cm->vars.len; 
+   Int indVarId = cm->vars.len;
    pushInvars((Var){.access = accessPrivImm, .typeId = typeOf(tokInt), .fnId = -1}, cm);
-   Int elementVarId = cm->vars.len; 
+   Int elementVarId = cm->vars.len;
    pushInvars((Var){.access = accessPrivImm, .typeId = eltType, .fnId = -1}, cm);
-   ParseFrame eachFrame =  (ParseFrame){
-         .startNodeInd = cm->ast.len, .sentinel = sentinel,
-         .eachData = (EachData){ .indexVar = indVarId, .elementVar = elementVarId } };
-   add(eachFrame, cm->backtrack);
-   
+   EachData eachData = (EachData){ 
+      .collVar = collVarId, .indexVar = indVarId, .elementVar = elementVarId
+   };
+
    Int j = headerStart + 1;
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStart)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
       *start = tokens[j + 1].pl2;
       j += 2;
-   } else {
-      *start = 0;
-   }
-   
+   } else
+      { *start = 0; }
+
    Int step = 1;
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
       step = tokens[j + 1].pl2;
+      VALIDATEP(step != 0, errEachLoopInvalidValue)
       j += 2;
    }
    tokens[sentinel - 1].pl2 = step; // will be read by pLoopStepMarker
-   
+
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strBalk)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
       *balk = tokens[j + 1].pl2;
       j += 2;
-   } else {
-      *balk = 0;
-   }
+   } else
+      { *balk = 0; }
+      
    VALIDATEP(j == headerSentinel, errEachLoopWrongSyntax);
-   return eachFrame;
+   return eachData;
 }
 
 private void //:eachLoopAddNodes
 eachLoopAddNodes(Token eachTk, ParseFrame fr, Int start, Int step, Int balk, TOKENS, CM) {
-   
+// Inserts nodes for the initializer and condition of an "each" loop
    pushInast((Node){.tp = nodFor, .pl1 = 3 }, cm);
    pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 1 }, cm); // i = start
    pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
    pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
+
+   pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 4 }, cm);
+   pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
+   Int countInserted = 6;
    
-   pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 4 }, cm); // i < coll.len
-   pushInast((Node){.tp = nodVar, .pl1 = ?, }, cm);
-   pushInast((Node){.tp = nodVar, .pl1 = ?, }, cm);
-   pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
-   pushInast((Node){.tp = nodCall, .pl1 = ?, .pl3 = callNormal }, cm);
-   
+   if (step > 0) {
+      Int const lt = tryGetOper(opLessTh, tokInt, cm);
+      if (balk > 0) { // i < coll.len - balk
+         Int const minus = tryGetOper(opMinus, tokInt, cm);
+         VALIDATEI(minus > -1, iErrorParsedFunctionNotInScope)
+         pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
+         pushInast((Node){.tp = tokInt, .pl2 = balk }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = lt, .pl2 = 2, .pl3 = callNormal }, cm);
+         countInserted  += 5;
+      } else { // i < coll.len
+         pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = lt, .pl3 = callNormal }, cm);
+         countInserted += 3;
+      }
+   } else {
+      if (balk > 0) { // i > (balk - 1)
+         Int const gt = tryGetOper(opGreaterTh, tokInt, cm);
+         Int const minus = tryGetOper(opMinus, tokInt, cm);
+         pushInast((Node){.tp = tokInt, .pl2 = (balk - 1) }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = gt, .pl2 = 2, .pl3 = callNormal }, cm);
+      } else { // i >= 0
+         Int const gtEq = tryGetOper(opGTEQ, tokInt, cm);
+         pushInast((Node){.tp = tokInt, .pl2 = 0 }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = gtEq, .pl2 = 2, .pl3 = callNormal }, cm);
+      }
+      countInserted += 2;
+   }
+
    SourceLoc loc = locOf(interOf(eachTk));
-   for (Int l = 0; l < 9; l++) {
+   for (Int l = 0; l < countInserted; l++) {
       add(loc, cm->sourceLocs);
    }
-   
 }
 
 private void //:eachLoopAddStep
-eachLoopAddStep(ParseFrame fr, TOKENS, CM) {
-   newNode((Node){.tp = nodAssignment, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = nodVar, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = nodExpr, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = nodVar, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = tokInt, .pl1 = ?, }, interOf(eachTk), cm);
-   newNode((Node){.tp = nodCall, .pl1 = ?, }, interOf(eachTk), cm);
+eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM) {
+// Inserts nodes for the stepping statement of an "each" loop
+   Token eachTk = tokens[fr.startTokenInd];
+   ChInterval interv = interOf(eachTk);
+   EachData ed = fr.eachData;
+   if (step > 0) {
+      Int plus = tryGetOper(opPlus, tokInt, cm); // i = i + step
+      newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = tokInt, .pl2 = step, }, interv, cm);
+      newNode((Node){.tp = nodCall, .pl1 = plus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
+   } else {
+      Int minus = tryGetOper(opMinus, tokInt, cm);
+      Int absStep = -step;
+      newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = tokInt, .pl2 = step, }, interv, cm);
+      newNode((Node){.tp = nodCall, .pl1 = plus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
+   }
 }
 
 private void //:pEach
 pEach(Token eachTk, Int sentinel, TOKENS, CM) {
-   TypeId eltType;
-   
    Token miscTk = tokens[cm->i];
-   
+
    VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscLoopStep0 && miscTk.pl2 > 0,
       errEachLoopWrongSyntax); // pl2 will be 0 if there was no arrow inside the loop
-   
+
    Token nameTk = tokens[cm->i + 2]; // skipping the tokMisc and tokStmt
    VALIDATEP(nameTk.tp == tokWord, errEachLoopWrongSyntax);
    NameId collName = nameTk.pl1;
-   Int varId = cm->activeBindings[collName];
-   VALIDATEP(cm->activeBindings[collName] > -1, errUnknownBinding);
-   Var collVar = cm->vars.c[varId];
+   Int collVarId = cm->activeBindings[collName];
+   VALIDATEP(collVarId > -1, errUnknownBinding);
+   Var collVar = cm->vars.c[collVarId];
    TypeId collType = collVar.typeId;
+   VALIDATEP(tIsList(collType, cm), errTypeOfNotList);
+   
+   TypeId eltType =
+      libeyr_typeGetGenericArg(collType, typeReadHeader(collType, cm), 0, cm->types.c);
 
    Int headerStart = cm->i + 2;
    Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
+   print("collType %d header start %d sentinel %d", collType.v, headerStart, headerSentinel);
    
+
+   
+   ParseFrame eachFrame =  (ParseFrame){ .startNodeInd = cm->ast.len, .sentinel = sentinel };
    Int start, balk;
-   ParseFrame eachFrame = eachLoopProcess(
-      eltType, sentinel, headerStart, headerSentinel, tokens, cm, 
-      OUT start, OUT balk
+   eachFrame.eachData = eachLoopProcess(
+      collVarId, eltType, headerStart, headerSentinel, sentinel, tokens, cm,
+      OUT &start, OUT &balk
    );
-   
+   add(eachFrame, cm->backtrack);
+
    eachLoopAddNodes(eachTk, eachFrame, start, step, balk, tokens, cm);
 }
 
@@ -4658,7 +4712,7 @@ mbCloseSpans(CM) {
       ParseFrame frame = last(cm->backtrack);
       if (cm->i < frame.sentinel)
          { return; }
-#ifdef SAFETY //{{{
+#ifdef DEBUG //{{{
       if (cm->i > frame.sentinel) {
          print("Span inconsistency i %d  frame.level %d frame.sentinelToken %d startInd %d",
             cm->i, frame.sentinel, frame.level, frame.startNodeInd);
@@ -4955,7 +5009,7 @@ addRawOverload(NameId const name, TypeId const typeId, FunctionId const fnId, CM
       cm->stats.countOverloadedNames++;
    } else {
       Int updatedListId = addMultiAssocList(firstParamType.v, fnId, mbListId, cm->rawOverloads);
-      
+
       if (updatedListId != -1)
          { cm->activeBindings[name] = -updatedListId - 2; }
    }
@@ -5455,12 +5509,12 @@ createNameOverloads(NameId name, CM) {
 
    VALIDATEI(rawStart != -1, iErrorImportedFunctionNotInScope)
    Int const countOverloads = raw[listId]/2;
-   
+
    Int const rawSentinel = rawStart + raw[listId];
 
    Arr(Int) ov = cm->overloads.c;
    Int const newInd = cm->overloads.len;
-   
+
    ov[newInd] = 2*countOverloads; // length of the subtable for this name
    cm->overloads.len += 2*countOverloads + 1;
 
@@ -5522,7 +5576,7 @@ createOverloads(CM) {
       NameId name = uniqueFnNames->c[j];
       if (name < countOperators) // operator overloads were created above
          { continue; }
-         
+
       Int newIndex = createNameOverloads(name, cm);
       cm->activeBindings[name] = -newIndex - 2;
    }
@@ -5564,7 +5618,7 @@ pToplevelConstants(CM) {
    }
 }
 
-#ifdef SAFETY
+#ifdef DEBUG
 
 private void
 validateOverloadsFull(CM) {
@@ -5767,7 +5821,7 @@ parseMain(CM, Arena* a) {
       createOverloads(cm);
       pToplevelConstants(cm);
 
-#ifdef SAFETY
+#ifdef DEBUG
       validateOverloadsFull(cm);
 #endif
 
@@ -5783,7 +5837,7 @@ parseMain(CM, Arena* a) {
       //dbgType(typeOf(266));
       //dbgType(typeOf(321));
    } else {
-#ifndef TEST
+#ifndef DEBUG
       print("Exception!");
 #endif
    }
@@ -5867,7 +5921,6 @@ libeyr_sizeOfType(TypeId t, Arr(Int) types) {
 
 }
 
-
 Int //:libeyr_getStructFieldInd
 libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types) {
    return types[t.v + TYPE_PREFIX + hdr.arity];
@@ -5914,12 +5967,10 @@ typeGetOuter(TypeId t, CM) {
 
 private TypeId //:tGetIndexOfFnFirstParam
 tGetIndexOfFnFirstParam(TypeId fnType, CM) {
-#ifdef SAFETY //{{{
+#ifdef DEBUG //{{{
    NameId name = typeReadHeader(fnType, cm).name;
-#ifdef DEBUG
    if (name != nameOfStd(strF))
       { print("A function is not a function! TypeId = %d", fnType); }
-#endif
    VALIDATEI(name == nameOfStd(strF), iErrorNotAFunction);
 #endif //}}}
    return typeOf(fnType.v + TYPE_PREFIX);
@@ -5932,6 +5983,12 @@ tIsFunction(TypeId t, CM) {
       { return -1; }
    TypeHeader hdr = typeReadHeader(t, cm);
    return (hdr.name == nameOfStd(strF)) ? (hdr.arity - 1) : -1;
+}
+
+private void //:tIsList
+tIsList(TypeId t, CM) {
+   TypeId outer = typeGetOuter(typeColl, cm);
+   return outer.v == cm->stats.listType || outer.v == cm->stats.arrayType;
 }
 
 private TypeLoc //:tGetBody
@@ -6086,7 +6143,7 @@ typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
    pushIntypes(0, cm);
    Int sentinel = exp->len;
 
-#ifdef SAFETY
+#ifdef DEBUG
    VALIDATEP((sentinel - startInd) % 4 == 0, "typeCreateStruct err not divisible by 4")
 #endif
    Int countFields = (sentinel - startInd)/4;
@@ -6104,7 +6161,7 @@ typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
 
    for (Int j = startInd + 3; j < sentinel; j += 4) {
       // types of fields
-#ifdef SAFETY
+#ifdef DEBUG
       VALIDATEP(exp->c[j - 1] == tyeType, "not a type")
 #endif
       pushIntypes(exp->c[j], cm);
@@ -6417,6 +6474,18 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
    return findOverload(name, tpFstArg, cm);
 }
 
+private Int
+tryGetOper(Int opName, Int operandType, Compiler* cm) {
+// Try to find convert test value to operator entityId
+   Int ovInd = -getBinding(opName, cm) - 2;
+   Int fnId;
+   Bool foundOv = tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
+   tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
+   VALIDATEI(foundOv, iErrorParsedFunctionNotInScope);
+   return fnId;
+}
+
+
 private void //:typeCheckFnGenericCall
 typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
    Function fn = cm->functions.c[fnId];
@@ -6513,8 +6582,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       VALIDATEP(exp->len >= 2, errExpressionError)
 
       TypeId typeColl = typeOf(exp->c[exp->len - 2]);
-      TypeId outer = typeGetOuter(typeColl, cm);
-      VALIDATEP(outer.v == cm->stats.listType || outer.v == cm->stats.arrayType, errTypeOfNotList)
+      VALIDATEP(tIsList(typeColl, cm), errTypeOfNotList)
 
       VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy), errTypeOfListIndex) // list index == Int
 
@@ -6890,7 +6958,7 @@ tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) 
 //}}}
 //{{{ Utils for tests & debugging
 
-#if defined(DEBUG) || defined(TEST)
+#ifdef(DEBUG)
 //{{{ General utils
 
 void //:printIntArray
@@ -7395,7 +7463,7 @@ dbgAllTypes(CM) {
 
 //{{{ Tests only
 
-#ifdef TEST
+#ifdef DEBUG
 
 #define S   70000000 // A constant larger than the largest allowed file size.
                 // Separates parsed entities from others
@@ -7408,19 +7476,6 @@ typedef struct { // :TestEntityImport
     Int nameInd; // 0, 1 or 2. Corresponds to the "foobarinner" in standardText
     Int typeInd; // index in the intermediary array of types that is imported alongside
 } TestEntityImport;
-
-Int
-tryGetOper0(Int opType, Int typeId, Compiler* protoOvs) {
-// Try and convert test value to operator entityId
-   Int entityId;
-   Int ovInd = -getBinding(opType, protoOvs) - 2;
-   bool foundOv = tFindOverload(typeOf(typeId), ovInd, protoOvs, OUT &entityId);
-   if (foundOv)  {
-      return entityId + O;
-   } else {
-      return -1;
-   }
-}
 
 Arr(TypeId) //:importTestTypes
 importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
@@ -7541,7 +7596,6 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
 #endif
 
 //}}}
-
 //}}}
 //{{{ Init
 
@@ -7660,7 +7714,7 @@ libeyr_compileFile(String filename) {
       return cr;
    }
 
-#ifdef TRACE
+#ifdef VERBOSE
    printParser(cm);
 #endif
 

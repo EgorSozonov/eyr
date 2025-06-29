@@ -24,10 +24,10 @@ APP=eyrc
 LIB_NAME=libeyr
 
 TEST_INCLUDES = -iquote test
-TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DTEST -DSAFETY 
+TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG
 COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(LIBS_TEST)
 
-DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DSAFETY 
+DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DVERBOSE
 COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
 
 RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
@@ -64,7 +64,7 @@ all: | $(BIN) ## Build the whole compiler
 
 debug: | $(DEBUG_TGT) ## Debug build
 / clear
-/ $(COMPILE_DEBUG) -o $(DEBUG_TGT)/$(APP) libeyr.c $(APP).c #-Wl,--verbose
+/ $(COMPILE_DEBUG) -o $(DEBUG_TGT)/$(APP) libeyr.c $(APP).c
 / @echo "_________________________________________"
 / @echo "|         DEBUG BUILD SUCCESS            |"
 / @echo "========================================="
@@ -79,19 +79,14 @@ clean: ## Delete cached build results
 / test -f $(DEBUG_TGT) | rm $(DEBUG_TGT)/ *
 
 
-testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer. Pass TEST=12 to run just 1 test
+testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer. Pass TEST=12 to run single test
 / $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c libeyr.c
 / $(DEBUG_TGT)/lexerTest $(TEST)
 
 
-testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run just 1 test
+testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run single test
 / $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
 / $(DEBUG_TGT)/parserTest $(TEST)
-
-
-testCodegen: | $(DEBUG_TGT) ## Test the code generator
-/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/codegenTest test/codegenTest.c libeyr.c
-/ $(DEBUG_TGT)/codegenTest
 
 
 testIntegration: | $(EXE) ## Test the full compilation and program execution
@@ -105,7 +100,7 @@ test: | testLexer testParser testIntegration ## Run all tests
 #{{{ Meta
 
 help: ## Show this help
-/ @egrep -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {print "-- Help --";print ""; FS = ":.*?## "}; {printf "\033[32m%-10s\033[0m %s\n", $$1, $$2}'
+/ @grep -E -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {print "[Help]";print ""; FS = ":.*?## "}; {printf "\033[32m%-10s\033[0m %s\n", $$1, $$2}'
 / echo
 # MAKEFILE_LIST lists the contents of this present file
 # egrep selects only lines with the double sharp, they are then sorted
