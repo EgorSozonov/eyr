@@ -428,6 +428,7 @@ defstruct(TExpr);
 
 defstruct(Scopes);
 void printLexer(LX);
+defstruct(EachData);
 
 private void eSaveNodes(Int startNodeInd, CM);
 private void eachLoopAddStep(EachData ed, Int step, TOKENS, CM);
@@ -1516,11 +1517,12 @@ Bool eq_TypeId(TypeId a, TypeId b) {
     return a.v == b.v;
 }
 
-typedef struct { //:EachData Data for "each" loops
+struct EachData{ //:EachData Data for "each" loops
+   Int startTokenInd;
    Int collVar;
    Int indexVar;
    Int elementVar;
-} EachData;
+};
 
 #define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
 #define pfrLoop  2 // this frame is a scope and a loop (allows break and continue)
@@ -1940,6 +1942,8 @@ char const
 errEachLoopWrongSyntax[]  = "Wrong syntax of an 'each' loop";
 char const
 errEachLoopInvalidValue[] = "Invalid value provided for an 'each' loop!";
+char const
+errEachNotACollection[] = "Collection name not found among any active 'each' loops";
 char const
 errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
 char const
@@ -3629,7 +3633,9 @@ updateStats(Compiler* restrict cm) {
 //{{{ Forward decls
 
 private TypeId pTypeDef(TOKENS, CM);
-private void tIsList(TypeId t, CM);
+private Bool tIsList(TypeId t, CM);
+
+private Int tryGetOper(Int opName, Int operandType, Compiler* cm);
 
 #ifdef DEBUG
 void printIntArrayOff(Int startInd, Int count, Arr(Int) arr);
@@ -4026,8 +4032,9 @@ pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 
 private EachData //:eachLoopProcess
 eachLoopProcess(
-   Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel, Int sentinel, TOKENS, CM,
-   OUT Int* start, OUT Int* balk
+   Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel, 
+   Int startTokenInd, Int sentinel, TOKENS, CM,
+   OUT Int* start, OUT Int* step, OUT Int* balk
 ) {
 // Processes the heading of the each loop (the part between the `{` and the arrow).
 // Determines the start (how many elements to skip), the step (increment, may be negative)
@@ -4038,29 +4045,33 @@ eachLoopProcess(
    Int elementVarId = cm->vars.len;
    pushInvars((Var){.access = accessPrivImm, .typeId = eltType, .fnId = -1}, cm);
    EachData eachData = (EachData){ 
-      .collVar = collVarId, .indexVar = indVarId, .elementVar = elementVarId
+      .startTokenInd = startTokenInd, .collVar = collVarId, .indexVar = indVarId,
+      .elementVar = elementVarId
    };
 
    Int j = headerStart + 1;
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStart)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
       *start = tokens[j + 1].pl2;
+      VALIDATEP(*start >= 0, errEachLoopInvalidValue)
       j += 2;
    } else
       { *start = 0; }
 
-   Int step = 1;
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
-      step = tokens[j + 1].pl2;
+      *step = tokens[j + 1].pl2;
       VALIDATEP(step != 0, errEachLoopInvalidValue)
       j += 2;
+   } else {
+      *step = 1;
    }
-   tokens[sentinel - 1].pl2 = step; // will be read by pLoopStepMarker
+   tokens[sentinel - 1].pl2 = *step; // will be read by pLoopStepMarker
 
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strBalk)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
       *balk = tokens[j + 1].pl2;
+      VALIDATEP(*balk >= 0, errEachLoopInvalidValue)
       j += 2;
    } else
       { *balk = 0; }
@@ -4070,7 +4081,9 @@ eachLoopProcess(
 }
 
 private void //:eachLoopAddNodes
-eachLoopAddNodes(Token eachTk, ParseFrame fr, Int start, Int step, Int balk, TOKENS, CM) {
+eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int step, Int balk, 
+   TOKENS, CM
+) {
 // Inserts nodes for the initializer and condition of an "each" loop
    pushInast((Node){.tp = nodFor, .pl1 = 3 }, cm);
    pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 1 }, cm); // i = start
@@ -4101,7 +4114,6 @@ eachLoopAddNodes(Token eachTk, ParseFrame fr, Int start, Int step, Int balk, TOK
    } else {
       if (balk > 0) { // i > (balk - 1)
          Int const gt = tryGetOper(opGreaterTh, tokInt, cm);
-         Int const minus = tryGetOper(opMinus, tokInt, cm);
          pushInast((Node){.tp = tokInt, .pl2 = (balk - 1) }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = gt, .pl2 = 2, .pl3 = callNormal }, cm);
       } else { // i >= 0
@@ -4112,35 +4124,34 @@ eachLoopAddNodes(Token eachTk, ParseFrame fr, Int start, Int step, Int balk, TOK
       countInserted += 2;
    }
 
-   SourceLoc loc = locOf(interOf(eachTk));
+   SourceLoc loc = locOf(interOf(eachTk), cm);
    for (Int l = 0; l < countInserted; l++) {
       add(loc, cm->sourceLocs);
    }
 }
 
 private void //:eachLoopAddStep
-eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM) {
+eachLoopAddStep(EachData ed, Int step, TOKENS, CM) {
 // Inserts nodes for the stepping statement of an "each" loop
-   Token eachTk = tokens[fr.startTokenInd];
+   Token eachTk = tokens[ed.startTokenInd];
    ChInterval interv = interOf(eachTk);
-   EachData ed = fr.eachData;
-   if (step > 0) {
-      Int plus = tryGetOper(opPlus, tokInt, cm); // i = i + step
+   if (step > 0) { // i = i + step
+      Int plus = tryGetOper(opPlus, tokInt, cm);
       newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
       newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
       newNode((Node){.tp = tokInt, .pl2 = step, }, interv, cm);
       newNode((Node){.tp = nodCall, .pl1 = plus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
-   } else {
+   } else { // i = i - |step|
       Int minus = tryGetOper(opMinus, tokInt, cm);
       Int absStep = -step;
       newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
       newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elemVar }, interv, cm);
-      newNode((Node){.tp = tokInt, .pl2 = step, }, interv, cm);
-      newNode((Node){.tp = nodCall, .pl1 = plus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
+      newNode((Node){.tp = tokInt, .pl2 = absStep, }, interv, cm);
+      newNode((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
    }
 }
 
@@ -4167,17 +4178,16 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
    print("collType %d header start %d sentinel %d", collType.v, headerStart, headerSentinel);
    
-
-   
-   ParseFrame eachFrame =  (ParseFrame){ .startNodeInd = cm->ast.len, .sentinel = sentinel };
-   Int start, balk;
+   ParseFrame eachFrame = (ParseFrame){ .startNodeInd = cm->ast.len, .sentinel = sentinel };
+   Int startTokenInd = cm->i - 1;
+   Int start, step, balk;
    eachFrame.eachData = eachLoopProcess(
-      collVarId, eltType, headerStart, headerSentinel, sentinel, tokens, cm,
-      OUT &start, OUT &balk
+      collVarId, eltType, headerStart, headerSentinel, startTokenInd, sentinel, tokens, cm,
+      OUT &start, OUT &step, OUT &balk
    );
    add(eachFrame, cm->backtrack);
 
-   eachLoopAddNodes(eachTk, eachFrame, start, step, balk, tokens, cm);
+   eachLoopAddNodes(eachTk, eachFrame, collType, start, step, balk, tokens, cm);
 }
 
 private void //:parseErrorBareAtom
@@ -4228,6 +4238,31 @@ exprSingleItem(Token tk, CM) {
       throwExcParser(errUnexpectedToken);
    }
    return typeId;
+}
+
+private TypeId //:eEachVariable
+eEachVariable(Token miscTk, CM) {
+// A single `coll.@` or `coll.#`. Writes exactly 1 node. Consumes no tokens
+   Token nameTk = cm->tokens.c[cm->i + 1];
+   NameId name = nameTk.pl1;
+   ChInterval interv = (ChInterval){
+      .startBt = miscTk.startBt, .lenBts = miscTk.lenBts + nameTk.lenBts
+   };
+   Int collVarId = cm->activeBindings[name];
+   VALIDATEP(collVarId > -1, errUnknownBinding);
+   LParseFrame* bt = cm->backtrack;
+   Int indEachFrame = bt->len - 1;
+   for (; indEachFrame > -1; indEachFrame--) {
+      if (bt->c[indEachFrame].eachData.collVar == collVarId)
+         { break; }
+   }
+   
+   VALIDATEP(indEachFrame > -1, errEachNotACollection);
+   Int varId = (miscTk.pl1 == miscEachElem)
+      ? bt->c[indEachFrame].eachData.elementVar  // `coll.@`
+      : bt->c[indEachFrame].eachData.indexVar;  // `coll.#`
+   
+   newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = 0}, interv, cm);
 }
 
 private void //:subexSaveDataLiteral
@@ -4587,6 +4622,10 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       eParens(cTk, parent, e, tokens, cm); break;
    case tokData:
       eDataLiteral(cTk, e, tokens, cm); break;
+   case tokMisc: 
+      eEachVariable(cTk, cm)
+      cm->i++; // CONSUME the tokMisc (and the tokWord will be consumed in {eParse})
+      break;
    default:
       throwExcParser(errExpressionCannotContain);
    }
@@ -4631,6 +4670,9 @@ exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
          cm->i++;
          return exprSingleItem(singleToken, cm);
       }
+   } ei (cm->i + 2 == frame.sentinel && tokens[cm->i].tp == tokMisc) { // `coll.@`, `coll.#`
+      cm->i += 2; 
+      return eEachVariable(tokens[cm->i].tp, cm);
    }
    Int const startNodeInd = cm->ast.len;
    add(frame, cm->backtrack);
@@ -5985,7 +6027,7 @@ tIsFunction(TypeId t, CM) {
    return (hdr.name == nameOfStd(strF)) ? (hdr.arity - 1) : -1;
 }
 
-private void //:tIsList
+private Bool //:tIsList
 tIsList(TypeId t, CM) {
    TypeId outer = typeGetOuter(typeColl, cm);
    return outer.v == cm->stats.listType || outer.v == cm->stats.arrayType;
