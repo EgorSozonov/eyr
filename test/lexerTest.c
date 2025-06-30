@@ -1102,8 +1102,7 @@ LexerTestSet* coreFormTests(Arena* a) {
                  (Token){ .tp = tokMisc, .pl1 = miscEachElem, .pl2 = 0, // .@
                           .startBt = 26, .lenBts = 2 },
                  (Token){ .tp = tokWord,                     .startBt = 21, .lenBts = 4 },  // coll
-                 (Token){ .tp = tokMisc, .pl1 = miscForStep }
-
+                 (Token){ .tp = tokMisc, .pl1 = miscForStep, .pl2 = 0, .startBt = 29, .lenBts = 0 }
          }))},
     }));
 }

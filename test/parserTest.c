@@ -45,7 +45,7 @@ private ParserTestSet* createTestSet0(String name, Arena *a, int count, Arr(Pars
 #define createTestSet(n, a, tests) createTestSet0(n, a, sizeof(tests)/sizeof(ParserTest), tests)
 
 
-#define oper(opType, typeId) tryGetOper(opType, typeId, protoOvs) + O
+#define oper(opType, typeId) (tryGetOper(opType, typeId, protoOvs) + O)
 #define ty(name) getBinding(name, protoOvs)
 
 private Int
@@ -1674,7 +1674,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
          ((TestEntityImport[]) {})
       ),
       createTest(
-         s("Each loop without body"),
+         s("Each loop"),
          s("fn f f{\n"
            "   coll = [1 2 3];\n"
            "   each { coll -> print coll.@;\n"

@@ -9,7 +9,6 @@ endif
 .PHONY: all debug clean help testLexer testParser testIntegration test
 
 CC=gcc --std=gnu2x
-CONFIG=-g3
 WARN=-Werror=return-type -Wunused-variable -Wshadow -Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
     -Wno-discarded-qualifiers \
@@ -17,21 +16,23 @@ WARN=-Werror=return-type -Wunused-variable -Wshadow -Wfatal-errors \
 SANITIZE=-fsanitize=address # include it occasionally
 INCLUDES=-iquote .
 OPT=-march=native
-LIBS_TEST=-lm
+LIBS_LIB=-lm
 LIBS_EXE=-lm -lgccjit
+LDFLAGS=-Wl,--exclude-libs=ALL
 
 APP=eyrc
 LIB_NAME=libeyr
 
 TEST_INCLUDES = -iquote test
-TEST_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG
-COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(LIBS_TEST)
+TEST_FLAGS = $(WARN) $(OPT) $(INCLUDES) -g3 -DDEBUG
+COMPILE_TEST = $(CC) $(TEST_FLAGS) $(TEST_INCLUDES) $(LIBS_LIB)
 
-DEBUG_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -g3 -DDEBUG -DVERBOSE
+DEBUG_FLAGS = $(WARN) $(OPT) $(INCLUDES) -g3 -DDEBUG -DVERBOSE
 COMPILE_DEBUG = $(CC) $(DEBUG_FLAGS) $(LIBS_EXE)
 
-RELEASE_FLAGS = $(CONFIG) $(WARN) $(OPT) $(DEPFLAGS) $(INCLUDES) -O2
+RELEASE_FLAGS = $(WARN) $(OPT) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
+COMPILE_RELEASE_LIB = $(CC) $(RELEASE_FLAGS) $(LIBS_LIB) $(LDFLAGS)
 
 BIN=bin
 DEBUG_TGT=_debug
@@ -55,8 +56,8 @@ $(BIN):
 all: | $(BIN) ## Build the whole compiler
 / clear
 / $(COMPILE_RELEASE) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
-/ $(COMPILE_RELEASE) -c $(LIB_OUTPUT) libeyr.c
-/ $(COMPILE_RELEASE) -c -fpic -shared $(SHARED_LIB_OUTPUT) libeyr.c
+/ $(COMPILE_RELEASE_LIB) -c -o $(LIB_OUTPUT) libeyr.c
+/ $(COMPILE_RELEASE_LIB) -c -fpic -shared -o $(SHARED_LIB_OUTPUT) libeyr.c
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
@@ -85,7 +86,7 @@ testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer. Pass TEST=12 to run sing
 
 
 testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run single test
-/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
+/ $(COMPILE_TEST) -DDEBUG -DVERBOSE -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
 / $(DEBUG_TGT)/parserTest $(TEST)
 
 

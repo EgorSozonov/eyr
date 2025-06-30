@@ -44,7 +44,7 @@ typedef struct { //:ChInterval
 
 #define CM Compiler* restrict cm
 void printParser(Compiler* cm);
-Int tryGetOper0(Int opType, Int typeId, Compiler* protoOvs);
+Int tryGetOper(Int opType, Int typeId, Compiler* protoOvs);
 void createOverloads(CM);
 void initializeParser(Compiler* lx, Arena* a);
 void setParserError(String errMsg, Compiler* restrict cm);
