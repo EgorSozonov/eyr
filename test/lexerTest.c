@@ -48,7 +48,7 @@ private Compiler* buildExpectedLexer(Arena *a, int totalTokens, Arr(Token) token
                 tok.pl1 = nameOfStd(tok.pl1 - S);
             }
         }
-        pushIntokens(tok, result);
+        pushIntokens0(tok, result);
     }
 
     return result;

@@ -3202,12 +3202,12 @@ lexCurlyRight(SRC, LX) {
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
    BtToken top = removeLast(bt);
    VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
-   
+
    if (top.tp == tokEach) { // marker token to trigger {pLoopStepMarker}
-      pushIntokens((Token){.tp = tokMisc, .pl1 = miscLoopStep, 
-         .startBt = lx->i, .lenBts = 0 }, lx); 
+      pushIntokens((Token){.tp = tokMisc, .pl1 = miscLoopStep,
+         .startBt = lx->i, .lenBts = 0 }, lx);
    }
-   
+
    setSpanLengthLexer(top.tokenInd, lx);
 
    if (top.tp == tokFor) {
@@ -3403,7 +3403,7 @@ private void eClose(Expr* s, CM);
 private void addBinding(NameId nameId, Int bindingId, Compiler* cm);
 private void closeParseFrames(CM);
 private void createBuiltins(Compiler* cm);
-private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
+protected Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 private void eParse(Int sentinel, TOKENS, CM);
 private TypeId exprHeadless(Int sentinel, ChInterval loc, TOKENS, CM);
 private TypeId pExprWorker(Token tk, Int sentinel, TOKENS, CM);
@@ -3623,7 +3623,7 @@ scopesNewLexicalScope(CM) {
    s->start = s->curr;
 }
 
-private void //:updateStats
+protected void //:updateStats
 updateStats(Compiler* restrict cm) {
    cm->stats.toksLen = cm->tokens.len;
    cm->stats.astLen = cm->ast.len;
@@ -3639,7 +3639,7 @@ getBinding(Int id, CM) { return cm->activeBindings[id]; }
 private TypeId pTypeDef(TOKENS, CM);
 private Bool tIsList(TypeId t, CM);
 
-private Int tryGetOper(Int opName, Int operandType, Compiler* cm);
+protected Int tryGetOper(Int opName, Int operandType, Compiler* cm);
 
 #ifdef DEBUG
 void printIntArrayOff(Int startInd, Int count, Arr(Int) arr);
@@ -3875,7 +3875,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    Unt const tp = (tok.tp == tokToplevelFn) ? nodToplevelFn : nodAssignment;
    TypeId leftType = ZERO_ARITY_TYPE;
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
-   
+
    Token rightTk = tokens[assignment.rightTokenInd];
    VALIDATEP(assignment.rightTokenInd < assignment.sentinel && rightTk.pl2 > 0,
            errAssignmentEmptyRight)
@@ -4035,7 +4035,7 @@ pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
    VALIDATEI(j > -1, iErrorInconsistentSpans); // we must be inside a loop
    ParseFrame loop = cm->backtrack->c[j];
    cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
-   
+
    if (loop.eachData.collVar + loop.eachData.indexVar > 0) {
       eachLoopAddStep(loop.eachData, tok.pl2, tokens, cm);
    }
@@ -4043,7 +4043,7 @@ pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 
 private EachData //:eachLoopProcess
 eachLoopProcess(
-   Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel, 
+   Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel,
    Int startTokenInd, Int sentinel, TOKENS, CM,
    OUT Int* start, OUT Int* step, OUT Int* balk
 ) {
@@ -4055,7 +4055,7 @@ eachLoopProcess(
    pushInvars((Var){.access = accessPrivImm, .typeId = typeOf(tokInt), .fnId = -1}, cm);
    Int elementVarId = cm->vars.len;
    pushInvars((Var){.access = accessPrivImm, .typeId = eltType, .fnId = -1}, cm);
-   EachData eachData = (EachData){ 
+   EachData eachData = (EachData){
       .startTokenInd = startTokenInd, .collVar = collVarId, .indexVar = indVarId,
       .elementVar = elementVarId
    };
@@ -4086,7 +4086,7 @@ eachLoopProcess(
       j += 2;
    } else
       { *balk = 0; }
-      
+
    VALIDATEP(j == headerSentinel, errEachLoopWrongSyntax);
    return eachData;
 }
@@ -4102,13 +4102,13 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
    pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
 
    Int countInserted = 4;
-   
+
    if (step > 0) {
       Int const lt = tryGetOper(opLessTh, tokInt, cm);
       if (balk > 0) { // i < coll.len - balk
          Int const minus = tryGetOper(opMinus, tokInt, cm);
          VALIDATEI(minus > -1, iErrorParsedFunctionNotInScope)
-         
+
          pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 6 }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
@@ -4162,14 +4162,14 @@ eachLoopAddBody(ParseFrame fr, TypeId collType, Int headerSentinel, Token eachTk
    pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar }, cm);
    pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
    pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 2, .pl3 = callGetElem }, cm);
-   
+
    for (Int l = 0; l < 7; l++) {
       add(loc, cm->sourceLocs);
    }
 }
 
 private void //:eachLoopAddNodes
-eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int step, Int balk, 
+eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
    Int headerSentinel, TOKENS, CM
 ) {
 // Inserts nodes for the initializer and condition of an "each" loop
@@ -4187,18 +4187,18 @@ eachLoopAddStep(EachData ed, Int step, TOKENS, CM) {
    if (step > 0) { // i = i + step
       Int plus = tryGetOper(opPlus, tokInt, cm);
       newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.indexVar }, interv, cm);
       newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.indexVar }, interv, cm);
       newNode((Node){.tp = tokInt, .pl2 = step, }, interv, cm);
       newNode((Node){.tp = nodCall, .pl1 = plus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
    } else { // i = i - |step|
       Int minus = tryGetOper(opMinus, tokInt, cm);
       Int absStep = -step;
       newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.indexVar }, interv, cm);
       newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
-      newNode((Node){.tp = nodVar, .pl1 = ed.elementVar }, interv, cm);
+      newNode((Node){.tp = nodVar, .pl1 = ed.indexVar }, interv, cm);
       newNode((Node){.tp = tokInt, .pl2 = absStep, }, interv, cm);
       newNode((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
    }
@@ -4219,15 +4219,15 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Var collVar = cm->vars.c[collVarId];
    TypeId collType = collVar.typeId;
    VALIDATEP(tIsList(collType, cm), errTypeOfNotList);
-   
+
    TypeId eltType =
       libeyr_typeGetGenericArg(collType, typeReadHeader(collType, cm), 0, cm->types.c);
 
    Int headerStart = cm->i + 2;
    Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
-   
-   ParseFrame eachFrame = (ParseFrame){ 
-      .startNodeInd = cm->ast.len, .level = pfrLoop, .sentinel = sentinel 
+
+   ParseFrame eachFrame = (ParseFrame){
+      .startNodeInd = cm->ast.len, .level = pfrLoop, .sentinel = sentinel
    };
    Int startTokenInd = cm->i - 1;
    Int start, step, balk;
@@ -4307,17 +4307,17 @@ eEachVariable(Token miscTk, CM) {
       if (bt->c[indEachFrame].eachData.collVar == collVarId)
          { break; }
    }
-   
+
    VALIDATEP(indEachFrame > -1, errEachNotACollection);
    Int varId, typeId;
    if (miscTk.pl1 == miscEachElem) { // `coll.@`
-      varId =  bt->c[indEachFrame].eachData.elementVar; 
+      varId =  bt->c[indEachFrame].eachData.elementVar;
       typeId = cm->vars.c[varId].typeId.v;
    } else {  // `coll.#`
       varId =  bt->c[indEachFrame].eachData.indexVar;
       typeId = tokInt;
    }
-   
+
    newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = 0}, interv, cm);
    return typeOf(typeId);
 }
@@ -4679,7 +4679,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       eParens(cTk, parent, e, tokens, cm); break;
    case tokData:
       eDataLiteral(cTk, e, tokens, cm); break;
-   case tokMisc: 
+   case tokMisc:
       eEachVariable(cTk, cm);
       eBumpArgCount(e->frames);
       cm->i++; // CONSUME the tokMisc (and the tokWord will be consumed in {eParse})
@@ -4730,7 +4730,7 @@ exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
          return exprSingleItem(singleToken, cm);
       }
    } ei (cm->i + 2 == frame.sentinel && tokens[cm->i].tp == tokMisc) { // `coll.@`, `coll.#`
-      cm->i += 2; 
+      cm->i += 2;
       return eEachVariable(tokens[cm->i], cm);
    }
    Int const startNodeInd = cm->ast.len;
@@ -5054,7 +5054,7 @@ lexicallyAnalyzeFromFile(String sourceCode, Arena* a) {
    return lexicallyAnalyzeInner(lx, a);
 }
 
-private Compiler* //:lexicallyAnalyze
+protected Compiler* //:lexicallyAnalyze
 lexicallyAnalyze(String sourceCode, Arena* a) {
 // Main lexer function. Precondition: the input Byte array has been prepended
 // with StandardText
@@ -5463,7 +5463,7 @@ importPrelude(CM) {
    importFns(AARG(fnImports, Function), cm);
 }
 
-private Compiler* //:createLexer
+protected Compiler* //:createLexer
 createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
 // The proto compiler contains just the built-in definitions and tables. This fn
 // copies it and performs initialization. Post-condition: i has been incremented by the
@@ -5494,7 +5494,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
    return lx;
 }
 
-private void //:initializeParser
+protected void //:initializeParser
 initializeParser(Compiler* lx, Arena* a) {
 // Turns a lexer into a parser. Initializes all the parser & typer stuff after lexing is done
 
@@ -5642,7 +5642,7 @@ createNameOverloads(NameId name, CM) {
    return newInd;
 }
 
-private void //:createOverloads
+protected void //:createOverloads
 createOverloads(CM) {
 // Fills @overloads from @rawOverloads. Replaces all indices in @activeBindings to point to the new
 // @overloads table (they pointed to @rawOverloads previously)
@@ -6512,7 +6512,7 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
-   
+
    if (eq(typeId, typeOf(tokMisc))) { // scenario 1
       Int j = ovInd + 1;
       if (j < sentinel && overs[j] == voidType) {
@@ -6524,7 +6524,7 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
    }
 
    TypeId const outerType = typeGetOuter(typeId, cm);
-   
+
    Int firstNonneg = start;
    for (; firstNonneg < sentinel && overs[firstNonneg] < 0; firstNonneg++);
 
@@ -6552,7 +6552,7 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
    Bool ovFound = tFindOverload(tpFstArg, indOverl, cm, OUT &fnId);
 #if defined(DEBUG) //{{{
    if (!ovFound) {
-      print("Overload not found: indOverl %d name %d tpFirstArg %d j %d", 
+      print("Overload not found: indOverl %d name %d tpFirstArg %d j %d",
          indOverl, name, tpFstArg.v, cm->j)
       print("exp:");
       printLInt(cm->expr->exp);
@@ -6580,13 +6580,13 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
    return findOverload(name, tpFstArg, cm);
 }
 
-private Int
+protected Int
 tryGetOper(Int opName, Int operandType, Compiler* cm) {
 // Try to find convert test value to operator entityId
    Int ovInd = -getBinding(opName, cm) - 2;
    Int fnId;
    Bool foundOv __attribute__((unused)) = tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
-   
+
    tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
    VALIDATEI(foundOv, iErrorParsedFunctionNotInScope);
    return fnId;
@@ -7133,6 +7133,11 @@ char const* tokNames[] = {
 
 Int
 pos(LX) { return lx->i - sizeof(standardText) + 1; }
+
+
+void pushIntokens0(Token t, Compiler* cm) {
+   pushIntokens(t, cm);
+}
 
 Int
 posInd(Int ind) { return ind - sizeof(standardText) + 1; }
@@ -7812,7 +7817,7 @@ libeyr_compileFile(String filename) {
    }
 
 #ifdef VERBOSE
-   printParser(cm);
+   //printParser(cm);
 #endif
 
    fillInCompilationResult(cm, OUT cr);

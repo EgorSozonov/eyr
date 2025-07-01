@@ -1,0 +1,13 @@
+fn main [-> Int] f{
+   coll = [1 2 3];
+   each { coll ->
+      print coll.@;
+   }
+   return 0;
+}
+
+////EXPECTED{
+//1
+//2
+//3
+////}

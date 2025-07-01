@@ -101,7 +101,7 @@ void setLexerError(String errMsg, CM);
 
 void printLexer(Compiler* restrict a);
 Int equalityLexer(Compiler* a, Compiler* b);
-void pushIntokens(Token, Compiler*);
+void pushIntokens0(Token, Compiler*);
 
 extern char const errNonAscii[];
 extern char const errPrematureEndOfInput[];

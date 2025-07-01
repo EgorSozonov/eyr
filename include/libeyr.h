@@ -18,10 +18,11 @@ typedef bool Bool;
 #define null NULL
 #define VarId int32_t
 #define FunctionId int32_t
+#define private static
 #ifdef DEBUG
-   #define private
+   #define protected
 #else
-   #define private static
+   #define protected static
 #endif
 #define OUT // the "out" parameters and args in functions
 #define NULLABLE // the marker of nullability

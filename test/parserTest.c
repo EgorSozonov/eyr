@@ -1719,9 +1719,9 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 },
             
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // ind++
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
+            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
             (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
-            (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
+            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
             (Node){ .tp = tokInt, .pl1 = 0, .pl2 = 1 },
             (Node){ .tp = nodCall, .pl1 = oper(opPlus, tokInt), .pl2 = 2 }
          }),

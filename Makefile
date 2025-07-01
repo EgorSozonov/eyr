@@ -73,7 +73,7 @@ debug: | $(DEBUG_TGT) ## Debug build
 #  PATH=$(GCC_PATH):$(PATH) \
 #  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
 #  ./$(APP)
-/ cd $(DEBUG_TGT) && ./$(APP) opov.eyr
+/ cd $(DEBUG_TGT) && ./$(APP) matrixMultiplication.eyr
 
 
 clean: ## Delete cached build results

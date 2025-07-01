@@ -296,6 +296,7 @@ char const* tests[] = {
    "forLoopBreak.eyr",
    "forLoopContinue.eyr",
    "forLoopSimple.eyr",
+   "eachLoop.eyr",
    "ifWithElseIf.eyr",
    "insertionSort.eyr",
    "matrixMultiplication.eyr",

@@ -18,7 +18,7 @@ typedef libeyr_CompResult CompResult;
 void printLexer(LX);
 void createCompiler(Compiler* lx, Arena* a);
 Compiler* lexicallyAnalyze(String input, Arena*);
-private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
+Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 
 #define tokInt          0
 #define tokLong         1
