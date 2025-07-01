@@ -1090,7 +1090,7 @@ LexerTestSet* coreFormTests(Arena* a) {
          (LexerTest) { .name = s("Each loop simple"),
              .input = s("each { coll -> print coll.@; }"),
              .expectedOutput = expect(((Token[]) {
-                 (Token){ .tp = tokEach, .pl1 = slScope, .pl2 = 7, .lenBts = 30 },
+                 (Token){ .tp = tokEach, .pl1 = slScope, .pl2 = 8, .lenBts = 30 },
                  (Token){ .tp = tokMisc, .pl1 = miscForStep0, .pl2 = 4, .startBt = 6, .lenBts = 0 },
                  
                  (Token){ .tp = tokStmt,         .pl2 = 1, .startBt = 7, .lenBts = 6 },

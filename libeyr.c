@@ -3200,16 +3200,18 @@ private void //:lexCurlyRight
 lexCurlyRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
    VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
-
    BtToken top = removeLast(bt);
    VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
+   
+   if (top.tp == tokEach) { // marker token to trigger {pLoopStepMarker}
+      pushIntokens((Token){.tp = tokMisc, .pl1 = miscLoopStep, 
+         .startBt = lx->i, .lenBts = 0 }, lx); 
+   }
+   
    setSpanLengthLexer(top.tokenInd, lx);
 
    if (top.tp == tokFor) {
       reorderFor(top.tokenInd, lx->tokens.len, lx->tokens.c, lx);
-   } ei (top.tp == tokEach) { // to trigger {pLoopStepMarker}
-      pushIntokens((Token){.tp = tokMisc, .pl1 = miscLoopStep, 
-         .startBt = lx->i, .lenBts = 0 }, lx); 
    } ei (bt->len > 0 && top.tp == tokFn && last(bt).tp == tokToplevelFn) {
       // close the function (maybe toplevel) if we are in one
       top = removeLast(bt);
@@ -3399,7 +3401,7 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 private TypeId exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM);
 private void eClose(Expr* s, CM);
 private void addBinding(NameId nameId, Int bindingId, Compiler* cm);
-private void mbCloseSpans(CM);
+private void closeParseFrames(CM);
 private void createBuiltins(Compiler* cm);
 private Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 private void eParse(Int sentinel, TOKENS, CM);
@@ -3581,9 +3583,6 @@ scopesMoveForward(Scopes* restrict s, CM) {
 void //:scopesMoveBackward
 scopesMoveBackward(Scopes* restrict s, CM) {
    if (s->curr == s->currChunk->c) {
-      if (!s->currChunk->prev)
-         { print("Setting to NULL") }
-
       s->currChunk = s->currChunk->prev;
       s->curr = s->currChunk->c + SCOPE_CHUNK_SZ - 1;
    } else {
@@ -3703,7 +3702,7 @@ pIfDetermineSentinel(Int ifSentinel, TOKENS, CM) {
 private void //:pElse
 pElse(Token tok, Int sentinel, TOKENS, CM) {
 // "Else" is a special case of "ElseIf" marked with .pl3 = 0
-   mbCloseSpans(cm);
+   closeParseFrames(cm);
    ifOpenSpan(nodIfClause, sentinel, ifclElse, interOf(tok), cm);
 }
 
@@ -3717,7 +3716,7 @@ pIfClause(Token tok, Int ifcl, TOKENS, CM) {
    cm->i++; // CONSUME the stmt token
    TypeId typeLeft = pExprWorker(stmtTok, cm->i + stmtTok.pl2, tokens, cm);
    VALIDATEP(eq(typeLeft, boolTy), errTypeMustBeBool)
-   mbCloseSpans(cm);
+   closeParseFrames(cm);
 }
 
 private void //:pElseIf
@@ -3939,7 +3938,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
       VALIDATEP(eq(leftType, rightType), errTypeMismatch)
    }
 closeSpans:
-   mbCloseSpans(cm);
+   closeParseFrames(cm);
 }
 
 private Assignment //:pPreparseAssignment
@@ -4026,7 +4025,6 @@ pFor(Token forTk, Int sentinel, TOKENS, CM) {
 private void //:pLoopStepMarker
 pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 // tokMisc as a span token must be the marker for stepping code in loops
-print("tok pl1 %d bt len %d @%d", tok.pl1, cm->backtrack->len, cm->i)
    VALIDATEI(tok.pl1 == miscLoopStep && cm->backtrack->len > 0, iErrorInconsistentSpans);
 
    Int j = cm->backtrack->len - 1;
@@ -4037,7 +4035,8 @@ print("tok pl1 %d bt len %d @%d", tok.pl1, cm->backtrack->len, cm->i)
    VALIDATEI(j > -1, iErrorInconsistentSpans); // we must be inside a loop
    ParseFrame loop = cm->backtrack->c[j];
    cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
-   if (cm->ast.c[loop.startNodeInd].tp == tokEach) {
+   
+   if (loop.eachData.collVar + loop.eachData.indexVar > 0) {
       eachLoopAddStep(loop.eachData, tok.pl2, tokens, cm);
    }
 }
@@ -4092,13 +4091,13 @@ eachLoopProcess(
    return eachData;
 }
 
-private void //:eachLoopAddNodes
-eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int step, Int balk, 
+private void //:eachLoopAddHeader
+eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk, SourceLoc loc,
    TOKENS, CM
 ) {
-// Inserts nodes for the initializer and condition of an "each" loop
-   pushInast((Node){.tp = nodFor, .pl1 = 3 }, cm);
-   pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 1 }, cm); // i = start
+// The `i = 0; i < coll.len` part of "each" loops
+   pushInast((Node){.tp = nodFor, .pl1 = 4 }, cm);
+   pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, cm); // i = start
    pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
    pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
 
@@ -4123,7 +4122,7 @@ eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int st
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
-         pushInast((Node){.tp = nodCall, .pl1 = lt, .pl3 = callNormal }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = lt, .pl2 = 2, .pl3 = callNormal }, cm);
          countInserted += 5;
       }
    } else {
@@ -4141,10 +4140,43 @@ eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int st
       countInserted += 4;
    }
 
-   SourceLoc loc = locOf(interOf(eachTk), cm);
    for (Int l = 0; l < countInserted; l++) {
       add(loc, cm->sourceLocs);
    }
+}
+
+private void //:eachLoopAddBody
+eachLoopAddBody(ParseFrame fr, TypeId collType, Int headerSentinel, Token eachTk, SourceLoc loc,
+   TOKENS, CM
+) {
+// The inner scope and `elem = coll[ind]` part of "each" loops
+   Int bodyStartBt = tokens[headerSentinel].startBt;
+   openParsedScope(
+      fr.sentinel, (Node){.tp = nodScope },
+      (ChInterval){.startBt = bodyStartBt, .lenBts = eachTk.lenBts - bodyStartBt + eachTk.startBt },
+      cm
+   );
+   pushInast((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, cm); // elem = coll[ind]
+   pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.elementVar, .pl3 = assiVarAssignment }, cm);
+   pushInast((Node){.tp = nodExpr, .pl2 = 3 }, cm);
+   pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar }, cm);
+   pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
+   pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 2, .pl3 = callGetElem }, cm);
+   
+   for (Int l = 0; l < 7; l++) {
+      add(loc, cm->sourceLocs);
+   }
+}
+
+private void //:eachLoopAddNodes
+eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int step, Int balk, 
+   Int headerSentinel, TOKENS, CM
+) {
+// Inserts nodes for the initializer and condition of an "each" loop
+
+   SourceLoc loc = locOf(interOf(eachTk), cm);
+   eachLoopAddHeader(fr, collType, start, step, balk, loc, tokens, cm);
+   eachLoopAddBody(fr, collType, headerSentinel, eachTk, loc, tokens, cm);
 }
 
 private void //:eachLoopAddStep
@@ -4194,7 +4226,9 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Int headerStart = cm->i + 2;
    Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
    
-   ParseFrame eachFrame = (ParseFrame){ .startNodeInd = cm->ast.len, .sentinel = sentinel };
+   ParseFrame eachFrame = (ParseFrame){ 
+      .startNodeInd = cm->ast.len, .level = pfrLoop, .sentinel = sentinel 
+   };
    Int startTokenInd = cm->i - 1;
    Int start, step, balk;
    eachFrame.eachData = eachLoopProcess(
@@ -4203,8 +4237,8 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    );
    add(eachFrame, cm->backtrack);
 
-   eachLoopAddNodes(eachTk, eachFrame, collType, start, step, balk, tokens, cm);
-   cm->i++; // CONSUME the tokMisc at start of an "each" loop
+   eachLoopAddNodes(eachTk, eachFrame, collType, start, step, balk, headerSentinel, tokens, cm);
+   cm->i = headerSentinel; // CONSUME the tokMisc at start of an "each" loop
 }
 
 private void //:parseErrorBareAtom
@@ -4279,7 +4313,6 @@ eEachVariable(Token miscTk, CM) {
    if (miscTk.pl1 == miscEachElem) { // `coll.@`
       varId =  bt->c[indEachFrame].eachData.elementVar; 
       typeId = cm->vars.c[varId].typeId.v;
-  print("each elem %d @%d typeId %d", miscTk.pl1, cm->i, typeId) 
    } else {  // `coll.#`
       varId =  bt->c[indEachFrame].eachData.indexVar;
       typeId = tokInt;
@@ -4648,6 +4681,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       eDataLiteral(cTk, e, tokens, cm); break;
    case tokMisc: 
       eEachVariable(cTk, cm);
+      eBumpArgCount(e->frames);
       cm->i++; // CONSUME the tokMisc (and the tokWord will be consumed in {eParse})
       break;
    default:
@@ -4706,7 +4740,7 @@ exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
    eParse(frame.sentinel, tokens, cm);
    eSaveNodes(startNodeInd, cm);
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
-   mbCloseSpans(cm);
+   closeParseFrames(cm);
    return exprType;
 }
 
@@ -4725,7 +4759,7 @@ exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM) {
    eSaveNodes(startNodeInd, cm);
 
    TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
-   mbCloseSpans(cm);
+   closeParseFrames(cm);
    return exprType;
 }
 
@@ -4767,8 +4801,8 @@ pExprWorker(Token tok, Int sentinel, TOKENS, CM) {
 private void //:pExpr
 pExpr(Token tok, Int sentinel, TOKENS, CM) { pExprWorker(tok, sentinel, tokens, cm); }
 
-private void //:mbCloseSpans
-mbCloseSpans(CM) {
+private void //:closeParseFrames
+closeParseFrames(CM) {
 // When we are at the end of a function parsing a parse frame, we might be at the end of said frame
 // (otherwise => we've encountered a nested frame, like in "1 + { x = 2; x + 1}"),
 // in which case this function handles all the corresponding stack poppin'.
@@ -4796,9 +4830,8 @@ parseUpTo(Int sentinelToken, TOKENS, CM) {
       Token currTok = tokens[cm->i];
       Int sentinel = calcSentinel(currTok, cm->i);
       cm->i++;
-      print("cmi %d", cm->i)
       (PARSE_TABLE[currTok.tp])(currTok, sentinel, tokens, cm);
-      mbCloseSpans(cm);
+      closeParseFrames(cm);
    }
 }
 
@@ -5549,7 +5582,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
 
    Int o = start + 1;
    for (Int prevOuter = ov[start]; o < outerSentinel; prevOuter = ov[o], o++) {
-#ifdef DEBUG //{{{
+#ifdef VERBOSE //{{{
       if (ov[o] == prevOuter) {
          print("Overload intersection for name %d ov[k] %d prevOuter %d @o = %d countOvers %d",
             name, ov[o], prevOuter, o, countOverloads);
@@ -5565,9 +5598,10 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
 private Int //:createNameOverloads
 createNameOverloads(NameId name, CM) {
 // Creates a final subtable in @overloads for a name and returns the index of said subtable.
-// Precondition: @rawOverloads contain twoples of (typeId ref)
-// (typeId = the full type of a function)(ref = entityId or monoId)(yes, "twople" = tuple of two)
-// Postcondition: @overloads will contain a subtable of length(outerTypeIds)(refs)
+// Precondition: @rawOverloads contain twoples of (typeId fnId)
+// (typeId = the full type of a function).
+// (yes, "twople" = tuple of two)
+// Postcondition: @overloads will contain a subtable of length(outerTypeIds)(fnIds)
 
    Arr(Int) raw = cm->rawOverloads->c;
    Int const listId = -cm->activeBindings[name] - 2;
@@ -5593,7 +5627,7 @@ createNameOverloads(NameId name, CM) {
       } else {
          ov[k] = -1;
       }
-      ov[k + countOverloads] = raw[j + 1]; // entityId
+      ov[k + countOverloads] = raw[j + 1]; // fnId
    }
    Int const sentinel = newInd + 1 + 2*countOverloads;
    sortPairsDistant(newInd + 1, sentinel, countOverloads, ov);
@@ -6478,6 +6512,7 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
+   
    if (eq(typeId, typeOf(tokMisc))) { // scenario 1
       Int j = ovInd + 1;
       if (j < sentinel && overs[j] == voidType) {
@@ -6489,6 +6524,7 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
    }
 
    TypeId const outerType = typeGetOuter(typeId, cm);
+   
    Int firstNonneg = start;
    for (; firstNonneg < sentinel && overs[firstNonneg] < 0; firstNonneg++);
 
@@ -6516,7 +6552,8 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
    Bool ovFound = tFindOverload(tpFstArg, indOverl, cm, OUT &fnId);
 #if defined(DEBUG) //{{{
    if (!ovFound) {
-      print("Overload not found: indOverl %d name %d j %d", indOverl, name, cm->j)
+      print("Overload not found: indOverl %d name %d tpFirstArg %d j %d", 
+         indOverl, name, tpFstArg.v, cm->j)
       print("exp:");
       printLInt(cm->expr->exp);
       print("name:")
@@ -6722,8 +6759,7 @@ typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
    LInt* exp = cm->expr->exp;
    typeReduceExpr(indExpr, cm);
    if (exp->len == 1) {
-      return typeOf(exp->c[0]); // the last remaining stack elt is the
-                                   // type of the whole expression
+      return typeOf(exp->c[0]); // the last remaining stack elt is the type of the whole expression
    } else {
       return ZERO_ARITY_TYPE;
    }
@@ -7503,12 +7539,7 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
    for (; j < sentinel; j++) {
       printf("%d ", overs[j]);
    }
-   printf("\n[typeId: ");
-   sentinel += countOverloads;
-   for (; j < sentinel; j++) {
-      printf("%d ", overs[j]);
-   }
-   printf("]\n[ref = ");
+   printf("\n[fnId = ");
    sentinel += countOverloads;
    for (; j < sentinel; j++) {
       printf("%d ", overs[j]);

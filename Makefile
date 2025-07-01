@@ -86,7 +86,7 @@ testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer. Pass TEST=12 to run sing
 
 
 testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run single test
-/ $(COMPILE_TEST) -DDEBUG -DVERBOSE -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
+/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
 / $(DEBUG_TGT)/parserTest $(TEST)
 
 
