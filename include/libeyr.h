@@ -20,9 +20,9 @@ typedef bool Bool;
 #define FunctionId int32_t
 #define private static
 #ifdef DEBUG
-   #define protected
+   #define internal
 #else
-   #define protected static
+   #define internal static
 #endif
 #define OUT // the "out" parameters and args in functions
 #define NULLABLE // the marker of nullability

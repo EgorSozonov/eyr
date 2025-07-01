@@ -3403,7 +3403,7 @@ private void eClose(Expr* s, CM);
 private void addBinding(NameId nameId, Int bindingId, Compiler* cm);
 private void closeParseFrames(CM);
 private void createBuiltins(Compiler* cm);
-protected Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
+internal Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 private void eParse(Int sentinel, TOKENS, CM);
 private TypeId exprHeadless(Int sentinel, ChInterval loc, TOKENS, CM);
 private TypeId pExprWorker(Token tk, Int sentinel, TOKENS, CM);
@@ -3466,8 +3466,7 @@ createVar(NameId name, Byte access, FunctionId fnId, CM) {
 // "fnId" should be -1 for ordinary (non-function) local vars
 // Consumes no nodes
    Int mbBinding = cm->activeBindings[name];
-   // if it's a binding, it should be -1, and if overload, < -1
-   VALIDATEP(mbBinding < 0, errAssignmentShadowing)
+   VALIDATEP(mbBinding == -1, errAssignmentShadowing)
 
    VarId newVarId = cm->vars.len;
    pushInvars(((Var){ .name = name, .access = access, .fnId = fnId }), cm);
@@ -3623,7 +3622,7 @@ scopesNewLexicalScope(CM) {
    s->start = s->curr;
 }
 
-protected void //:updateStats
+internal void //:updateStats
 updateStats(Compiler* restrict cm) {
    cm->stats.toksLen = cm->tokens.len;
    cm->stats.astLen = cm->ast.len;
@@ -3639,7 +3638,7 @@ getBinding(Int id, CM) { return cm->activeBindings[id]; }
 private TypeId pTypeDef(TOKENS, CM);
 private Bool tIsList(TypeId t, CM);
 
-protected Int tryGetOper(Int opName, Int operandType, Compiler* cm);
+internal Int getOper(Int opName, Int operandType, Compiler* cm);
 
 #ifdef DEBUG
 void printIntArrayOff(Int startInd, Int count, Arr(Int) arr);
@@ -4096,19 +4095,21 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
    TOKENS, CM
 ) {
 // The `i = 0; i < coll.len` part of "each" loops
-   pushInast((Node){.tp = nodFor, .pl1 = 4 }, cm);
-   pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, cm); // i = start
-   pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
-   pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
-
-   Int countInserted = 4;
-
+   Int nodeStartInd = cm->ast.len;
+   pushInast((Node){.tp = nodFor }, cm);
+   
+   Int countInserted = 0;
    if (step > 0) {
-      Int const lt = tryGetOper(opLessTh, tokInt, cm);
-      if (balk > 0) { // i < coll.len - balk
-         Int const minus = tryGetOper(opMinus, tokInt, cm);
-         VALIDATEI(minus > -1, iErrorParsedFunctionNotInScope)
+      pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, cm); // i = start
+      pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
+      pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
 
+      countInserted = 4;
+      cm->ast.c[nodeStartInd].pl1 = countInserted - 1; // how many nodes from nodFor to condition
+   
+      Int const lt = getOper(opLessTh, tokInt, cm);
+      if (balk > 0) { // i < coll.len - balk
+         Int const minus = getOper(opMinus, tokInt, cm);
          pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 6 }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
@@ -4126,14 +4127,26 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
          countInserted += 5;
       }
    } else {
+      Int const minus = getOper(opMinus, tokInt, cm);
+      pushInast((Node){.tp = nodAssignment, .pl2 = 6, .pl3 = 2 }, cm); // i = coll.len - start
+      pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
+      pushInast((Node){.tp = nodExpr,       .pl2 = 4 }, cm);
+      pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, .pl3 = assiVarAssignment }, cm);
+      pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
+      pushInast((Node){.tp = tokInt, .pl1 = 0, .pl2 = (start + 1) }, cm);
+      pushInast((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, cm);
+
+      countInserted = 8;
+      cm->ast.c[nodeStartInd].pl1 = countInserted - 1; // how many nodes from nodFor to condition
+   
       pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 3 }, cm);
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
       if (balk > 0) { // i > (balk - 1)
-         Int const gt = tryGetOper(opGreaterTh, tokInt, cm);
+         Int const gt = getOper(opGreaterTh, tokInt, cm);
          pushInast((Node){.tp = tokInt, .pl2 = (balk - 1) }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = gt, .pl2 = 2, .pl3 = callNormal }, cm);
       } else { // i >= 0
-         Int const gtEq = tryGetOper(opGTEQ, tokInt, cm);
+         Int const gtEq = getOper(opGTEQ, tokInt, cm);
          pushInast((Node){.tp = tokInt, .pl2 = 0 }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = gtEq, .pl2 = 2, .pl3 = callNormal }, cm);
       }
@@ -4173,7 +4186,6 @@ eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int st
    Int headerSentinel, TOKENS, CM
 ) {
 // Inserts nodes for the initializer and condition of an "each" loop
-
    SourceLoc loc = locOf(interOf(eachTk), cm);
    eachLoopAddHeader(fr, collType, start, step, balk, loc, tokens, cm);
    eachLoopAddBody(fr, collType, headerSentinel, eachTk, loc, tokens, cm);
@@ -4185,7 +4197,7 @@ eachLoopAddStep(EachData ed, Int step, TOKENS, CM) {
    Token eachTk = tokens[ed.startTokenInd];
    ChInterval interv = interOf(eachTk);
    if (step > 0) { // i = i + step
-      Int plus = tryGetOper(opPlus, tokInt, cm);
+      Int plus = getOper(opPlus, tokInt, cm);
       newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
       newNode((Node){.tp = nodVar, .pl1 = ed.indexVar }, interv, cm);
       newNode((Node){.tp = nodExpr, .pl2 = 3, }, interv, cm);
@@ -4193,7 +4205,7 @@ eachLoopAddStep(EachData ed, Int step, TOKENS, CM) {
       newNode((Node){.tp = tokInt, .pl2 = step, }, interv, cm);
       newNode((Node){.tp = nodCall, .pl1 = plus, .pl2 = 2, .pl3 = callNormal }, interv, cm);
    } else { // i = i - |step|
-      Int minus = tryGetOper(opMinus, tokInt, cm);
+      Int minus = getOper(opMinus, tokInt, cm);
       Int absStep = -step;
       newNode((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, interv, cm);
       newNode((Node){.tp = nodVar, .pl1 = ed.indexVar }, interv, cm);
@@ -4214,6 +4226,10 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Token nameTk = tokens[cm->i + 2]; // skipping the tokMisc and tokStmt
    VALIDATEP(nameTk.tp == tokWord, errEachLoopWrongSyntax);
    NameId collName = nameTk.pl1;
+   
+   print("collName %d bind %d", collName, cm->activeBindings[collName]);
+   printName(collName, cm);
+
    Int collVarId = cm->activeBindings[collName];
    VALIDATEP(collVarId > -1, errUnknownBinding);
    Var collVar = cm->vars.c[collVarId];
@@ -5054,7 +5070,7 @@ lexicallyAnalyzeFromFile(String sourceCode, Arena* a) {
    return lexicallyAnalyzeInner(lx, a);
 }
 
-protected Compiler* //:lexicallyAnalyze
+internal Compiler* //:lexicallyAnalyze
 lexicallyAnalyze(String sourceCode, Arena* a) {
 // Main lexer function. Precondition: the input Byte array has been prepended
 // with StandardText
@@ -5463,7 +5479,7 @@ importPrelude(CM) {
    importFns(AARG(fnImports, Function), cm);
 }
 
-protected Compiler* //:createLexer
+internal Compiler* //:createLexer
 createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
 // The proto compiler contains just the built-in definitions and tables. This fn
 // copies it and performs initialization. Post-condition: i has been incremented by the
@@ -5494,7 +5510,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
    return lx;
 }
 
-protected void //:initializeParser
+internal void //:initializeParser
 initializeParser(Compiler* lx, Arena* a) {
 // Turns a lexer into a parser. Initializes all the parser & typer stuff after lexing is done
 
@@ -5582,7 +5598,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
 
    Int o = start + 1;
    for (Int prevOuter = ov[start]; o < outerSentinel; prevOuter = ov[o], o++) {
-#ifdef VERBOSE //{{{
+#if defined(VERBOSE) && defined(DEBUG) //{{{
       if (ov[o] == prevOuter) {
          print("Overload intersection for name %d ov[k] %d prevOuter %d @o = %d countOvers %d",
             name, ov[o], prevOuter, o, countOverloads);
@@ -5642,7 +5658,7 @@ createNameOverloads(NameId name, CM) {
    return newInd;
 }
 
-protected void //:createOverloads
+internal void //:createOverloads
 createOverloads(CM) {
 // Fills @overloads from @rawOverloads. Replaces all indices in @activeBindings to point to the new
 // @overloads table (they pointed to @rawOverloads previously)
@@ -6580,8 +6596,8 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
    return findOverload(name, tpFstArg, cm);
 }
 
-protected Int
-tryGetOper(Int opName, Int operandType, Compiler* cm) {
+internal Int //:getOper
+getOper(Int opName, Int operandType, Compiler* cm) {
 // Try to find convert test value to operator entityId
    Int ovInd = -getBinding(opName, cm) - 2;
    Int fnId;

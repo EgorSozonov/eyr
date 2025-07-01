@@ -65,7 +65,7 @@ all: | $(BIN) ## Build the whole compiler
 
 debug: | $(DEBUG_TGT) ## Debug build
 / clear
-/ $(COMPILE_DEBUG) -o $(DEBUG_TGT)/$(APP) libeyr.c $(APP).c
+/ $(COMPILE_DEBUG) -DVERBOSE -o $(DEBUG_TGT)/$(APP) libeyr.c $(APP).c
 / @echo "_________________________________________"
 / @echo "|         DEBUG BUILD SUCCESS            |"
 / @echo "========================================="
@@ -73,7 +73,7 @@ debug: | $(DEBUG_TGT) ## Debug build
 #  PATH=$(GCC_PATH):$(PATH) \
 #  LIBRARY_PATH=$(GCC_PATH):$(LIBRARY_PATH) \
 #  ./$(APP)
-/ cd $(DEBUG_TGT) && ./$(APP) matrixMultiplication.eyr
+/ cd $(DEBUG_TGT) && ./$(APP) each.eyr
 
 
 clean: ## Delete cached build results

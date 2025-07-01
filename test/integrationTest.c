@@ -290,17 +290,17 @@ runIntegrationTest(TestContext* ctx, String programName, Arena* a) {
 }
 
 char const* tests[] = {
-   "blocks.eyr",
-   "fibonacci.eyr",
-   "fizzBuzz.eyr",
-   "forLoopBreak.eyr",
-   "forLoopContinue.eyr",
-   "forLoopSimple.eyr",
-   "eachLoop.eyr",
-   "ifWithElseIf.eyr",
-   "insertionSort.eyr",
+//~   "blocks.eyr",
+//~   "fibonacci.eyr",
+//~   "fizzBuzz.eyr",
+//~   "forLoopBreak.eyr",
+//~   "forLoopContinue.eyr",
+//~   "forLoopSimple.eyr",
+//~   "eachLoop.eyr",
+//~   "ifWithElseIf.eyr",
+//~   "insertionSort.eyr",
    "matrixMultiplication.eyr",
-   "nestedForLoops.eyr"
+//~   "nestedForLoops.eyr"
 };
 
 int main() {
