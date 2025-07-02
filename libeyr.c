@@ -3979,8 +3979,6 @@ pPreparseAssignment(Int start, Int sentinel, TOKENS, CM) {
 private void //:pAssignment
 pAssignment(Token tok, Int sentinel, TOKENS, CM) {
 // Parses both assignments and compile-time defs
-  print("0Assignment @%d", cm->i);
-  dbgParseFrames(cm);
    if (tok.pl1 == assiTypeDefinition) {
       pTypeDef(tokens, cm);
    } else {
@@ -4152,7 +4150,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
       pushInast((Node){.tp = tokInt, .pl1 = 0, .pl2 = (start + 1) }, cm);
       pushInast((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, cm);
 
-      countInserted = 8;
+      countInserted = 7;
       cm->ast.c[fr.startNodeInd].pl1 = countInserted + 1; // how many nodes from nodFor to condition
    
       pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 3 }, cm);
@@ -5946,7 +5944,7 @@ void //:parseMain
 parseMain(CM, Arena* a) {
    if (setjmp(excBuf) == 0) {
       Arr(Token) toks = cm->tokens.c;
-      printLexer(cm);
+      //printLexer(cm);
 
       pToplevelTypes(cm);
       // This gives the complete overloads & overloadIds tables + list of toplevel functions

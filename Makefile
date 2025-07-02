@@ -6,7 +6,7 @@ ifndef VERBOSE
 .SILENT: # Silent mode unless you run it like "make all VERBOSE=1"
 endif
 
-.PHONY: all debug clean help testLexer testParser testIntegration test
+.PHONY: all library debug clean help testLexer testParser testIntegration test
 
 CC=gcc --std=gnu2x
 WARN=-Werror=return-type -Wunused-variable -Wshadow -Wfatal-errors \
@@ -56,12 +56,18 @@ $(BIN):
 all: | $(BIN) ## Build the whole compiler
 / clear
 / $(COMPILE_RELEASE) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
-/ $(COMPILE_RELEASE_LIB) -c -o $(LIB_OUTPUT) libeyr.c
-/ $(COMPILE_RELEASE_LIB) -c -fpic -shared -o $(SHARED_LIB_OUTPUT) libeyr.c
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
 
+
+library: | $(BIN) ## Build the whole compiler
+/ clear
+/ $(COMPILE_RELEASE_LIB) -c -o $(LIB_OUTPUT) libeyr.c
+/ $(COMPILE_RELEASE_LIB) -c -fpic -shared -o $(SHARED_LIB_OUTPUT) libeyr.c
+/ @echo "_________________________________________"
+/ @echo "|       LIBRARY BUILD SUCCESS            |"
+/ @echo "========================================="
 
 debug: | $(DEBUG_TGT) ## Debug build
 / clear
@@ -90,7 +96,7 @@ testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run
 / $(DEBUG_TGT)/parserTest $(TEST)
 
 
-testIntegration: | $(EXE) ## Test the full compilation and program execution
+testIntegration: all ## Test the full compilation and program execution
 / $(COMPILE_TEST) -o $(DEBUG_TGT)/integrationTest test/integrationTest.c libeyr.c
 / $(DEBUG_TGT)/integrationTest
 

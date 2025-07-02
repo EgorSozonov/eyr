@@ -1,3 +1,4 @@
 bin/*
 _debug/*
+outputDump.c
 
