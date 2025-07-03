@@ -5,11 +5,34 @@ fn main [-> Int] f{
    each { coll ->
       print coll.@;
    }
-   
    print `backwards`;
    each { coll step -1 ->
       print coll.@;
    }
+   print `skip 2`;
+   each { coll skip 2 ->
+      print coll.@;
+   }
+   print `balk 1`;
+   each { coll balk 1 ->
+      print coll.@;
+   }
+   print `skip 1 balk 2`;
+   each { coll skip 1 balk 2 ->
+      print coll.@;
+   }
+   print `skip 1 step -1 balk 2`;
+   each { coll skip 1 step -1 balk 1 ->
+      print coll.@;
+   }
+   print `nested`;
+   strings = [`A` `B`];
+   each { strings ->
+      each { coll skip 1 step 2 ->
+         print strings.@;
+         print coll.#;
+      }
+   } 
    
    return 0;
 }
@@ -25,4 +48,25 @@ fn main [-> Int] f{
 //3
 //2
 //1
+//skip 2
+//3
+//4
+//balk 1
+//1
+//2
+//3
+//skip 1 balk 2
+//2
+//skip 1 step -1 balk 2
+//3
+//2
+//nested
+//A
+//1
+//A
+//3
+//B
+//1
+//B
+//3
 ////}

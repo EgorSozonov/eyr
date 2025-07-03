@@ -1737,7 +1737,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    mbCloseLoops(cg);
 
 //~   if (toplevelId == cr->entrypoint) {
-//~      gcc_jit_function_dump_to_dot(newToplevel, "cfg.dot");
+//~      gcc_jit_function_dump_to_dot(cg->currFn, "cfg.dot");
 //~   }
 
    if (returnType.v == tokMisc) // void-returning function needs an implicit return

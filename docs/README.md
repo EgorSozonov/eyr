@@ -41,11 +41,18 @@ The tests can be run with `make test`.
 ### Future releases roadmap
 
 
-#### version 0.3
+#### version 0.3 progress
 
-[ ] operator overloading
-[ ] "each" loops
+[+] operator overloading
+[+] "each" loops
 [ ] structs (including generic structs)
 [+] integration tests
 [ ] better error reporting from the compiler
+
+
+#### version 0.4 plans
+[ ] pointer types
+[ ] nullable pointer types
+[ ] exceptions (longjmp)
+[ ] some FFI interfacing
 

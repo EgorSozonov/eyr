@@ -424,7 +424,7 @@ typedef struct { //:TypeHeader
 #define strTry      19
 #define strNot      20
 #define strFirstNonReserved 21
-#define strStart    strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
+#define strSkip     strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
 #define strStep     22
 #define strBalk     23
 #define strInt      24 // these types must be together

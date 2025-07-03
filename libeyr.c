@@ -205,7 +205,7 @@ standardText[] = "!.!0!=##$%&&.'*:+:-:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
-                "startstepbalkIntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
+                "skipstepbalkIntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
                 "printErrmath:pimath:eTUlengthaddmaincont"
 #ifdef DEBUG
                 "foobarinner"
@@ -227,7 +227,7 @@ standardStringLens[] = {
     3, 6, 5, 4, 3,
     3,
     // reserved words end here
-    5, 4, 4,       // balk
+    4, 4, 4,       // balk
     3, 4, 6, 4, 3, // Str(ing)
     4, 1, 1, 1, 1, // D(ict)
     3, 4, 2, 3,    // len
@@ -4060,7 +4060,7 @@ private EachData //:eachLoopProcess
 eachLoopProcess(
    Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel,
    Int startTokenInd, Int sentinel, TOKENS, CM,
-   OUT Int* start, OUT Int* step, OUT Int* balk
+   OUT Int* skip, OUT Int* step, OUT Int* balk
 ) {
 // Processes the heading of the each loop (the part between the `{` and the arrow).
 // Determines the start (how many elements to skip), the step (increment, may be negative)
@@ -4076,13 +4076,13 @@ eachLoopProcess(
    };
    
    Int j = headerStart + 1;
-   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStart)) {
+   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strSkip)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
-      *start = tokens[j + 1].pl2;
-      VALIDATEP(*start >= 0, errEachLoopInvalidValue)
+      *skip = tokens[j + 1].pl2;
+      VALIDATEP(*skip >= 0, errEachLoopInvalidValue)
       j += 2;
    } else
-      { *start = 0; }
+      { *skip = 0; }
 
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
@@ -4107,7 +4107,7 @@ eachLoopProcess(
 }
 
 private void //:eachLoopAddHeader
-eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk, SourceLoc loc,
+eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, SourceLoc loc,
    TOKENS, CM
 ) {
 // The `i = 0; i < coll.len` part of "each" loops
@@ -4116,7 +4116,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
    if (step > 0) {
       pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, cm); // i = start
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
-      pushInast((Node){.tp = tokInt, .pl2 = start }, cm);
+      pushInast((Node){.tp = tokInt, .pl2 = skip }, cm);
 
       countInserted = 3;
       cm->ast.c[fr.startNodeInd].pl1 = countInserted + 1; // how many nodes from nodFor to condition
@@ -4147,7 +4147,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
       pushInast((Node){.tp = nodExpr,       .pl2 = 4 }, cm);
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, .pl3 = assiVarAssignment }, cm);
       pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
-      pushInast((Node){.tp = tokInt, .pl1 = 0, .pl2 = (start + 1) }, cm);
+      pushInast((Node){.tp = tokInt, .pl1 = 0, .pl2 = (skip + 1) }, cm);
       pushInast((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, cm);
 
       countInserted = 7;
@@ -4197,12 +4197,12 @@ eachLoopAddBody(ParseFrame fr, TypeId collType, Int headerSentinel, Token eachTk
 }
 
 private void //:eachLoopAddNodes
-eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int start, Int step, Int balk,
+eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int skip, Int step, Int balk,
    Int headerSentinel, TOKENS, CM
 ) {
 // Inserts nodes for the initializer and condition of an "each" loop
    SourceLoc loc = locOf(interOf(eachTk), cm);
-   eachLoopAddHeader(fr, collType, start, step, balk, loc, tokens, cm);
+   eachLoopAddHeader(fr, collType, skip, step, balk, loc, tokens, cm);
    eachLoopAddBody(fr, collType, headerSentinel, eachTk, loc, tokens, cm);
 }
 
@@ -4258,14 +4258,14 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
       .startNodeInd = cm->ast.len, .level = pfrLoop, .sentinel = sentinel
    };
    Int startTokenInd = cm->i - 1;
-   Int start, step, balk;
+   Int skip, step, balk;
    eachFrame.eachData = eachLoopProcess(
       collVarId, eltType, headerStart, headerSentinel, startTokenInd, sentinel, tokens, cm,
-      OUT &start, OUT &step, OUT &balk
+      OUT &skip, OUT &step, OUT &balk
    );
    openParsedScopeWorker(eachFrame, (Node){.tp = nodFor}, interOf(eachTk), cm);
 
-   eachLoopAddNodes(eachTk, eachFrame, collType, start, step, balk, headerSentinel, tokens, cm);
+   eachLoopAddNodes(eachTk, eachFrame, collType, skip, step, balk, headerSentinel, tokens, cm);
    cm->i = headerSentinel; // CONSUME the tokMisc at start of an "each" loop
 }
 
