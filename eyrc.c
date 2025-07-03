@@ -887,7 +887,7 @@ boolConst(int val, Codegen* cg) {
    return gcc_jit_context_new_cast(
       cg->md, null,
       gcc_jit_context_new_rvalue_from_int(cg->md, cg->types[tokInt].c, val), cg->types[tokBool].c
-   ); 
+   );
 }
 
 private RValue* //:sizeTConst
@@ -1907,7 +1907,7 @@ getCommandParams(int argc, char** argv, Arena* a) {
       outputBuffer[inputFilename.len - 4] = '\0';
       outputFilename = (String){.c = outputBuffer, .len = inputFilename.len - 4};
    }
-finish:   
+finish:
    return (TaskDescription){
       .inputFilename = inputFilename,
       .outputFilename = outputFilename, .errMsg = errMsg, .whatToDo = whatToDo

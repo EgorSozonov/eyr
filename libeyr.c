@@ -1605,7 +1605,7 @@ struct Scopes { // :Scopes
    Int* start;  // address for the start of current scope.
                 // Value @ that address is size of prev scope. Example:
                 //
-                // (...)[1 2 3] (3)[4 5 6 7] (4)[1] (1)[...] 
+                // (...)[1 2 3] (3)[4 5 6 7] (4)[1] (1)[...]
                 //
                 //   ^^ (sizes are in (), scope contents in [])
    Int* curr;   // address for addition of next binding, points into @currChunk
@@ -1768,17 +1768,12 @@ private void initCompiler();
 //{{{ Errors
 //{{{ Types
 
-typedef union { //:OneOrTwoInds
-   Int ind;
-   struct {
-      Int ind1;
-      Int ind2;
-   };
-} OneOrTwoInds;
 
 typedef struct { //:ErrPosition
-   Int span; // index in @tokens
-   OneOrTwoInds locations; // in @tokens
+   Bool isPresent;
+   Int indSpan; // index in @tokens
+   Int ind1; // within "span", or -1
+   Int ind2; // within "span", or -1
 } ErrPosition;
 
 typedef union { //:ErrTextUnion
@@ -1789,16 +1784,47 @@ typedef union { //:ErrTextUnion
    NameId name;
 } ErrTextUnion;
 
+#define errtpType 1
+
 typedef struct { //:ErrText
-   Int tp;
+   Bool isPresent;
+   Int tp; // "errtp" constants
    ErrTextUnion c;
 } ErrText;
 
-
 typedef struct { //:CompileError
-   ErrPosition position;
+   ErrPosition positional;
    ErrText textual;
 } CompileError;
+
+private CompileError //:e
+e(ErrPosition p, ErrText t) {
+   p.isPresent = true;
+   t.isPresent = true;
+   return (CompileError){.positional = p, .textual = t};
+}
+
+private CompileError //:e0
+e0(ErrPosition p) {
+   p.isPresent = true;
+   return (CompileError){.positional = p, .textual = (ErrText){.isPresent = false} };
+}
+
+private CompileError //:e1
+e1(ErrText t) {
+   t.isPresent = true;
+   return (CompileError){ .positional = (ErrPositional){.isPresent = false}, .textual = t };
+}
+
+private ErrPosition //:ePos
+ePos(Int indSpan, Int ind1, Int ind2) {
+   return (ErrPosition){.indSpan = indSpan, .ind1 = ind1, .ind2 = ind};
+}
+
+private ErrText //:eTypes
+eTypes(TypeId t1, TypeId t2) {
+   return (ErrText){.tp = errtpType, (ErrTextUnion){.type1 = t1, .type2 = t2} };
+}
 
 //}}}
 //{{{ Internal errors
@@ -3599,7 +3625,7 @@ scopesMoveBackward(Scopes* restrict s, CM) {
 void //:rewindLexicalScope
 rewindLexicalScope(CM) {
    Scopes* const s = &(cm->scopes);
-   
+
    // rewind curr
    scopesMoveBackward(s, cm);
    for (; s->curr != s->start; scopesMoveBackward(s, cm)) {
@@ -3609,8 +3635,8 @@ rewindLexicalScope(CM) {
    // rewind start
    Int const lenPrev = *(s->start);
    s->currScopeLen = lenPrev;
-   
-   
+
+
    s->countScopes--;
    ScopeChunk* backChunk = s->currChunk;
    for (Int j = -1; j < lenPrev; j++, s->start--) {
@@ -3671,7 +3697,7 @@ openParsedScope(Int sentinelToken, Node nd, ChInterval chi, CM) {
    openParsedScopeWorker(((ParseFrame){
          .level = nd.tp == nodFor ? pfrLoop : pfrScope,
          .startNodeInd = cm->ast.len, .sentinel = sentinelToken, .typeId = 0
-      }), 
+      }),
       nd, chi, cm
    );
 }
@@ -4074,7 +4100,7 @@ eachLoopProcess(
       .startTokenInd = startTokenInd, .collVar = collVarId, .indexVar = indVarId,
       .elementVar = elementVarId
    };
-   
+
    Int j = headerStart + 1;
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strSkip)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
@@ -4111,7 +4137,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
    TOKENS, CM
 ) {
 // The `i = 0; i < coll.len` part of "each" loops
-   
+
    Int countInserted = 0;
    if (step > 0) {
       pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, cm); // i = start
@@ -4120,7 +4146,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
 
       countInserted = 3;
       cm->ast.c[fr.startNodeInd].pl1 = countInserted + 1; // how many nodes from nodFor to condition
-   
+
       Int const lt = getOper(opLessTh, tokInt, cm);
       if (balk > 0) { // i < coll.len - balk
          Int const minus = getOper(opMinus, tokInt, cm);
@@ -4152,7 +4178,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
 
       countInserted = 7;
       cm->ast.c[fr.startNodeInd].pl1 = countInserted + 1; // how many nodes from nodFor to condition
-   
+
       pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 3 }, cm);
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
       if (balk > 0) { // i > (balk - 1)
@@ -4183,7 +4209,7 @@ eachLoopAddBody(ParseFrame fr, TypeId collType, Int headerSentinel, Token eachTk
       (ChInterval){.startBt = bodyStartBt, .lenBts = eachTk.lenBts - bodyStartBt + eachTk.startBt },
       cm
    );
-   
+
    pushInast((Node){.tp = nodAssignment, .pl2 = 5, .pl3 = 2 }, cm); // elem = coll[ind]
    pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.elementVar, .pl3 = assiVarAssignment }, cm);
    pushInast((Node){.tp = nodExpr, .pl2 = 3 }, cm);
@@ -4234,10 +4260,10 @@ eachLoopAddStep(EachData ed, Int step, TOKENS, CM) {
 private void //:pEach
 pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Token miscTk = tokens[cm->i];
-   
+
    VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscLoopStep0 && miscTk.pl2 > 0,
       errEachLoopWrongSyntax); // pl2 will be 0 if there was no arrow inside the loop
-      
+
    Token nameTk = tokens[cm->i + 2]; // skipping the tokMisc and tokStmt
    VALIDATEP(nameTk.tp == tokWord, errEachLoopWrongSyntax);
    NameId collName = nameTk.pl1;
@@ -4281,7 +4307,7 @@ popAParseFrame(CM) {
    ParseFrame frame = removeLast(cm->parseFrames); // matched by scopes->len-- below
    if (frame.level < pfrScope)
       { goto finishUp; }
-   
+
    rewindLexicalScope(cm);
 finishUp:
    cm->ast.c[frame.startNodeInd].pl2 = cm->ast.len - frame.startNodeInd - 1;
@@ -5851,7 +5877,7 @@ pToplevelBodyWorker(
    }
    Int const paramsSentinel = calcSentinel(tokens[cm->i], cm->i);
    cm->i++; // CONSUME the tokStmt for param list
-   
+
    for (
       Int t = tGetIndexOfFnFirstParam(concreteType, cm).v;
       cm->i < paramsSentinel;
@@ -5869,7 +5895,7 @@ pToplevelBodyWorker(
             interOf(paramNameTk), cm
       );
    }
-   
+
    bodyParsing:
    parseUpTo(fnSentinel, tokens, cm);
 }
@@ -7417,7 +7443,7 @@ dbgScopes(CM) {
 
    Int currScopeLen = s->currScopeLen;
    printf("Scope with %d bindings: [", currScopeLen);
-   
+
    Int* p = s->curr;
    if (p > ch->c) {
       p--; // sc->curr points to the place for next binding, not to last existing binding
@@ -7477,7 +7503,7 @@ void //:dbgParseFrames
 dbgParseFrames(CM) {
    Scopes* sc = &(cm->scopes);
    ScopeChunk* scChunk = sc->currChunk;
-   Int* p = sc->curr; 
+   Int* p = sc->curr;
    Int scopeLen = sc->currScopeLen;
    if (p > scChunk->c) {
       p--; // sc->curr points to the place for next binding, not to last existing binding
@@ -7487,7 +7513,7 @@ dbgParseFrames(CM) {
    }
    printIntArrayOff(0, 7, scChunk->c);
    print("p init %d", p - scChunk->c);
-   
+
    print("Parse frames (%d scopes) <<<", sc->countScopes);
    for (Int indFrame = cm->parseFrames->len - 1;
         indFrame > -1;
@@ -7501,12 +7527,12 @@ dbgParseFrames(CM) {
       default: printf("Scopeless frame "); break;
       }
       print("sent %d", fr.sentinel);
-      
+
       if (fr.level > 0) {
-         dbgPrintScope(&p, &scopeLen, scChunk, sc);     
+         dbgPrintScope(&p, &scopeLen, scChunk, sc);
       }
    }
-   
+
    print(">>>\n");
 }
 
