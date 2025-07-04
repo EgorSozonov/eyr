@@ -124,6 +124,9 @@ typedef libeyr_CompResult CompResult;
 #define errTypeGenericCallDoesntUnify 107
 #define errTypeFieldNotFound          108
 
+Int
+getFirstErrId(CM);
+
 //}}}
 
 //}}}

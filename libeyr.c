@@ -83,7 +83,6 @@ typedef struct { // :Token
    Unt pl2;
 } Token;
 
-
 // :Token types
 // The following group of variants are transferred to the AST byte for byte, with no analysis
 // Their values must exactly correspond with the initial group of variants in "Node"
@@ -416,6 +415,8 @@ DEFINE_LIST_HEADER(TypeFrame)
 DEFINE_LIST_HEADER(Monomorphization)
 DEFINE_LIST_HEADER(TypeLoc)
 DEFINE_LIST_HEADER(ChInterval)
+defstruct(CompileError);
+DEFINE_LIST_HEADER(CompileError)
 
 typedef libeyr_CompResult CompResult;
 #define SRC Arr(char const) restrict source // Source text
@@ -478,6 +479,7 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
    LTypeLoc*: addTypeLoc,\
    LNode*: addNode,\
    LChInterval*: addChInterval,\
+   LCompileError*: addCompileError,\
    LSourceLoc*: addSourceLoc\
 )(A, X)
 
@@ -1726,6 +1728,7 @@ struct Compiler { // :Compiler
    Arena* a;
    Arena* aTmp;
    Bool wasError;
+   LCompileError* errors;
    Int errId;
    CompStats stats;
 };
@@ -2004,11 +2007,18 @@ compileErrors[] = {
 //}}}
 //{{{ Types & utils
 
-typedef struct { //:ErrPosition
+typedef enum {
+   errtpSource, // indices into source code
+   errtpToken,  // indices into @tokens
+   errtpAst     // indices into @ast
+} ErrorPositionKind;
+
+typedef struct { //:ErrorPosition
    Int count;
+   ErrorPositionKind tp;
    Int indices[3]; // indices in @tokens. First index is outer span, the other two (optional)
                    // refer to tokens within that span
-} ErrPosition;
+} ErrorPosition;
 
 typedef union { //:ErrTextUnion
    struct {
@@ -2019,6 +2029,7 @@ typedef union { //:ErrTextUnion
 } ErrTextUnion;
 
 #define errtpType 1
+#define errtpSource 2 // error referes to source code byte indices
 
 typedef struct { //:ErrText
    Int count;
@@ -2027,21 +2038,26 @@ typedef struct { //:ErrText
    ErrTextUnion c;
 } ErrText;
 
-typedef struct { //:CompileError
+struct CompileError { //:CompileError
    Int id; // one of the "err" constants
-   ErrPosition positional;
+   ErrorPosition positional;
    ErrText textual;
-} CompileError;
+#ifdef DEBUG 
+   Int codeLine;
+#endif 
+};
+
+DEFINE_LIST(CompileError) //:createLChInterval
 
 private CompileError //:e
-e(Int id, ErrPosition p, ErrText t) {
+e(Int id, ErrorPosition p, ErrText t) {
    p.count = 1;
    t.count = 1;
    return (CompileError){.id = id, .positional = p, .textual = t};
 }
 
 private CompileError //:e0
-e0(Int id, ErrPosition p) {
+e0(Int id, ErrorPosition p) {
    p.count = 1;
    return (CompileError){.id = id, .positional = p, .textual = (ErrText){.count = 0} };
 }
@@ -2049,20 +2065,12 @@ e0(Int id, ErrPosition p) {
 private CompileError //:e1
 e1(Int id, ErrText t) {
    t.count = 1;
-   return (CompileError){ .id = id, .positional = (ErrPosition){.count = 0}, .textual = t };
+   return (CompileError){ .id = id, .positional = (ErrorPosition){.count = 0}, .textual = t };
 }
 
-private ErrPosition //:ePos
-ePos(Int indSpan, Int ind1, Int ind2) {
-   Int count;
-   if (indSpan == -1) {
-      count = 0;
-   } ei (ind1 == -1) {
-      count = 1;
-   } ei (ind2 == -1) {
-      count = 2;
-   }
-   return (ErrPosition){.count = count, .indices = {indSpan, ind1, ind2}};
+private ErrorPosition //:ePos
+ePos(ErrorPositionKind tp, Int ind) {
+   return (ErrorPosition){.count = 1, .tp = tp, .indices = {ind}};
 }
 
 private ErrText //:eTypes
@@ -2112,7 +2120,7 @@ void libeyr_printError(Int errId) {
 #if !defined(DEBUG)
 #define VALIDATEI(cond, errInd)
 #endif
-#define VALIDATEL(cond, errId) if (!(cond)) { throwExcLexer0(errId, __LINE__, lx); }
+#define VALIDATEL(cond, err) if (!(cond)) { throwExcLexer0(err, __LINE__, lx); }
 
 
 #ifdef DEBUG
@@ -2247,18 +2255,49 @@ throwExcInternal0(Int errId, Int lineNumber, CM) {
 
 #define throwExcInternal(errInd) throwExcInternal0(errInd, __LINE__, cm) //:throwExcInternal
 
-_Noreturn private void
-throwExcLexer0(Int errId, Int lineNumber, LX) {
+[[noreturn]] private void
+throwExcLexer0(CompileError err, Int lineNumber, LX) {
 // Sets i to beyond input's length to communicate to callers that lexing is over
    lx->wasError = true;
+#ifdef DEBUG
+   err.codeLine = lineNumber;
+#endif
 #ifdef VERBOSE
    printf("Error on code line %d, i = %d: %s\n", lineNumber, IND_BT, compileErrors[errId]);
 #endif
-   lx->errId = errId;
+   add(err, lx->errors);
    longjmp(excBuf, 1);
 }
 
 #define throwExcLexer(msg) throwExcLexer0(msg, __LINE__, lx)
+
+#define lexError(errId) lexError0(errId, lx)
+private CompileError //:lexError
+lexError0(Int errId, LX) {
+// An error where there is only a positional part, and it's built using current lexer position
+   Int indStatement = -1;
+   for (Int j = lx->lexBtrack->len - 1; j > -1; j--) {
+      if (lx->lexBtrack->c[j].tp == tokStmt) {
+         indStatement = j;
+         break;
+      } 
+   }
+   
+   Int startBt, endBt;
+   if (indStatement > -1) {
+      startBt = lx->tokens.c[lx->lexBtrack->c[indStatement].tokenInd].startBt;
+   } else {
+      startBt = MAX(lx->i - 10, 0);
+   }
+   endBt = lx->i;
+   
+   return (CompileError){
+      .id = errId,
+      .positional = (ErrorPosition){.count = 2, .tp = errtpSource, .indices = {startBt, endBt}},
+      .textual = (ErrText){.count = 0} 
+   };
+}
+
 
 //}}}
 //{{{ Lexer proper
@@ -2266,7 +2305,7 @@ throwExcLexer0(Int errId, Int lineNumber, LX) {
 private void //:checkPrematureEnd
 checkPrematureEnd(Int requiredSymbols, LX) {
 // Checks that there are at least 'requiredSymbols' symbols left in the input
-   VALIDATEL(lx->i + requiredSymbols <= lx->stats.inpLength, errPrematureEndOfInput)
+   VALIDATEL(lx->i + requiredSymbols <= lx->stats.inpLength, lexError(errPrematureEndOfInput)) 
 }
 
 private void //:setSpanLengthLexer
@@ -2378,11 +2417,11 @@ hexNumber(Arr(char const) source, LX) {
          pushInnumeric(cByte - aAUpper + 10, lx);
       } ei (cByte == aUnderscore
                && (j == lx->stats.inpLength - 1 || isHexDigit(source[j + 1]))) {
-         throwExcLexer(errNumericEndUnderscore);
+         throwExcLexer(lexError(errNumericEndUnderscore));
       } else {
          break;
       }
-      VALIDATEL(lx->numeric.len <= 16, errNumericBinWidthExceeded)
+      VALIDATEL(lx->numeric.len <= 16, lexError(errNumericBinWidthExceeded))
       j++;
    }
    int64_t resultValue = calcHexNumber(lx);
@@ -2485,13 +2524,14 @@ decNumber(bool isNegative, SRC, LX) {
          }
       } ei (cByte == aUnderscore) {
          VALIDATEL(j != (lx->stats.inpLength - 1) && isDigit(source[j + 1]),
-                 errNumericEndUnderscore)
+            lexError(errNumericEndUnderscore)
+         )
       } ei (cByte == aDot) {
          if (j == lx->stats.inpLength - 1 || !isDigit(source[j + 1])) {
             // this dot is not a part of the number
             break;
          }
-         VALIDATEL(!metDot, errNumericMultipleDots)
+         VALIDATEL(!metDot, lexError(errNumericMultipleDots))
          metDot = true;
       } else {
          break;
@@ -2499,12 +2539,12 @@ decNumber(bool isNegative, SRC, LX) {
       j++;
    }
 
-   VALIDATEL(j >= lx->stats.inpLength || !isDigit(source[j]), errNumericWidthExceeded)
+   VALIDATEL(j >= lx->stats.inpLength || !isDigit(source[j]), lexError(errNumericWidthExceeded))
 
    if (metDot) {
       double resultValue = 0;
       Int errorCode = calcFloating(&resultValue, -digitsAfterDot, source, lx);
-      VALIDATEL(errorCode == 0, errNumericFloatWidthExceeded)
+      VALIDATEL(errorCode == 0, lexError(errNumericFloatWidthExceeded))
 
       Long bitsOfFloat = longOfDoubleBits((isNegative) ? (-resultValue) : resultValue);
       pushIntokens((Token){ .tp = tokDouble, .pl1 = (bitsOfFloat >> 32),
@@ -2512,7 +2552,7 @@ decNumber(bool isNegative, SRC, LX) {
    } else {
       int64_t resultValue = 0;
       Int errorCode = calcInteger(&resultValue, lx);
-      VALIDATEL(errorCode == 0, errNumericIntWidthExceeded)
+      VALIDATEL(errorCode == 0, lexError(errNumericIntWidthExceeded))
 
       if (isNegative) resultValue = -resultValue;
       pushIntokens(
@@ -2570,11 +2610,11 @@ lexReservedScope(Int reservedWordType, SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
 
    VALIDATEL(bt->len >= 2 && last(bt).tp == tokParens
-      && bt->c[bt->len - 2].tp == tokStmt, errCoreFormInappropriate)
+      && bt->c[bt->len - 2].tp == tokStmt, lexError(errCoreFormInappropriate))
 
    Int const indLastToken = lx->tokens.len - 1;
    VALIDATEL(lx->tokens.c[indLastToken].tp == tokParens
-      && lx->tokens.c[indLastToken - 1].tp == tokStmt, errCoreFormInappropriate)
+      && lx->tokens.c[indLastToken - 1].tp == tokStmt, lexError(errCoreFormInappropriate))
    lx->tokens.c[indLastToken - 1].tp = reservedWordType;
    lx->tokens.c[indLastToken - 1].pl1 = slScope;
    lx->tokens.len--;
@@ -2595,7 +2635,7 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
       openPunctuation(tokToplevelFn, slToplevel, startBt, lx);
    } ei (reservedWordType == tokFor || reservedWordType == tokEach) {
       skipSpaces(source, lx);
-      VALIDATEL(lx->i < lx->stats.inpLength && CURR_BT == aCurlyLeft, errLoopSyntaxError)
+      VALIDATEL(lx->i < lx->stats.inpLength && CURR_BT == aCurlyLeft, lexError(errLoopSyntaxError))
       openPunctuation(reservedWordType, slScope, startBt, lx);
       lx->i++; // CONSUME the `{`
       // placeholder, will be reordered in {pFor}
@@ -2604,7 +2644,7 @@ lexProcessSyntaxForm(Unt reservedWordType, Int startBt, SRC, LX) {
       lexReservedScope(reservedWordType, source, lx);
    } ei (reservedWordType >= firstSpanTokenType) {
       LBtToken* bt = lx->lexBtrack;
-      VALIDATEL(bt->len == 0 || last(bt).spanLevel == slScope, errCoreNotInsideStmt)
+      VALIDATEL(bt->len == 0 || last(bt).spanLevel == slScope, lexError(errCoreNotInsideStmt))
       addStatementSpan(reservedWordType, startBt, lx);
    }
 }
@@ -2619,7 +2659,7 @@ wordChunk(SRC, LX) {
    Byte currBt = CURR_BT;
    if (isCapitalLetter(currBt)) {
       result = true;
-   } else VALIDATEL(isLowercaseLetter(currBt), errWordChunkStart)
+   } else VALIDATEL(isLowercaseLetter(currBt), lexError(errWordChunkStart))
 
    lx->i++; // CONSUME the first letter of the word
    while (lx->i < lx->stats.inpLength && isAlphanumeric(CURR_BT)) {
@@ -2661,7 +2701,7 @@ private void //:closeStatement
 closeStatement(LX) {
 // Closes the current statement. Consumes no tokens
    BtToken top = last(lx->lexBtrack);
-   VALIDATEL(top.spanLevel == slStmt, errPunctuationExtraOpening)
+   VALIDATEL(top.spanLevel == slStmt, lexError(errPunctuationExtraOpening))
    setStmtSpanLength(top.tokenInd, lx);
    removeLast(lx->lexBtrack);
    mbCloseAssignRight(&top, lx);
@@ -2759,7 +2799,7 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
          if (isLetter(nextBt)) {
             lx->i++; // CONSUME the colon
             Bool isCurrCapitalized = wordChunk(source, lx);
-            VALIDATEL(!wasCapitalized, errWordCapitalizationOrder)
+            VALIDATEL(!wasCapitalized, lexError(errWordCapitalizationOrder))
             wasCapitalized = isCurrCapitalized;
          } else {
             break;
@@ -2772,7 +2812,7 @@ wordInternal(Unt wordType, SRC, LX) { //:wordInternal
    // accounting for the initial ".", ":" or other symbol
    Int const realStartBt = (wordType == tokWord) ? startBt : (startBt - 1);
    Int lenString = lx->i - startBt;
-   VALIDATEL(lenString <= maxWordLength, errWordLengthExceeded)
+   VALIDATEL(lenString <= maxWordLength, lexError(errWordLengthExceeded))
 
    Int stringId = addStringDict(source, startBt, lenString, lx->names, lx->stringDict);
    if (stringId - countOperators < strFirstNonReserved && wordType == tokWord) {
@@ -2791,10 +2831,11 @@ lexWord(SRC, LX) {
 private void //:lexAt
 lexAt(SRC, LX) {
 // `[@Int 15]`
-   VALIDATEL(lx->i < lx->stats.inpLength, errPrematureEndOfInput);
-   VALIDATEL(lx->lexBtrack->len > 0 && last(lx->lexBtrack).tp == tokData, errMetaOnlyInArr);
+   VALIDATEL(lx->i < lx->stats.inpLength, lexError(errPrematureEndOfInput));
+   VALIDATEL(lx->lexBtrack->len > 0 && last(lx->lexBtrack).tp == tokData, 
+      lexError(errMetaOnlyInArr));
    BtToken top = last(lx->lexBtrack);
-   VALIDATEL(lx->tokens.c[top.tokenInd].pl1 < BIG, errMetaArrSyntax);
+   VALIDATEL(lx->tokens.c[top.tokenInd].pl1 < BIG, lexError(errMetaArrSyntax));
    lx->tokens.c[top.tokenInd].pl1 += BIG;
    lx->i++; // CONSUME the `@`
 }
@@ -2803,7 +2844,7 @@ private void //:lexComma
 lexComma(SRC, LX) {
    lx->i++;  // CONSUME the ",". Doing it at the start so that span will calc len right
    VALIDATEL(lx->lexBtrack->len > 1 && last(lx->lexBtrack).tp == tokClause,
-           errPunctuationCommaNotClause);
+           lexError(errPunctuationCommaNotClause));
 
    BtToken top = removeLast(lx->lexBtrack);
    setStmtSpanLength(top.tokenInd, lx);
@@ -2812,15 +2853,15 @@ lexComma(SRC, LX) {
 private void //:lexDot
 lexDot(SRC, LX) {
 // The dot is a start of a field accessor (if glued to prev token) or a function call.
-   VALIDATEL(lx->tokens.len > 0, errUnexpectedToken);
+   VALIDATEL(lx->tokens.len > 0, lexError(errUnexpectedToken));
    Bool isCall = lx->i > 0 && (source[lx->i - 1] == aSpace || source[lx->i - 1] == aNewline);
    lx->i++; // CONSUME the dot
-   VALIDATEL(lx->i < lx->stats.inpLength, errPrematureEndOfInput)
+   VALIDATEL(lx->i < lx->stats.inpLength, lexError(errPrematureEndOfInput))
    if (isLetter(CURR_BT)) {
       wordInternal((isCall ? tokOperator : tokFieldAcc), source, lx);
    } ei (CURR_BT == aAt || CURR_BT == aSharp) { // `coll.@` or `coll.#` in an "each" loop
       Token prevTok = lx->tokens.c[lx->tokens.len - 1];
-      VALIDATEL(prevTok.tp == tokWord, errUnexpectedToken);
+      VALIDATEL(prevTok.tp == tokWord, lexError(errUnexpectedToken));
 
       pushIntokens(prevTok, lx);
       lx->tokens.c[lx->tokens.len - 2] = (Token){
@@ -2829,7 +2870,7 @@ lexDot(SRC, LX) {
       };
       lx->i++; // CONSUME the @ or #
    } else {
-      throwExcLexer(errPrematureEndOfInput);
+      throwExcLexer(lexError(errPrematureEndOfInput));
    }
 }
 
@@ -2840,7 +2881,7 @@ lexSemicolon(SRC, LX) {
    if (lx->lexBtrack->len == 0)
       { return; }
    BtToken top = last(lx->lexBtrack);
-   VALIDATEL(top.spanLevel != slSubexpr, errPunctuationOnlyInMultiline);
+   VALIDATEL(top.spanLevel != slSubexpr, lexError(errPunctuationOnlyInMultiline));
    if (top.spanLevel == slStmt) {
       closeStatement(lx);
    }
@@ -2849,14 +2890,14 @@ lexSemicolon(SRC, LX) {
 private Int //:lConvertToAssignment
 lConvertToAssignment(Int const opType, LX) {
    BtToken currSpan = last(lx->lexBtrack);
-   VALIDATEL(currSpan.tp == tokStmt, errOperatorAssignmentPunct);
+   VALIDATEL(currSpan.tp == tokStmt, lexError(errOperatorAssignmentPunct));
    Int const assignmentStartInd = currSpan.tokenInd;
    Token* tok = (lx->tokens.c + assignmentStartInd);
    if (currSpan.tp == tokStmt) {
       tok->tp = tokAssignment;
       lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokAssignment;
    } else {
-      VALIDATEL(opType == -1, errOperatorMutationInDef)
+      VALIDATEL(opType == -1, lexError(errOperatorMutationInDef))
       if (lx->tokens.c[assignmentStartInd + 1].tp == tokType){
          // type definition
          tok->pl1 = assiTypeDefinition;
@@ -2922,7 +2963,7 @@ lexOperator(SRC, LX) { //:lexOperator
       opType = k;
       break;
    }
-   VALIDATEL(opType > -1, errOperatorUnknown)
+   VALIDATEL(opType > -1, lexError(errOperatorUnknown))
 
    OpDef opDef = OPERATORS[opType];
    bool isAssignment = false;
@@ -3037,13 +3078,13 @@ lInDeCrement(Bool isIncrement, SRC, LX) {
 private void //:lexArrow
 lexArrow(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
-   VALIDATEL(bt->len > 0, errFnTypeArrows)
+   VALIDATEL(bt->len > 0, lexError(errFnTypeArrows))
    BtToken top = last(bt);
    if (top.spanLevel == slFnTp) { // `F[G -> H]`
       add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnReturn}),
          lx->lexBtrack);
    } ei (top.spanLevel == slFnReturn) {
-      throwExcLexer(errFnTypeArrows);
+      throwExcLexer(lexError(errFnTypeArrows));
    } ei (top.tp == tokFn) { // `f{ -> ... }`
       goto consumeArrow;
    } ei (top.tp == tokFor) {
@@ -3054,7 +3095,7 @@ lexArrow(SRC, LX) {
       lx->tokens.c[last(bt).tokenInd + 1].pl2 = lx->tokens.len; // write loop body start ind
    } else { // `f{ a -> ...}`
       VALIDATEL(top.tp == tokStmt && lx->lexBtrack->len > 1
-            && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, errArrowOutOfPlace
+            && lx->lexBtrack->c[lx->lexBtrack->len - 2].tp == tokFn, lexError(errArrowOutOfPlace)
       );
       Token prevTok = lx->tokens.c[lx->tokens.len - 1];
       Int endBt = prevTok.startBt + prevTok.lenBts;
@@ -3070,7 +3111,7 @@ consumeArrow:
 private void //:lexPlus
 lexPlus(SRC, LX) {
 // Handles the binary operator and the increment
-   VALIDATEL(lx->i < lx->stats.inpLength - 1, errPrematureEndOfInput)
+   VALIDATEL(lx->i < lx->stats.inpLength - 1, lexError(errPrematureEndOfInput))
    Byte nextBt = NEXT_BT;
    if (nextBt == aPlus) {
       lInDeCrement(true, source, lx);
@@ -3082,7 +3123,7 @@ lexPlus(SRC, LX) {
 private void //:lexMinus
 lexMinus(SRC, LX) {
 // Handles the binary operator, the unary negation operator, decrement and the arrow
-   VALIDATEL(lx->i < lx->stats.inpLength - 1, errPrematureEndOfInput)
+   VALIDATEL(lx->i < lx->stats.inpLength - 1, lexError(errPrematureEndOfInput))
    Byte nextBt = NEXT_BT;
    if (isDigit(nextBt)) {
       wrapInAStatement(lx->i, source, lx);
@@ -3118,7 +3159,7 @@ lexDivBy(SRC, LX) { //:lexDivBy
 private void
 lexParenLeft(SRC, LX) { //:lexParenLeft
    Int j = lx->i + 1;
-   VALIDATEL(j < lx->stats.inpLength, errPunctuationExtraOpening)
+   VALIDATEL(j < lx->stats.inpLength, lexError(errPunctuationExtraOpening))
    wrapInAStatement(lx->i, source, lx);
    openPunctuation(tokParens, slSubexpr, lx->i, lx);
    lx->i++; // CONSUME the left parenthesis
@@ -3133,10 +3174,10 @@ private void //:lexParenRight
 lexParenRight(SRC, LX) {
 // A closing parenthesis may close the following configurations of lexer backtrack:
    LBtToken* bt = lx->lexBtrack;
-   VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
+   VALIDATEL(bt->len > 0, lexError(errPunctuationExtraClosing))
    BtToken top = removeLast(bt);
 
-   VALIDATEL(top.spanLevel == slSubexpr, errPunctuationUnmatched)
+   VALIDATEL(top.spanLevel == slSubexpr, lexError(errPunctuationUnmatched))
 
    mbCloseAssignRight(&top, lx);
    setSpanLengthLexer(top.tokenInd, lx);
@@ -3162,22 +3203,24 @@ preambleFor(
         (currTok.tp == tokAssignment || currTok.tp == tokAssignRight);
         currTok = tokens[j]) {
       j = calcSentinel(currTok, j);
-      VALIDATEL(j < sentinel, errLoopEmptyStepBody)
+      VALIDATEL(j < sentinel, lexError(errLoopEmptyStepBody))
    }
-   VALIDATEL(j < sentinel && (bodyInd == 0 || j < bodyInd), errLoopNoCondition)
+   VALIDATEL(j < sentinel && (bodyInd == 0 || j < bodyInd), lexError(errLoopNoCondition))
 
    Token condTok = tokens[j];
    VALIDATEL((condTok.tp == tokStmt && condTok.pl2 > 0) || condTok.tp == tokBool,
-             errLoopNoCondition)
+             lexError(errLoopNoCondition)
+   )
    *condInd = j;
 
    j = calcSentinel(condTok, j); // skipping the cond
-   VALIDATEL(j < sentinel, errLoopEmptyStepBody);
+   VALIDATEL(j < sentinel, lexError(errLoopEmptyStepBody));
    *stepInd = j;
    Int const stepSentinel = bodyInd > 0 ? bodyInd : sentinel;
    for (Token currTok = tokens[j]; j < stepSentinel; currTok = tokens[j]) {
       VALIDATEL(currTok.tp == tokStmt || currTok.tp == tokAssignment || currTok.tp == tokAssert,
-                errLoopWrongFormInStepper);
+                lexError(errLoopWrongFormInStepper)
+      )
       j = calcSentinel(currTok, j);
    }
 }
@@ -3193,7 +3236,7 @@ reorderFor(Int forStart, Int sentinel, TOKENS, LX) {
 
    preambleFor(forStart, bodyInd, sentinel, OUT &condInd, OUT &stepInd, tokens, lx);
 
-   VALIDATEL(stepInd + bodyInd > 0, errLoopEmptyStepBody)
+   VALIDATEL(stepInd + bodyInd > 0, lexError(errLoopEmptyStepBody))
 
    Int totalLen = sentinel - forStart; // +1 for the tokMisc which is before the scope
 
@@ -3226,7 +3269,7 @@ private void //:lexFn
 lexFn(SRC, LX) {
    if (lx->lexBtrack->len > 0) {
       BtToken top = last(lx->lexBtrack);
-      VALIDATEL(top.spanLevel == slStmt, errPunctuationFnNotInStmt)
+      VALIDATEL(top.spanLevel == slStmt, lexError(errPunctuationFnNotInStmt))
    }
 
    openPunctuation(tokFn, slScope, lx->i, lx);
@@ -3244,7 +3287,8 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
       // updates its span level to slScope, so further curly braces work as usual
       Int const len = lx->lexBtrack->len;
       VALIDATEL(len > 1 && lx->lexBtrack->c[len - 2].spanLevel == slUnbraced,
-              errPunctuationScope)
+              lexError(errPunctuationScope)
+      )
       removeLast(lx->lexBtrack); // pop the top statement (if cond) because it's over
       setStmtSpanLength(top.tokenInd, lx);
       BtToken const second = last(lx->lexBtrack);
@@ -3263,9 +3307,9 @@ lexCurlyLeft(SRC, LX) { //:lexCurlyLeft
 private void //:lexCurlyRight
 lexCurlyRight(SRC, LX) {
    LBtToken* bt = lx->lexBtrack;
-   VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
+   VALIDATEL(bt->len > 0, lexError(errPunctuationExtraClosing))
    BtToken top = removeLast(bt);
-   VALIDATEL(top.spanLevel == slScope, errPunctuationUnmatched)
+   VALIDATEL(top.spanLevel == slScope, lexError(errPunctuationUnmatched))
 
    if (top.tp == tokEach) { // marker token to trigger {pLoopStepMarker}
       pushIntokens((Token){.tp = tokMisc, .pl1 = miscLoopStep,
@@ -3321,13 +3365,14 @@ lMaybeCloseFnType(SRC, LX) {
 
    BtToken top = last(bt);
    if (top.spanLevel == slFnReturn) { // `F[A -> B]`
-      VALIDATEL(len > 1 && bt->c[len - 2].spanLevel == slFnTp, errFnTypeArrows);
+      VALIDATEL(len > 1 && bt->c[len - 2].spanLevel == slFnTp, lexError(errFnTypeArrows)
+      )
       BtToken returnPart = removeLast(bt);
       Int returnSentinel = calcSentinel(lx->tokens.c[returnPart.tokenInd], returnPart.tokenInd);
 
       // a return type should be empty or a single type
       VALIDATEL(returnPart.tokenInd == lx->tokens.len || returnSentinel == lx->tokens.len,
-         errFnSignature
+         lexError(errFnSignature)
       );
       if (returnPart.tokenInd == lx->tokens.len) { // empty return type - gotta insert "void"
          pushIntokens(((Token){
@@ -3335,7 +3380,8 @@ lMaybeCloseFnType(SRC, LX) {
          );
       }
    } ei (top.spanLevel == slFnTp) { // `F[]` Push a void token for its return type
-      VALIDATEL(len > 1 && bt->c[len - 1].tokenInd == lx->tokens.len - 1, errFnTypeArrows);
+      VALIDATEL(len > 1 && bt->c[len - 1].tokenInd == lx->tokens.len - 1, lexError(errFnTypeArrows)
+      );
       pushIntokens(((Token){
          .tp = tokType, .pl1 = nameOfStd(strVoid), .pl2 = 0, .startBt = lx->i, .lenBts = 0}), lx
       );
@@ -3351,15 +3397,15 @@ lMaybeCloseFnType(SRC, LX) {
 private void //:lexBracketRight
 lexBracketRight(SRC, LX) {
    LBtToken* const bt = lx->lexBtrack;
-   VALIDATEL(bt->len > 0, errPunctuationExtraClosing)
+   VALIDATEL(bt->len > 0, lexError(errPunctuationExtraClosing))
    if (lMaybeCloseFnType(source, lx))
       { goto consumption; }
 
    BtToken top = removeLast(bt);
    VALIDATEL(
-      top.tp == tokData || top.tp == tokAccessorIn || top.tp == tokType, errPunctuationUnmatched
+      top.tp == tokData || top.tp == tokAccessorIn || top.tp == tokType,
+      lexError(errPunctuationUnmatched)
    )
-
    setSpanLengthLexer(top.tokenInd, lx);
    if (lx->i + 1 < lx->stats.inpLength && NEXT_BT == aBracketLeft) { // `a[i][j]`
       openPunctuation(tokAccessorIn, slSubexpr, lx->i + 1, lx);
@@ -3385,19 +3431,19 @@ lexStringLiteral(SRC, LX) { //:lexStringLiteral
    wrapInAStatement(lx->i, source, lx);
    Int j = lx->i + 1;
    for (; j < lx->stats.inpLength && source[j] != aBacktick; j++);
-   VALIDATEL(j != lx->stats.inpLength, errPrematureEndOfInput)
+   VALIDATEL(j != lx->stats.inpLength, lexError(errPrematureEndOfInput))
    pushIntokens((Token){.tp = tokString, .startBt = (lx->i), .lenBts = (j - lx->i + 1)}, lx);
    lx->i = j + 1; // CONSUME the string literal, including the closing quote character
 }
 
 private void
 lexUnexpectedSymbol(SRC, LX) { //:lexUnexpectedSymbol
-   throwExcLexer(errUnrecognizedByte);
+   throwExcLexer(lexError(errUnrecognizedByte));
 }
 
 private void
 lexNonAsciiError(SRC, LX) { //:lexNonAsciiError
-   throwExcLexer(errNonAscii);
+   throwExcLexer(lexError(errNonAscii));
 }
 
 private void
@@ -5113,7 +5159,7 @@ copyStringDict(StringDict* from, Arena* a) {
 private void //:finalizeLexer
 finalizeLexer(LX) {
    lx->stats.toksLen = lx->tokens.len;
-   VALIDATEL(lx->lexBtrack->len == 0, errPunctuationExtraOpening)
+   VALIDATEL(lx->lexBtrack->len == 0, lexError(errPunctuationExtraOpening))
 }
 
 private Compiler* //:lexicallyAnalyzeInner
@@ -5122,7 +5168,7 @@ lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
 // with StandardText
    Int const inpLength = lx->stats.inpLength;
    Arr(char const) inp = lx->sourceCode.c;
-   VALIDATEL(inpLength > 0, errEmptySourceCode)
+   VALIDATEL(inpLength > 0, lexError(errEmptySourceCode))
 
    // Main loop over the input
    if (setjmp(excBuf) == 0) {
@@ -5575,6 +5621,7 @@ createLexer(String sourceCode, Bool prependStandardText, Arena* a) {
       .stringDict = copyStringDict(PROTO.stringDict, a),
       .reorderBuf = createLToken(16*sizeof(Token), a),
       .stats = PROTO.stats,
+      .errors = createLCompileError(4, a),
       .a = a, .aTmp = aTmp
    };
    pushInnewlines(0, lx);
@@ -7201,6 +7248,14 @@ void //:printNameNoLn
 printNameNoLn(NameId nameId, CM) {
    Unt unsign = cm->names->c[nameId];
    printNameAndLen(unsign, cm);
+}
+
+Int
+getFirstErrId(CM) {
+   if (cm->errors->len > 0) {
+      return -1;
+   }
+   return cm->errors->c[0].errId;
 }
 
 //}}}
