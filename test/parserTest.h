@@ -12,6 +12,119 @@ typedef libeyr_String String;
 typedef libeyr_CompResult CompResult;
 #define BIG 70000000
 
+//{{{ Errors
+
+#define errNonAscii                     0
+#define errPrematureEndOfInput          1
+#define errUnrecognizedByte             2
+#define errWordChunkStart               3
+#define errWordCapitalizationOrder      4
+#define errWordLengthExceeded           5
+#define errWordMutability               6
+#define errWordFreeFloatingFieldAcc     7
+#define errNumericEndUnderscore         8
+#define errNumericWidthExceeded         9
+#define errNumericBinWidthExceeded     10
+#define errNumericFloatWidthExceeded   11
+#define errNumericEmpty                12
+#define errNumericMultipleDots         13
+#define errNumericIntWidthExceeded     14
+#define errPunctuationExtraOpening     15
+#define errPunctuationExtraClosing     16
+#define errPunctuationCommaNotClause   17
+#define errPunctuationOnlyInMultiline  18
+#define errPunctuationFnNotInStmt      19
+#define errPunctuationUnmatched        20
+#define errPunctuationScope            21
+#define errOperatorUnknown             22
+#define errOperatorAssignmentPunct     23
+#define errAssignmentEmptyRight        24
+#define errOperatorTypeDeclPunct       25
+#define errOperatorMutationInDef       26
+#define errCoreNotInsideStmt           27
+#define errCoreMisplacedElse           28
+#define errCoreMissingParen            29
+#define errBareAtom                    30
+#define errImportsNonUnique            31
+#define errCannotMutateImmutable       32
+#define errPrematureEndOfTokens        33
+#define errUnexpectedToken             34
+#define errCoreFormTooShort            35
+#define errCoreFormUnexpected          36
+#define errCoreFormAssignment          37
+#define errCoreFormInappropriate       38
+#define errIfLeft                      39
+#define errIfRight                     40
+#define errIfEmpty                     41
+#define errIfMalformed                 42
+#define errIfElseMustBeLast            43
+#define errFnParamList                 44
+#define errFnDuplicateParams           45
+#define errFnEntrypoint                46
+#define errFnMissingBody               47
+#define errFnOperatorOverlArity        48
+#define errLoopSyntaxError             49
+#define errLoopNoCondition             50
+#define errLoopEmptyStepBody           51
+#define errLoopWrongFormInStepper      52
+#define errLoopBreakOutside            53
+#define errBreakContinueTooComplex     54
+#define errBreakContinueInvalidDepth   55
+#define errEachLoopWrongSyntax         56
+#define errEachLoopInvalidValue        57
+#define errEachNotACollection          58
+#define errDuplicateFunction           59
+#define errExpressionError             60
+#define errExpressionWrongArgCount     61
+#define errExpressionCannotContain     62
+#define errExpressionFunctionless      63
+#define errTypeDefCountNames           64
+#define errTypeDefCannotContain        65
+#define errTypeExpr                    66
+#define errTypeDefError                67
+#define errTypeDefParamsError          68
+#define errOperatorWrongArity          69
+#define errUnknownBinding              70
+#define errUnknownFunction             71
+#define errOperatorUsedInappropriately 72
+#define errAssignment                  73
+#define errListDifferentEltTypes       74
+#define errListUnknownEltType          75
+#define errMutation                    76
+#define errAssignmentShadowing         77
+#define errAssignmentLeftSide          78
+#define errAssignmentAccessOnToplevel  79
+#define errAssignmentToFunctionVar     80
+#define errFnSignature                 81
+#define errFnTypeArrows                82
+#define errArrowOutOfPlace             83
+#define errReturn                      84
+#define errScope                       85
+#define errMetaOnlyInArr               86
+#define errMetaArrSyntax               87
+#define errTemp                        88
+#define errEmptySourceCode             89
+#define errUnknownType                 90
+#define errUnexpectedType              91
+#define errExpectedType                92
+#define errUnknownTypeConstructor      93
+#define errTypeUnknownFirstArg         94
+#define errTypeOverloadsIntersect      95
+#define errTypeOverloadsOnlyOneZero    96
+#define errTypeNoMatchingOverload      97
+#define errTypeWrongArgumentType       98
+#define errTypeWrongReturnType         99
+#define errTypeMismatch               100
+#define errTypeMustBeBool             101
+#define errTypeConstructorWrongArity  102
+#define errTypeTooManyParameters      103
+#define errTypeOfNotList              104
+#define errTypeOfListIndex            105
+#define errTypePolymorphicAssignment  106
+#define errTypeGenericCallDoesntUnify 107
+#define errTypeFieldNotFound          108
+
+//}}}
 //}}}
 //{{{ Lexer
 
@@ -47,7 +160,7 @@ void printParser(Compiler* cm);
 Int getOper(Int opType, Int typeId, Compiler* protoOvs);
 void createOverloads(CM);
 void initializeParser(Compiler* lx, Arena* a);
-void setParserError(String errMsg, Compiler* restrict cm);
+void setParserError(Int errId, Compiler* restrict cm);
 void updateStats(Compiler* restrict cm);
 Int getBinding(Int id, Compiler* restrict cm);
 void setLoc(ChInterval loc, Int j, CM);
@@ -57,86 +170,12 @@ void importTestFns(Arr(Int) types, Int countTypes,
 Int equalityParser(Compiler* a, Compiler* b, Bool compareLocsToo);
 void newNode(Node node, ChInterval loc, CM);
 
-extern char const errBareAtom[];
-extern char const errImportsNonUnique[];
-extern char const errCannotMutateImmutable[];
-extern char const errPrematureEndOfTokens[];
-extern char const errUnexpectedToken[];
-extern char const errInconsistentSpan[];
-extern char const errCoreFormTooShort[];
-extern char const errCoreFormUnexpected[];
-extern char const errCoreFormAssignment[];
-extern char const errCoreFormInappropriate[];
-extern char const errIfLeft[];
-extern char const errIfRight[];
-extern char const errIfEmpty[];
-extern char const errIfMalformed[];
-extern char const errIfElseMustBeLast[];
-extern char const errTypeDefCountNames[];
-extern char const errFnParamList[];
-extern char const errFnDuplicateParams[];
-extern char const errFnMissingBody[];
-extern char const errLoopSyntaxError[];
-extern char const errLoopNoCondition[];
-extern char const errLoopWrongFormInStepper[];
-extern char const errLoopEmptyStepBody[];
-extern char const errLoopBreakOutside[];
-extern char const errBreakContinueTooComplex[];
-extern char const errBreakContinueInvalidDepth[];
-extern char const errDuplicateFunction[];
-extern char const errExpressionError[];
-extern char const errExpressionWrongArgCount[];
-extern char const errExpressionCannotContain[];
-extern char const errExpressionFunctionless[];
-extern char const errExpressionHeadFormOperators[];
-extern char const errTypeDefCannotContain[];
-extern char const errTypeDefError[];
-extern char const errUnknownType[];
-extern char const errUnknownTypeFunction[];
-extern char const errOperatorWrongArity[];
-extern char const errUnknownBinding[];
-extern char const errUnknownFunction[];
-extern char const errIncorrectPrefixSequence[];
-extern char const errOperatorUsedInappropriately[];
-extern char const errAssignment[];
-extern char const errListDifferentEltTypes[];
-extern char const errAssignmentShadowing[];
-extern char const errAssignmentToplevelFn[];
-extern char const errAssignmentLeftSide[];
-extern char const errMutation[];
-extern char const errReturn[];
-extern char const errScope[];
-extern char const errTemp[];
-extern char const errTypeUnknownFirstArg[];
-extern char const errExpectedType[];
-extern char const errUnexpectedType[];
-extern char const errTypeZeroArityOverload[];
-extern char const errTypeNoMatchingOverload[];
-extern char const errTypeWrongArgumentType[];
-extern char const errTypeWrongReturnType[];
-extern char const errTypeMismatch[];
-extern char const errTypeMustBeBool[];
-extern char const errTypeTooManyParameters[];
-extern char const errAssignmentAccessOnToplevel[];
-extern char const errAssignmentToFunctionVar[];
-extern char const errTypeOfNotList[];
-extern char const errTypeOfListIndex[];
-extern char const errTypePolymorphicAssignment[];
-extern char const errTypeGenericCallDoesntUnify[];
-extern char const errTypeFieldNotFound[];
-
-#define S   70000000 // A constant larger than the largest allowed file size.
-extern char const errTypeOfNotList[];
-extern char const errTypeOfListIndex[];
-
-
 #define S   70000000 // A constant larger than the largest allowed file size.
                 // Separates parsed entities from others
 #define I  140000000 // The base index for imported entities/overloads
 #define S2 210000000 // A constant larger than the largest allowed file size.
                 //  Separates parsed entities from others
 #define O  280000000 // The base index for operators
-
 
 #define assiVarAssignment  1 // definition of a var
 #define assiTypeDefinition 2 // definition of a type

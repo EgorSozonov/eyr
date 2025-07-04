@@ -505,7 +505,7 @@ typedef struct { //:CompResult
    CompStats stats;
    Bool wasLexerError;
    Bool wasParserError;
-   libeyr_String errMsg;
+   Int errId;
    Arena* a;
 } libeyr_CompResult;
 
@@ -517,6 +517,7 @@ TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
 Int libeyr_sizeOfType(TypeId t, Arr(Int) types);
 Int libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types);
 TypeId libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int ind, Arr(Int) types);
+void libeyr_printError(Int errId);
 libeyr_CompResult* libeyr_compileFile(libeyr_String filename);
 libeyr_CompResult* libeyr_compile(libeyr_String sourceCode);
 

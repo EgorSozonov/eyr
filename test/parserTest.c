@@ -115,18 +115,18 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
    (entities), sizeof(entities)/sizeof(TestEntityImport), a)
 
 
-private ParserTest createTestWithError0(String name, String message, String input,
+private ParserTest createTestWithError0(String name, Int errId, String input,
       Arr(Node) nodes, Int countNodes, Arr(Int) types, Int countTypes,
       Arr(TestEntityImport) entities, Int countEntities, Arena* a) {
 // Creates a test with two parsers where the expected result is an error in parser
    ParserTest theTest = createTest0(name, input, nodes, countNodes, types, countTypes, entities,
                             countEntities, a);
-   setParserError(message, theTest.control);
+   setParserError(errId, theTest.control);
    return theTest;
 }
 
-#define createTestWithError(name, errorMessage, input, nodes, types, entities) \
-   createTestWithError0((name), errorMessage, (input), (nodes), sizeof(nodes)/sizeof(Node), types,\
+#define createTestWithError(name, errorId, input, nodes, types, entities) \
+   createTestWithError0((name), errorId, (input), (nodes), sizeof(nodes)/sizeof(Node), types,\
    sizeof(types)/4, entities, sizeof(entities)/sizeof(TestEntityImport), a)
 
 
@@ -184,9 +184,9 @@ void runTest(ParserTest test, TestContext* ct) {
       printf("\n\nERROR IN [%d][", testId);
       printStringNoLn(test.name);
       printf("]\nError msg: ");
-      printString(testRes->errMsg);
+      libeyr_printError(testRes->errId);
       printf("\nBut was expected: ");
-      printString(controlRes->errMsg);
+      libeyr_printError(controlRes->errId);
       printf("\n");
       print("   LEXER:")
       printLexer(test.test);
@@ -256,7 +256,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("Assignment shadowing error"),
-         s(errCannotMutateImmutable),
+         errCannotMutateImmutable,
          s("x = 12;\n"
            "x = 7;"
          ),
@@ -450,7 +450,7 @@ ParserTestSet* assignmentTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("Illegal left side in assignment"),
-         s(errAssignmentLeftSide),
+         errAssignmentLeftSide,
          s("fn main f{->\n"
            "b' = 12;\n"
            "b + 1 = 10;\n"
@@ -531,7 +531,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("Data literal type error"),
-         s(errListDifferentEltTypes),
+         errListDifferentEltTypes,
          s("x = [1 true];"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl3 = 2 },
@@ -783,7 +783,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("Operator arity error"),
-         s(errTypeNoMatchingOverload),
+         errTypeNoMatchingOverload,
          s("x = 1 + 20 100;"),
          (((Node[]) {
             (Node){ .tp = nodAssignment, .pl3 = 2 },
@@ -920,7 +920,7 @@ ParserTestSet* functionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("Function definition wrong return type"),
-         s(errTypeWrongReturnType),
+         errTypeWrongReturnType,
          s("fn newFn [Double Double -> Str] f{x y ->\n"
            "   a = x;\n"
            "   return a;\n"
@@ -1246,7 +1246,7 @@ ParserTestSet* ifTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("If error: must be bool"),
-         s(errTypeMustBeBool),
+         errTypeMustBeBool,
          s("fn f f{->\n"
            "   if 5 + 5 { print `5`; }\n"
            "};"
@@ -1630,7 +1630,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("For with break error"),
-         s(errBreakContinueInvalidDepth),
+         errBreakContinueInvalidDepth,
          s("fn e f{\n"
            "   for {x = 0; x < 101;->\n"
            "      break 2;\n"
@@ -1655,7 +1655,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
       ),
       createTestWithError(
          s("For with type error"),
-         s(errTypeMustBeBool),
+         errTypeMustBeBool,
          s("fn oo f{ for {x' = 1; x / 101;-> print x; } }"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn },

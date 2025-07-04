@@ -12,6 +12,120 @@ typedef libeyr_String String;
 typedef libeyr_CompResult CompResult;
 #define BIG 70000000
 
+//{{{ Errors
+
+#define errNonAscii                     0
+#define errPrematureEndOfInput          1
+#define errUnrecognizedByte             2
+#define errWordChunkStart               3
+#define errWordCapitalizationOrder      4
+#define errWordLengthExceeded           5
+#define errWordMutability               6
+#define errWordFreeFloatingFieldAcc     7
+#define errNumericEndUnderscore         8
+#define errNumericWidthExceeded         9
+#define errNumericBinWidthExceeded     10
+#define errNumericFloatWidthExceeded   11
+#define errNumericEmpty                12
+#define errNumericMultipleDots         13
+#define errNumericIntWidthExceeded     14
+#define errPunctuationExtraOpening     15
+#define errPunctuationExtraClosing     16
+#define errPunctuationCommaNotClause   17
+#define errPunctuationOnlyInMultiline  18
+#define errPunctuationFnNotInStmt      19
+#define errPunctuationUnmatched        20
+#define errPunctuationScope            21
+#define errOperatorUnknown             22
+#define errOperatorAssignmentPunct     23
+#define errAssignmentEmptyRight        24
+#define errOperatorTypeDeclPunct       25
+#define errOperatorMutationInDef       26
+#define errCoreNotInsideStmt           27
+#define errCoreMisplacedElse           28
+#define errCoreMissingParen            29
+#define errBareAtom                    30
+#define errImportsNonUnique            31
+#define errCannotMutateImmutable       32
+#define errPrematureEndOfTokens        33
+#define errUnexpectedToken             34
+#define errCoreFormTooShort            35
+#define errCoreFormUnexpected          36
+#define errCoreFormAssignment          37
+#define errCoreFormInappropriate       38
+#define errIfLeft                      39
+#define errIfRight                     40
+#define errIfEmpty                     41
+#define errIfMalformed                 42
+#define errIfElseMustBeLast            43
+#define errFnParamList                 44
+#define errFnDuplicateParams           45
+#define errFnEntrypoint                46
+#define errFnMissingBody               47
+#define errFnOperatorOverlArity        48
+#define errLoopSyntaxError             49
+#define errLoopNoCondition             50
+#define errLoopEmptyStepBody           51
+#define errLoopWrongFormInStepper      52
+#define errLoopBreakOutside            53
+#define errBreakContinueTooComplex     54
+#define errBreakContinueInvalidDepth   55
+#define errEachLoopWrongSyntax         56
+#define errEachLoopInvalidValue        57
+#define errEachNotACollection          58
+#define errDuplicateFunction           59
+#define errExpressionError             60
+#define errExpressionWrongArgCount     61
+#define errExpressionCannotContain     62
+#define errExpressionFunctionless      63
+#define errTypeDefCountNames           64
+#define errTypeDefCannotContain        65
+#define errTypeExpr                    66
+#define errTypeDefError                67
+#define errTypeDefParamsError          68
+#define errOperatorWrongArity          69
+#define errUnknownBinding              70
+#define errUnknownFunction             71
+#define errOperatorUsedInappropriately 72
+#define errAssignment                  73
+#define errListDifferentEltTypes       74
+#define errListUnknownEltType          75
+#define errMutation                    76
+#define errAssignmentShadowing         77
+#define errAssignmentLeftSide          78
+#define errAssignmentAccessOnToplevel  79
+#define errAssignmentToFunctionVar     80
+#define errFnSignature                 81
+#define errFnTypeArrows                82
+#define errArrowOutOfPlace             83
+#define errReturn                      84
+#define errScope                       85
+#define errMetaOnlyInArr               86
+#define errMetaArrSyntax               87
+#define errTemp                        88
+#define errEmptySourceCode             89
+#define errUnknownType                 90
+#define errUnexpectedType              91
+#define errExpectedType                92
+#define errUnknownTypeConstructor      93
+#define errTypeUnknownFirstArg         94
+#define errTypeOverloadsIntersect      95
+#define errTypeOverloadsOnlyOneZero    96
+#define errTypeNoMatchingOverload      97
+#define errTypeWrongArgumentType       98
+#define errTypeWrongReturnType         99
+#define errTypeMismatch               100
+#define errTypeMustBeBool             101
+#define errTypeConstructorWrongArity  102
+#define errTypeTooManyParameters      103
+#define errTypeOfNotList              104
+#define errTypeOfListIndex            105
+#define errTypePolymorphicAssignment  106
+#define errTypeGenericCallDoesntUnify 107
+#define errTypeFieldNotFound          108
+
+//}}}
+
 //}}}
 //{{{ Tokens
 
@@ -92,54 +206,14 @@ void initializeParser(Compiler* lx, Arena* a);
 Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 void printRawOverload(Int listInd, Compiler* cm);
 void printName(Int name, Compiler* cm);
-void setLexerError(String errMsg, CM);
+void setLexerError(Int errId, CM);
 
 //}}}
 //{{{ Lexer
 
-
-
 void printLexer(Compiler* restrict a);
 Int equalityLexer(Compiler* a, Compiler* b);
 void pushIntokens0(Token, Compiler*);
-
-extern char const errNonAscii[];
-extern char const errPrematureEndOfInput[];
-extern char const errUnrecognizedByte[];
-extern char const errWordChunkStart[];
-extern char const errWordCapitalizationOrder[];
-extern char const errWordUnderscoresOnlyAtStart[];
-extern char const errWordWrongAccessor[];
-extern char const errWordLengthExceeded[];
-extern char const errWordMutability[];
-extern char const errWordFreeFloatingFieldAcc[];
-extern char const errWordInMeta[];
-extern char const errNumericEndUnderscore[];
-extern char const errNumericWidthExceeded[];
-extern char const errNumericBinWidthExceeded[];
-extern char const errNumericFloatWidthExceeded[];
-extern char const errNumericEmpty[];
-extern char const errNumericMultipleDots[];
-extern char const errNumericIntWidthExceeded[];
-extern char const errPunctuationExtraOpening[];
-extern char const errPunctuationExtraClosing[];
-extern char const errPunctuationCommaNotClause[];
-extern char const errPunctuationOnlyInMultiline[];
-extern char const errPunctuationFnNotInStmt[];
-extern char const errPunctuationUnmatched[];
-extern char const errPunctuationScope[];
-extern char const errOperatorUnknown[];
-extern char const errOperatorAssignmentPunct[];
-extern char const errAssignmentEmptyRight[];
-extern char const errOperatorTypeDeclPunct[];
-extern char const errOperatorMutationInDef[];
-extern char const errCoreNotInsideStmt[];
-extern char const errCoreMisplacedElse[];
-extern char const errCoreMissingParen[];
-extern char const errLoopEmptyStepBody[];
-extern char const errLoopNoCondition[];
-extern char const errIndentation[];
-extern char const errFnTypeArrows[];
 
 // Span levels, must all be more than 0
 #define slScope        1 // scopes (denoted by brackets): newlines and commas have no effect there

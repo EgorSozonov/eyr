@@ -1726,7 +1726,7 @@ struct Compiler { // :Compiler
    Arena* a;
    Arena* aTmp;
    Bool wasError;
-   String errMsg;
+   Int errId;
    CompStats stats;
 };
 
@@ -1766,14 +1766,248 @@ private void initCompiler();
 
 //}}}
 //{{{ Errors
-//{{{ Types
+//{{{ Compile errors
 
+#define errMaxId 108 // must be updated. The maximal value of the currently existing errIds below
+#define errNonAscii                     0
+#define errPrematureEndOfInput          1
+#define errUnrecognizedByte             2
+#define errWordChunkStart               3
+#define errWordCapitalizationOrder      4
+#define errWordLengthExceeded           5
+#define errWordMutability               6
+#define errWordFreeFloatingFieldAcc     7
+#define errNumericEndUnderscore         8
+#define errNumericWidthExceeded         9
+#define errNumericBinWidthExceeded     10
+#define errNumericFloatWidthExceeded   11
+#define errNumericEmpty                12
+#define errNumericMultipleDots         13
+#define errNumericIntWidthExceeded     14
+#define errPunctuationExtraOpening     15
+#define errPunctuationExtraClosing     16
+#define errPunctuationCommaNotClause   17
+#define errPunctuationOnlyInMultiline  18
+#define errPunctuationFnNotInStmt      19
+#define errPunctuationUnmatched        20
+#define errPunctuationScope            21
+#define errOperatorUnknown             22
+#define errOperatorAssignmentPunct     23
+#define errAssignmentEmptyRight        24
+#define errOperatorTypeDeclPunct       25
+#define errOperatorMutationInDef       26
+#define errCoreNotInsideStmt           27
+#define errCoreMisplacedElse           28
+#define errCoreMissingParen            29
+#define errBareAtom                    30
+#define errImportsNonUnique            31
+#define errCannotMutateImmutable       32
+#define errPrematureEndOfTokens        33
+#define errUnexpectedToken             34
+#define errCoreFormTooShort            35
+#define errCoreFormUnexpected          36
+#define errCoreFormAssignment          37
+#define errCoreFormInappropriate       38
+#define errIfLeft                      39
+#define errIfRight                     40
+#define errIfEmpty                     41
+#define errIfMalformed                 42
+#define errIfElseMustBeLast            43
+#define errFnParamList                 44
+#define errFnDuplicateParams           45
+#define errFnEntrypoint                46
+#define errFnMissingBody               47
+#define errFnOperatorOverlArity        48
+#define errLoopSyntaxError             49
+#define errLoopNoCondition             50
+#define errLoopEmptyStepBody           51
+#define errLoopWrongFormInStepper      52
+#define errLoopBreakOutside            53
+#define errBreakContinueTooComplex     54
+#define errBreakContinueInvalidDepth   55
+#define errEachLoopWrongSyntax         56
+#define errEachLoopInvalidValue        57
+#define errEachNotACollection          58
+#define errDuplicateFunction           59
+#define errExpressionError             60
+#define errExpressionWrongArgCount     61
+#define errExpressionCannotContain     62
+#define errExpressionFunctionless      63
+#define errTypeDefCountNames           64
+#define errTypeDefCannotContain        65
+#define errTypeExpr                    66
+#define errTypeDefError                67
+#define errTypeDefParamsError          68
+#define errOperatorWrongArity          69
+#define errUnknownBinding              70
+#define errUnknownFunction             71
+#define errOperatorUsedInappropriately 72
+#define errAssignment                  73
+#define errListDifferentEltTypes       74
+#define errListUnknownEltType          75
+#define errMutation                    76
+#define errAssignmentShadowing         77
+#define errAssignmentLeftSide          78
+#define errAssignmentAccessOnToplevel  79
+#define errAssignmentToFunctionVar     80
+#define errFnSignature                 81
+#define errFnTypeArrows                82
+#define errArrowOutOfPlace             83
+#define errReturn                      84
+#define errScope                       85
+#define errMetaOnlyInArr               86
+#define errMetaArrSyntax               87
+#define errTemp                        88
+#define errEmptySourceCode             89
+#define errUnknownType                 90
+#define errUnexpectedType              91
+#define errExpectedType                92
+#define errUnknownTypeConstructor      93
+#define errTypeUnknownFirstArg         94
+#define errTypeOverloadsIntersect      95
+#define errTypeOverloadsOnlyOneZero    96
+#define errTypeNoMatchingOverload      97
+#define errTypeWrongArgumentType       98
+#define errTypeWrongReturnType         99
+#define errTypeMismatch               100
+#define errTypeMustBeBool             101
+#define errTypeConstructorWrongArity  102
+#define errTypeTooManyParameters      103
+#define errTypeOfNotList              104
+#define errTypeOfListIndex            105
+#define errTypePolymorphicAssignment  106
+#define errTypeGenericCallDoesntUnify 107
+#define errTypeFieldNotFound          108
+
+private char const* const
+compileErrors[] = {
+   "Non-ASCII symbols are not allowed in code - only inside comments & string literals!",
+   "Premature end of input",
+   "Unrecognized Byte in source code!",
+   "In an identifier, each word piece must start with a letter. Tilde may come only after an identifier",
+   "An identifier may not contain a capitalized piece after an uncapitalized one!",
+   "I don't know why you want an identifier of more than 128 chars, but they aren't supported",
+   "Mutable variable declarations should look like `asdf'` with no spaces in between",
+   "Free-floating field accessor",
+   "Numeric literal cannot end with underscore!",
+   "Numeric literal width is exceeded!",
+   "Integer literals cannot exceed 64 bit!",
+   "Floating-point literals cannot exceed 2**53 in the significant bits, and 22 in the decimal power!",
+   "Could not lex a numeric literal, empty sequence!",
+   "Multiple dots in numeric literals are not allowed!",
+   "Integer literals must be within the range [-9,223,372,036,854,775,808, 9,223,372,036,854,775,807]!",
+   "Extra opening punctuation",
+   "Extra closing punctuation",
+   "The comma is only allowed inside clauses!",
+   "The statement ender `,` is not allowed inside subexpressions!",
+   "Function definitions must be directly in a statement",
+   "Unmatched closing punctuation",
+   "Scopes may only be opened in multi-line syntax forms or in `for`, `if` forms",
+   "Unknown operator",
+   "Incorrect assignment operator: must be directly inside an ordinary statement, after the binding"
+      " name(s) or l-value!",
+   "Assignment or definition with empty right side",
+   "Incorrect type declaration operator placement: must be the first in a statement!",
+   "Mutation (e.g. `+=`) is not allowed for defs which signify compile-time known constants",
+   "Core form must be directly inside statement",
+   "The else statement must be inside an if, ifEq, ifPr or match form",
+   "Core form requires opening parenthesis/curly brace immediately after keyword!",
+   "Malformed token stream (atoms and parentheses must not be bare)",
+   "Import names must be unique!",
+   "Immutable variables cannot be reassigned to!",
+   "Premature end of tokens",
+   "Unexpected token",
+   "Core syntax form too short",
+   "Unexpected core form",
+   "A core form may not contain any assignments!",
+   "Inappropriate reserved word!",
+   "A left-hand clause in an if can only contain variables, boolean literals and expressions!",
+   "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!",
+   "Empty `if` expression",
+   "Malformed `if` expression, should look like (if pred: `true case` else `default`)",
+   "An `else` subexpression must be the last thing in an `if`",
+   "Function parameter list must look like this: `{x y ->  body...}`",
+   "Duplicate parameter names in a function are not allowed",
+   "The entrypoint must be named `main` and this function name must be unique!",
+   "Function definition must contain a body which must be a Scope immediately following its parameter list!",
+   "Operator overloads must respect the arity of the operator!",
+   "A loop should look like `for {x = 0, x < 101; x++ -> loopBody } `",
+   "A loop header should contain a condition",
+   "Empty loop step code & body, but at least one must be present!",
+   "A for loop's stepper can only contain assignments, expressions and asserts",
+   "The break keyword can only be used inside a loop scope!",
+   "This statement is too complex! Continues and breaks may contain"
+      " one thing only: the positive number of enclosing loops to continue/break!",
+   "Invalid depth of break/continue! It must be a positive 32-bit integer!",
+   "Wrong syntax of an 'each' loop",
+   "Invalid value provided for an 'each' loop!",
+   "Collection name not found among any active 'each' loops",
+   "Duplicate function declaration: a function with same name and arity already exists in this scope!",
+   "Cannot parse expression!",
+   "Wrong argument count for a function",
+   "Expressions cannot contain scopes or statements!",
+   "Functionless expression!",
+   "Wrong count of names in a type definition!",
+   "Type declarations may only contain types (like Int),"
+      " type params (like A), type constructors (like List) and parentheses!",
+   "Cannot parse type expression!",
+   "Cannot parse type declaration!",
+   "Error parsing type params. Should look like this: [T U/2]",
+   "Wrong number of arguments for operator!",
+   "Unknown binding!",
+   "Unknown function!",
+   "Operator used in an inappropriate location!",
+   "Cannot parse assignment, it must look like `freshIdentifier` = `expression`",
+   "An array or list's elements must all be of the same type",
+   "Could not determine the element type of an array or list!",
+   "Cannot parse mutation, it must look like `freshIdentifier` += `expression`",
+   "Assignment error: existing identifier is being shadowed",
+   "Assignment error: left side must be a var name, a type name, or an existing var with one or"
+      " more accessors",
+   "Accessor on the left side of an assignment at toplevel",
+   "Assignment to a function variable should look like `fn F(Int -> Long) = overloadedName,`",
+   "A function signature should look like `fn [Int -> Long] f{a-> ...},`",
+   "A function type should contain exactly one arrow and return type (unless "
+      "it's void): `F[Par1 Par2 -> ReturnType]`, `F[Par1 ->]`",
+   "Arrows must be either in a function type: `F[Param -> ReturnType]` or "
+   "closing a parameter list: `f{ param -> ...body...}`" ,
+   "Cannot parse return statement, it must look like `return ` {expression}",
+   "A scope may consist only of expressions, assignments, function definitions and other scopes!",
+   "Meta blocks are only allowed in array expressions!",
+   "Meta blocks must have 2 parts: type and length: `@(Int 2)`, and if present, "
+      "must be the only thing in the collection declaration",
+   "Not implemented yet",
+   "Empty source code",
+   "Unknown type",
+   "Unexpected to find a type here",
+   "Expected to find a type here",
+   "Unknown type constructor",
+   "The type of first argument to a call must be known, otherwise I can't resolve the function"
+      " overload!",
+   "Two or more overloads of a single function intersect (impossible to choose one over the other)",
+   "Only one nullary function version is possible, "
+      "otherwise I can't disambiguate the overloads!",
+   "No matching function overload was found",
+   "Wrong argument type",
+   "Wrong return type",
+   "Declared type doesn't match actual type",
+   "Expression must have the Bool type",
+   "Wrong arity for the type constructor",
+   "Only up to 254 type parameters are supported",
+   "Trying to get the element of a type which is not a list",
+   "The type of a list/array index must be Int",
+   "Assignments and constants must be monomorphic (no type params)",
+   "Generic function's type cannot be unified with its argument types",
+   "Field access error in a type"
+};
+
+//}}}
+//{{{ Types & utils
 
 typedef struct { //:ErrPosition
-   Bool isPresent;
-   Int indSpan; // index in @tokens
-   Int ind1; // within "span", or -1
-   Int ind2; // within "span", or -1
+   Int count;
+   Int indices[3]; // indices in @tokens. First index is outer span, the other two (optional)
+                   // refer to tokens within that span
 } ErrPosition;
 
 typedef union { //:ErrTextUnion
@@ -1787,43 +2021,57 @@ typedef union { //:ErrTextUnion
 #define errtpType 1
 
 typedef struct { //:ErrText
+   Int count;
    Bool isPresent;
    Int tp; // "errtp" constants
    ErrTextUnion c;
 } ErrText;
 
 typedef struct { //:CompileError
+   Int id; // one of the "err" constants
    ErrPosition positional;
    ErrText textual;
 } CompileError;
 
 private CompileError //:e
-e(ErrPosition p, ErrText t) {
-   p.isPresent = true;
-   t.isPresent = true;
-   return (CompileError){.positional = p, .textual = t};
+e(Int id, ErrPosition p, ErrText t) {
+   p.count = 1;
+   t.count = 1;
+   return (CompileError){.id = id, .positional = p, .textual = t};
 }
 
 private CompileError //:e0
-e0(ErrPosition p) {
-   p.isPresent = true;
-   return (CompileError){.positional = p, .textual = (ErrText){.isPresent = false} };
+e0(Int id, ErrPosition p) {
+   p.count = 1;
+   return (CompileError){.id = id, .positional = p, .textual = (ErrText){.count = 0} };
 }
 
 private CompileError //:e1
-e1(ErrText t) {
-   t.isPresent = true;
-   return (CompileError){ .positional = (ErrPositional){.isPresent = false}, .textual = t };
+e1(Int id, ErrText t) {
+   t.count = 1;
+   return (CompileError){ .id = id, .positional = (ErrPosition){.count = 0}, .textual = t };
 }
 
 private ErrPosition //:ePos
 ePos(Int indSpan, Int ind1, Int ind2) {
-   return (ErrPosition){.indSpan = indSpan, .ind1 = ind1, .ind2 = ind};
+   Int count;
+   if (indSpan == -1) {
+      count = 0;
+   } ei (ind1 == -1) {
+      count = 1;
+   } ei (ind2 == -1) {
+      count = 2;
+   }
+   return (ErrPosition){.count = count, .indices = {indSpan, ind1, ind2}};
 }
 
 private ErrText //:eTypes
 eTypes(TypeId t1, TypeId t2) {
    return (ErrText){.tp = errtpType, (ErrTextUnion){.type1 = t1, .type2 = t2} };
+}
+
+void libeyr_printError(Int errId) {
+   print("%s", compileErrors[errId]);
 }
 
 //}}}
@@ -1851,220 +2099,6 @@ eTypes(TypeId t1, TypeId t2) {
 #define iErrorIllegalEmit               13 // This entity cannot have this emit type in codegen
 
 //}}}
-//{{{ Syntax errors
-
-char const
-errNonAscii[]               = "Non-ASCII symbols are not allowed in code - only inside comments & string literals!";
-char const
-errPrematureEndOfInput[]    = "Premature end of input";
-char const
-errUnrecognizedByte[]       = "Unrecognized Byte in source code!";
-char const
-errWordChunkStart[]         = "In an identifier, each word piece must start with a letter. Tilde may come only after an identifier";
-char const
-errWordCapitalizationOrder[]   = "An identifier may not contain a capitalized piece after an uncapitalized one!";
-char const
-errWordLengthExceeded[]       = "I don't know why you want an identifier of more than 128 chars, but they aren't supported";
-char const
-errWordMutability[]                     = "Mutable variables should look like `asdf$` with no spaces in between";
-char const
-errWordFreeFloatingFieldAcc[]   = "Free-floating field accessor";
-char const
-errWordInMeta[]             = "Only ordinary words are allowed inside meta blocks!";
-char const
-errNumericEndUnderscore[]      = "Numeric literal cannot end with underscore!";
-char const
-errNumericWidthExceeded[]      = "Numeric literal width is exceeded!";
-char const
-errNumericBinWidthExceeded[]   = "Integer literals cannot exceed 64 bit!";
-char const
-errNumericFloatWidthExceeded[]  = "Floating-point literals cannot exceed 2**53 in the significant bits, and 22 in the decimal power!";
-char const
-errNumericEmpty[]            = "Could not lex a numeric literal, empty sequence!";
-char const
-errNumericMultipleDots[]      = "Multiple dots in numeric literals are not allowed!";
-char const
-errNumericIntWidthExceeded[]   = "Integer literals must be within the range [-9,223,372,036,854,775,808; 9,223,372,036,854,775,807]!";
-char const
-errPunctuationExtraOpening[]   = "Extra opening punctuation";
-char const
-errPunctuationExtraClosing[]   = "Extra closing punctuation";
-char const
-errPunctuationCommaNotClause[]  = "The comma is only allowed inside clauses!";
-char const
-errPunctuationOnlyInMultiline[] = "The statement ender `;` is not allowed inside subexpressions!";
-char const
-errPunctuationFnNotInStmt[]    = "Function definitions must be directly in a statement";
-char const
-errPunctuationUnmatched[]      = "Unmatched closing punctuation";
-char const
-errPunctuationScope[]         = "Scopes may only be opened in multi-line syntax forms or in `for`, `if` forms";
-char const
-errOperatorUnknown[]         = "Unknown operator";
-char const
-errOperatorAssignmentPunct[] = "Incorrect assignment operator: must be directly inside an ordinary statement, after the binding name(s) or l-value!";
-char const
-errAssignmentEmptyRight[]    = "Assignment or definition with empty right side";
-char const
-errOperatorTypeDeclPunct[]   = "Incorrect type declaration operator placement: must be the first in a statement!";
-char const
-errOperatorMutationInDef[]   = "Mutation (e.g. `+=`) is not allowed for defs which signify compile-time known constants";
-char const
-errCoreNotInsideStmt[]       = "Core form must be directly inside statement";
-char const
-errCoreMisplacedElse[]       = "The else statement must be inside an if, ifEq, ifPr or match form";
-char const
-errCoreMissingParen[]        = "Core form requires opening parenthesis/curly brace immediately after keyword!";
-char const
-errBareAtom[]                = "Malformed token stream (atoms and parentheses must not be bare)";
-char const
-errImportsNonUnique[]        = "Import names must be unique!";
-char const
-errCannotMutateImmutable[]   = "Immutable variables cannot be reassigned to!";
-char const
-errPrematureEndOfTokens[]    = "Premature end of tokens";
-char const
-errUnexpectedToken[]         = "Unexpected token";
-char const
-errCoreFormTooShort[]        = "Core syntax form too short";
-char const
-errCoreFormUnexpected[]      = "Unexpected core form";
-char const
-errCoreFormAssignment[]      = "A core form may not contain any assignments!";
-char const
-errCoreFormInappropriate[]   = "Inappropriate reserved word!";
-char const
-errIfLeft[]                  = "A left-hand clause in an if can only contain variables, boolean literals and expressions!";
-char const
-errIfRight[]      = "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!";
-char const
-errIfEmpty[]      = "Empty `if` expression";
-char const
-errIfMalformed[]  = "Malformed `if` expression, should look like (if pred: `true case` else `default`)";
-char const
-errIfElseMustBeLast[] = "An `else` subexpression must be the last thing in an `if`";
-char const
-errFnParamList[]  = "Function parameter list must look like this: `{x y ->  body...}`";
-char const
-errFnDuplicateParams[] = "Duplicate parameter names in a function are not allowed";
-char const
-errFnEntrypoint[]  = "The entrypoint must be named `main` and this function name must be unique!";
-char const
-errFnMissingBody[]  = "Function definition must contain a body which must be a Scope immediately following its parameter list!";
-char const
-errFnOperatorOverlArity[]  = "Operator overloads must respect the arity of the operator!";
-char const
-errLoopSyntaxError[] = "A loop should look like `for {x = 0; x < 101; x++ -> loopBody } `";
-char const
-errLoopNoCondition[] = "A loop header should contain a condition";
-char const
-errLoopEmptyStepBody[] = "Empty loop step code & body, but at least one must be present!";
-char const
-errLoopWrongFormInStepper[] = "A for loop's stepper can only contain assignments, expressions and asserts";
-char const
-errLoopBreakOutside[] = "The break keyword can only be used inside a loop scope!";
-char const
-errBreakContinueTooComplex[] = "This statement is too complex! Continues and breaks may contain"
-                               " one thing only: the positive number of enclosing loops to"
-                               " continue/break!";
-char const
-errBreakContinueInvalidDepth[]  = "Invalid depth of break/continue! It must be a positive 32-bit integer!";
-char const
-errEachLoopWrongSyntax[]  = "Wrong syntax of an 'each' loop";
-char const
-errEachLoopInvalidValue[] = "Invalid value provided for an 'each' loop!";
-char const
-errEachNotACollection[] = "Collection name not found among any active 'each' loops";
-char const
-errDuplicateFunction[] = "Duplicate function declaration: a function with same name and arity already exists in this scope!";
-char const
-errExpressionError[]   = "Cannot parse expression!";
-char const
-errExpressionWrongArgCount[]    = "Wrong argument count for a function";
-char const
-errExpressionCannotContain[]    = "Expressions cannot contain scopes or statements!";
-char const
-errExpressionFunctionless[]     = "Functionless expression!";
-char const
-errTypeDefCountNames[] = "Wrong count of names in a type definition!";
-char const
-errTypeDefCannotContain[] = "Type declarations may only contain types (like Int),"
-                            " type params (like A), type constructors (like List) and parentheses!";
-char const
-errTypeExpr[]      = "Cannot parse type expression!";
-char const
-errTypeDefError[]      = "Cannot parse type declaration!";
-char const
-errTypeDefParamsError[] = "Error parsing type params. Should look like this: [T U/2]";
-char const
-errOperatorWrongArity[] = "Wrong number of arguments for operator!";
-char const
-errUnknownBinding[]     = "Unknown binding!";
-char const
-errUnknownFunction[]    = "Unknown function!";
-char const
-errOperatorUsedInappropriately[] = "Operator used in an inappropriate location!";
-char const
-errAssignment[]           = "Cannot parse assignment, it must look like `freshIdentifier` = `expression`";
-char const
-errListDifferentEltTypes[] = "An array or list's elements must all be of the same type";
-char const
-errListUnknownEltType[] = "Could not determine the element type of an array or list!";
-char const
-errMutation[]           = "Cannot parse mutation, it must look like `freshIdentifier` += `expression`";
-char const
-errAssignmentShadowing[] = "Assignment error: existing identifier is being shadowed";
-char const
-errAssignmentLeftSide[]   = "Assignment error: left side must be a var name, a type name, or an existing var with one or more accessors";
-char const
-errAssignmentAccessOnToplevel[] = "Accessor on the left side of an assignment at toplevel";
-char const
-errAssignmentToFunctionVar[]    = "Assignment to a function variable should look like "
-                                  "`fn F(Int -> Long) = overloadedName;`";
-char const
-errFnSignature[]    = "A function signature should look like `fn [Int -> Long] f{a-> ...};`";
-char const
-errFnTypeArrows[]  = "A function type should contain exactly one arrow and return type (unless "
-                     "it's void): `F[Par1 Par2 -> ReturnType]`, `F[Par1 ->]`";
-char const
-errArrowOutOfPlace[]  = "Arrows must be either in a function type: `F[Param -> ReturnType]` or "
-                        "closing a parameter list: `f{ param -> ...body...}`" ;
-char const
-errReturn[]               = "Cannot parse return statement, it must look like `return ` {expression}";
-char const
-errScope[]  = "A scope may consist only of expressions, assignments, function definitions and other scopes!";
-char const
-errMetaOnlyInArr[] = "Meta blocks are only allowed in array expressions!";
-char const
-errMetaArrSyntax[] = "Meta blocks must have 2 parts: type and length: `@(Int 2)`, and if present, "
-                     "must be the only thing in the collection declaration";
-char const
-errTemp[]                 = "Not implemented yet";
-
-//}}}
-//{{{ Type errors
-
-char const errUnknownType[]                = "Unknown type";
-char const errUnexpectedType[]             = "Unexpected to find a type here";
-char const errExpectedType[]               = "Expected to find a type here";
-char const errUnknownTypeConstructor[]     = "Unknown type constructor";
-char const errTypeUnknownFirstArg[]        = "The type of first argument to a call must be known, otherwise I can't resolve the function overload!";
-char const errTypeOverloadsIntersect[]     = "Two or more overloads of a single function intersect (impossible to choose one over the other)";
-char const errTypeOverloadsOnlyOneZero[]   = "Only one nullary function version is possible, otherwise I can't disambiguate the overloads!";
-char const errTypeNoMatchingOverload[]     = "No matching function overload was found";
-char const errTypeWrongArgumentType[]      = "Wrong argument type";
-char const errTypeWrongReturnType[]        = "Wrong return type";
-char const errTypeMismatch[]               = "Declared type doesn't match actual type";
-char const errTypeMustBeBool[]             = "Expression must have the Bool type";
-char const errTypeConstructorWrongArity[]  = "Wrong arity for the type constructor";
-char const errTypeTooManyParameters[]      = "Only up to 254 type parameters are supported";
-char const errTypeOfNotList[]              = "Trying to get the element of a type which is not a list";
-char const errTypeOfListIndex[]            = "The type of a list/array index must be Int";
-char const errTypePolymorphicAssignment[]  = "Assignments and constants must be monomorphic (no type params)";
-char const errTypeGenericCallDoesntUnify[] = "Generic function's type cannot be unified with its argument types";
-char const errTypeFieldNotFound[]          = "Field access error in a type";
-
-//}}}
 //}}}
 //{{{ Lexer
 //{{{ Lexer utils
@@ -2078,7 +2112,7 @@ char const errTypeFieldNotFound[]          = "Field access error in a type";
 #if !defined(DEBUG)
 #define VALIDATEI(cond, errInd)
 #endif
-#define VALIDATEL(cond, errMsg) if (!(cond)) { throwExcLexer0(errMsg, __LINE__, lx); }
+#define VALIDATEL(cond, errId) if (!(cond)) { throwExcLexer0(errId, __LINE__, lx); }
 
 
 #ifdef DEBUG
@@ -2201,26 +2235,26 @@ ensureCapacityTypes(Int neededSpace, CM) {
 }
 
 _Noreturn private void
-throwExcInternal0(Int errInd, Int lineNumber, CM) {
+throwExcInternal0(Int errId, Int lineNumber, CM) {
    cm->wasError = true;
 #ifdef DEBUG
-   printf("Internal error %d at line %d\n", errInd, lineNumber);
+   printf("Internal error %d at line %d\n", errId, lineNumber);
 #endif
-   cm->errMsg = stringOfInt(errInd, cm->a);
-   printString(cm->errMsg);
+   cm->errId = errId;
+   print("%s", compileErrors[errId]);
    longjmp(excBuf, 1);
 }
 
 #define throwExcInternal(errInd) throwExcInternal0(errInd, __LINE__, cm) //:throwExcInternal
 
 _Noreturn private void
-throwExcLexer0(char const errMsg[], Int lineNumber, LX) {
+throwExcLexer0(Int errId, Int lineNumber, LX) {
 // Sets i to beyond input's length to communicate to callers that lexing is over
    lx->wasError = true;
 #ifdef VERBOSE
-   printf("Error on code line %d, i = %d: %s\n", lineNumber, IND_BT, errMsg);
+   printf("Error on code line %d, i = %d: %s\n", lineNumber, IND_BT, compileErrors[errId]);
 #endif
-   lx->errMsg = str(errMsg);
+   lx->errId = errId;
    longjmp(excBuf, 1);
 }
 
@@ -3426,7 +3460,7 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 //{{{ Parser
 //{{{ Parser utils
 
-#define VALIDATEP(cond, errMsg) if (!(cond)) { throwExcParser0(errMsg, __LINE__, cm); }
+#define VALIDATEP(cond, errId) if (!(cond)) { throwExcParser0(errId, __LINE__, cm); }
 
 private TypeId exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM);
 private void eClose(Expr* s, CM);
@@ -3445,16 +3479,16 @@ private TypeId pExprWorker(Token tk, Int sentinel, TOKENS, CM);
 #define TYPE_CREATE_END cm->types.c[tentativeType.v] = cm->types.len - tentativeType.v - 1
 
 _Noreturn private void
-throwExcParser0(char const errMsg[], Int lineNumber, CM) {
+throwExcParser0(Int errId, Int lineNumber, CM) {
    cm->wasError = true;
 #ifdef VERBOSE
    printf("Parse error on i = %d line %d\n", cm->i, lineNumber);
 #endif
-   cm->errMsg = str(errMsg);
+   cm->errId = errId;
    longjmp(excBuf, 1);
 }
 
-#define throwExcParser(errMsg) throwExcParser0(errMsg, __LINE__, cm)
+#define throwExcParser(errId) throwExcParser0(errId, __LINE__, cm)
 
 
 private ChInterval //:interOf
@@ -5088,7 +5122,7 @@ lexicallyAnalyzeInner(Compiler* lx, Arena* a) {
 // with StandardText
    Int const inpLength = lx->stats.inpLength;
    Arr(char const) inp = lx->sourceCode.c;
-   VALIDATEL(inpLength > 0, "Empty input")
+   VALIDATEL(inpLength > 0, errEmptySourceCode)
 
    // Main loop over the input
    if (setjmp(excBuf) == 0) {
@@ -7218,11 +7252,11 @@ Int
 equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
 // Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
 // differing token otherwise
-   if (a->wasError != b->wasError || !endsWith(a->errMsg, b->errMsg)) {
+   if (a->wasError != b->wasError || a->errId != b->errId) {
       return -1;
    }
    if (b->wasError) {
-      return equal(a->errMsg, b->errMsg) ? -2 : -1;
+      return a->errId == b->errId ? -2 : -1;
    }
    int commonLength = a->tokens.len < b->tokens.len ? a->tokens.len : b->tokens.len;
    int i = 0;
@@ -7258,7 +7292,7 @@ void
 printLexer(LX) { //:printLexer
    if (lx->wasError) {
       printf("Error: ");
-      printString(lx->errMsg);
+      print("%s", compileErrors[lx->errId]);
    }
    Int indent = 0;
    Arena* a = lx->a;
@@ -7309,22 +7343,22 @@ CompStats
 getStats(CM) { return cm->stats; }
 
 void
-setLexerError(String errMsg, CM) {
+setLexerError(Int errId, CM) {
    cm->wasError = true;
-   cm->errMsg = errMsg;
+   cm->errId = errId;
 }
 
 void
-setParserError(String errMsg, CM) {
+setParserError(Int errId, CM) {
    cm->wasError = true;
-   cm->errMsg = errMsg;
+   cm->errId = errId;
 }
 
 void //:printParser
 printParser(CM) {
    if (cm->wasError) {
       printf("Error: ");
-      printString(cm->errMsg);
+      print("%s", compileErrors[cm->errId]);
    }
    Arena* a = cm->a;
    Int indent = 0;
@@ -7767,7 +7801,7 @@ equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool c
    CompResult* statsA = getCompResult(a);
    CompResult* statsB = getCompResult(b);
    if (statsA->wasParserError != statsB->wasParserError
-         || (!endsWith(statsA->errMsg, statsB->errMsg)))
+         || statsA->errId != statsB->errId)
       { return -1; }
    Int const commonLength = MIN(statsA->stats.astLen, statsB->stats.astLen);
    int i = 0;
@@ -7845,7 +7879,7 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
          .countOverloads = PROTO.stats.countOverloads,
          .countOverloadedNames = PROTO.stats.countOverloadedNames
       },
-      .wasError = false, .errMsg = empty,
+      .wasError = false, .errId = -1,
       .a = a
    };
 
@@ -7860,6 +7894,9 @@ initCompiler() {
 // Its results are global shared const.
    static_assert(TYPE_PREFIX == sizeof(TypeHeader)/4 + 1, "Sizeof TypeHeader check");
    static_assert(sizeof(TypeId) == 4, "C has added useless some padding to opaque id TypeId!");
+   static_assert(sizeof(compileErrors)/sizeof(char*) == errMaxId + 1, 
+      "CompilerErrors are out of sync with errMaxId!"
+   );
 
    if (_wasInit)
       { return; }
@@ -7879,7 +7916,7 @@ libeyr_compile(String sourceCode) {
    CompResult* cr = allocate(CompResult, a);
    if (sourceCode.len == 0) {
       cr->wasLexerError = true;
-      cr->errMsg = s("Empty input");
+      cr->errId = errPrematureEndOfInput;
       return cr;
    }
 
@@ -7887,11 +7924,11 @@ libeyr_compile(String sourceCode) {
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
    if (cm->wasError) {
 #if defined(DEBUG)
-      printString(cm->errMsg);
+      print("%s", compileErrors[cm->errId]);
 #endif
 
       cr->wasLexerError = true;
-      cr->errMsg = cm->errMsg;
+      cr->errId = cm->errId;
       return cr;
    }
 
@@ -7899,10 +7936,10 @@ libeyr_compile(String sourceCode) {
    if (cm->wasError) {
 
 #if defined(DEBUG)
-   printString(cm->errMsg);
+   print("%s", compileErrors[cm->errId]);
 #endif
       cr->wasParserError = true;
-      cr->errMsg = cm->errMsg;
+      cr->errId = cm->errId;
       return cr;
    }
    fillInCompilationResult(cm, OUT cr);
@@ -7915,7 +7952,7 @@ libeyr_compileFile(String filename) {
    CompResult* cr = allocate(CompResult, a);
    cr->a = a;
    if (filename.len == 0) {
-      cr->errMsg = s("Empty file name!");
+      cr->errId = errEmptySourceCode;
       cr->wasLexerError = true;
       return cr;
    }
@@ -7925,15 +7962,15 @@ libeyr_compileFile(String filename) {
 
    Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
    if (cm->wasError) {
-      printString(cm->errMsg);
-      cr->errMsg = cm->errMsg;
+      print("%s", compileErrors[cm->errId]);
+      cr->errId = cm->errId;
       cr->wasLexerError = true;
       return cr;
    }
    cm = parse(cm, a);
    if (cm->wasError) {
-      printString(cm->errMsg);
-      cr->errMsg = cm->errMsg;
+      print("%s", compileErrors[cm->errId]);
+      cr->errId = cm->errId;
       cr->wasParserError = true;
       return cr;
    }

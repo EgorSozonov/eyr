@@ -59,9 +59,9 @@ private Compiler* buildExpectedLexer(Arena *a, int totalTokens, Arr(Token) token
 
 
 private Compiler*
-expectError0(String errMsg, Arena *a, Int totalTokens, Arr(Token) tokens) {
+expectError0(Int errId, Arena *a, Int totalTokens, Arr(Token) tokens) {
     Compiler* result = buildExpectedLexer(a, totalTokens, tokens);
-    setLexerError(errMsg, result);
+    setLexerError(errId, result);
     return result;
 }
 
@@ -105,10 +105,10 @@ void runLexerTest(LexerTest test, TestContext* ct) {
       printf("]\nError msg: ");
       CompResult* testRes = getCompResult(result);
       CompResult* expectedRes = getCompResult(test.expectedOutput);
-      printString(testRes->errMsg);
+      print("%s", testRes->errId);
       if (expectedRes->wasLexerError) {
           printf("\nBut was expected: ");
-          printString(expectedRes->errMsg);
+          print("%s", expectedRes->errId);
       } else {
           printf("\nBut was expected to be error-free\n");
       }
@@ -230,7 +230,7 @@ LexerTestSet* numericTests(Arena* a) {
         (LexerTest) {
             .name = s("Hex numeric too long"),
             .input = s("0xFFFFFFFFFFFFFFFF0"),
-            .expectedOutput = expectError(s(errNumericBinWidthExceeded), ((Token[]) {
+            .expectedOutput = expectError(errNumericBinWidthExceeded, ((Token[]) {
                 (Token){ .tp = tokStmt }
             }))
         },
@@ -294,7 +294,7 @@ LexerTestSet* numericTests(Arena* a) {
         (LexerTest) {
             .name = s("Float numeric too big"),
             .input = s("9007199254740993.0"),
-            .expectedOutput = expectError(s(errNumericFloatWidthExceeded), ((Token[]) {
+            .expectedOutput = expectError(errNumericFloatWidthExceeded, ((Token[]) {
                 (Token){ .tp = tokStmt }
             }))
         },
@@ -414,12 +414,12 @@ LexerTestSet* numericTests(Arena* a) {
         (LexerTest) {
             .name = s("Int numeric error 1"),
             .input = s("3_"),
-            .expectedOutput = expectError(s(errNumericEndUnderscore), ((Token[]) {
+            .expectedOutput = expectError(errNumericEndUnderscore, ((Token[]) {
                 (Token){ .tp = tokStmt }
         }))},
         (LexerTest) { .name = s("Int numeric error 2"),
             .input = s("9_223_372_036_854_775_808"),
-            .expectedOutput = expectError(s(errNumericIntWidthExceeded), ((Token[]) {
+            .expectedOutput = expectError(errNumericIntWidthExceeded, ((Token[]) {
                 (Token){ .tp = tokStmt }
         }))}
     }));
@@ -444,7 +444,7 @@ LexerTestSet* stringTests(Arena* a) {
         }))},
         (LexerTest) { .name = s("String literal unclosed"),
             .input = s("`asdf"),
-            .expectedOutput = expectError(s(errPrematureEndOfInput), ((Token[]) {
+            .expectedOutput = expectError(errPrematureEndOfInput, ((Token[]) {
                 (Token){ .tp = tokStmt }
         }))}
     }));
@@ -495,7 +495,7 @@ LexerTestSet* punctuationTests(Arena* a) {
         }))},
         (LexerTest) { .name = s("Parens unclosed"),
             .input = s("(car (other car) cdr;"),
-            .expectedOutput = expectError(s(errPunctuationOnlyInMultiline), ((Token[]) {
+            .expectedOutput = expectError(errPunctuationOnlyInMultiline, ((Token[]) {
                 (Token){ .tp = tokStmt },
                 (Token){ .tp = tokParens, .pl2 = 0, .startBt = 0, .lenBts = 0 },
                 (Token){ .tp = tokWord, .pl1 = 0,   .startBt = 1, .lenBts = 3 },
@@ -600,7 +600,7 @@ LexerTestSet* punctuationTests(Arena* a) {
         }))},
         (LexerTest) { .name = s("Stmt separator usage error"),
             .input = s("asdf (zoogle; baz)"),
-            .expectedOutput = expectError(s(errPunctuationOnlyInMultiline), ((Token[]) {
+            .expectedOutput = expectError(errPunctuationOnlyInMultiline, ((Token[]) {
                 (Token){ .tp = tokStmt },
                 (Token){ .tp = tokWord, .pl1 = 0, .startBt = 0, .lenBts = 4 },
                 (Token){ .tp = tokParens, .startBt = 5 },
@@ -824,7 +824,7 @@ LexerTestSet* operatorTests(Arena* a) {
         }))},
         (LexerTest) { .name = s("Operator assignment in parens error"),
             .input = s("(x += y + 5)"),
-            .expectedOutput = expectError(s(errOperatorAssignmentPunct), ((Token[]) {
+            .expectedOutput = expectError(errOperatorAssignmentPunct, ((Token[]) {
                 (Token){ .tp = tokStmt },
                 (Token){ .tp = tokParens },
                 (Token){ .tp = tokWord, .startBt = 1, .lenBts = 1 }
@@ -844,14 +844,14 @@ LexerTestSet* operatorTests(Arena* a) {
         }))},
         (LexerTest) { .name = s("Operator assignment in parens error"),
             .input = s("x (+= y) + 5"),
-            .expectedOutput = expectError(s(errOperatorAssignmentPunct), ((Token[]) {
+            .expectedOutput = expectError(errOperatorAssignmentPunct, ((Token[]) {
                 (Token){ .tp = tokStmt },
                 (Token){ .tp = tokWord, .startBt = 0, .lenBts = 1 },
                 (Token){ .tp = tokParens, .startBt = 2 }
         }))},
         (LexerTest) { .name = s("Operator assignment multiple error"),
             .input = s("x = y = 7"),
-            .expectedOutput = expectError(s(errOperatorAssignmentPunct), ((Token[]) {
+            .expectedOutput = expectError(errOperatorAssignmentPunct, ((Token[]) {
                 (Token){ .tp = tokAssignment, .pl2 = 0, .lenBts = 0 },
                 (Token){ .tp = tokWord, .pl1 = 0, .startBt = 0, .lenBts = 1 },
                 (Token){ .tp = tokAssignRight, .pl2 = 0, .startBt = 2 },
@@ -908,7 +908,7 @@ LexerTestSet* coreFormTests(Arena* a) {
          }))},
          (LexerTest) { .name = s("Statement-type core form error"),
              .input = s("x / (assert foo)"),
-             .expectedOutput = expectError(s(errCoreNotInsideStmt), ((Token[]) {
+             .expectedOutput = expectError(errCoreNotInsideStmt, ((Token[]) {
                  (Token){ .tp = tokStmt },
                  (Token){ .tp = tokWord, .pl1 = 0, .startBt = 0, .lenBts = 1 },                // x
                  (Token){ .tp = tokOperator, .pl1 = opDivBy, .pl2 = 9, .startBt = 2, .lenBts = 1 },
@@ -1074,7 +1074,7 @@ LexerTestSet* coreFormTests(Arena* a) {
          (LexerTest) {
             .name = s("For loop error: neither step nor body"),
             .input = s("for {x' = 1; x < 101; -> }"),
-            .expectedOutput = expectError(s(errLoopEmptyStepBody),
+            .expectedOutput = expectError(errLoopEmptyStepBody,
             ((Token[]) {
                 (Token){ .tp = tokFor }
             }))
@@ -1082,7 +1082,7 @@ LexerTestSet* coreFormTests(Arena* a) {
          (LexerTest) {
             .name = s("For loop error: no condition"),
             .input = s("for {x' = 1; x = x + 1; -> $x .print; }"),
-            .expectedOutput = expectError(s(errLoopNoCondition),
+            .expectedOutput = expectError(errLoopNoCondition,
             ((Token[]) {
                 (Token){ .tp = tokFor }
             }))
@@ -1162,7 +1162,7 @@ LexerTestSet* typeTests(Arena* a) {
          }))},
          (LexerTest) { .name = s("Function type error: multiple arrows"),
              .input = s("F[Aa -> B -> C]"),
-             .expectedOutput = expectError(s(errFnTypeArrows), ((Token[]) {
+             .expectedOutput = expectError(errFnTypeArrows, ((Token[]) {
                  (Token){ .tp = tokStmt, .pl2 = 0,  .lenBts = 0 },
                  (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 0, .lenBts = 1 },
                  (Token){ .tp = tokType, .pl1 = 0, .startBt = 2, .lenBts = 2 },
@@ -1170,7 +1170,7 @@ LexerTestSet* typeTests(Arena* a) {
          }))},
          (LexerTest) { .name = s("Function type: no arrows"),
              .input = s("F[Aa B C];"),
-             .expectedOutput = expectError(s(errFnTypeArrows), ((Token[]) {
+             .expectedOutput = expectError(errFnTypeArrows, ((Token[]) {
                  (Token){ .tp = tokStmt },
                  (Token){ .tp = tokType, .pl1 = strF + S, .pl2 = 0, .startBt = 0, .lenBts = 1 },
                  (Token){ .tp = tokType, .pl1 = 0, .startBt = 2, .lenBts = 2 },
