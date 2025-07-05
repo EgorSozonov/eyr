@@ -226,7 +226,7 @@ libeyr_String str(const char* content);
 
 #define topVerbatimType tokMisc
 
-#define voidType            tokMisc
+#define voidType        tokMisc
 
 // Not used in types, only in overloads to mark functions with first param = type param
 constexpr Int outerTypeForTypeParam = topVerbatimType + 1;

@@ -3771,6 +3771,65 @@ updateStats(Compiler* restrict cm) {
 private Int
 getBinding(Int id, CM) { return cm->activeBindings[id]; }
 
+
+#define pError0(errId) pError0_0(errId, cm)
+private CompileError //:pError0
+pError0_0(Int errId, CM) {
+// An error where there is only a positional part, and it's built using current parser position
+   Int indSpan = -1;
+   for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
+      ParseFrame fr = cm->parseFrames->c[j];
+      
+      if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
+         indSpan = j;
+         break;
+      } 
+   }
+   
+   Int startNode, endNode;
+   if (indSpan > -1) {
+      startNode = lx->tokens.c[lx->lexBtrack->c[indStatement].tokenInd].startBt;
+   } else {
+      startNode = MAX(cm->ast.len - 10, 0);
+   }
+   endNode = cm->ast.len;
+   
+   return (CompileError){
+      .id = errId,
+      .positional = (ErrorPosition){.count = 2, .tp = errtpToken, .indices = {startNode, endNode}},
+      .textual = (ErrText){.count = 0} 
+   };
+}
+
+#define pError(errId) pError_0(errId, cm)
+private CompileError //:pError
+pError_0(Int errId, CM) {
+// An full parser error, and it's built using current parser position
+   Int indSpan = -1;
+   for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
+      ParseFrame fr = cm->parseFrames->c[j];
+      
+      if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
+         indSpan = j;
+         break;
+      } 
+   }
+   
+   Int startNode, endNode;
+   if (indSpan > -1) {
+      startNode = lx->tokens.c[lx->lexBtrack->c[indStatement].tokenInd].startBt;
+   } else {
+      startNode = MAX(cm->ast.len - 10, 0);
+   }
+   endNode = cm->ast.len;
+   
+   return (CompileError){
+      .id = errId,
+      .positional = (ErrorPosition){.count = 2, .tp = errtpToken, .indices = {startNode, endNode}},
+      .textual = (ErrText){.count = 0} 
+   };
+}
+
 //}}}
 //{{{ Forward decls
 

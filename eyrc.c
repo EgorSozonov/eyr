@@ -1736,6 +1736,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
    }
    mbCloseLoops(cg);
 
+//    dot -Tpng cfg.dot -o outfile.png
 //~   if (toplevelId == cr->entrypoint) {
 //~      gcc_jit_function_dump_to_dot(cg->currFn, "cfg.dot");
 //~   }

@@ -5,8 +5,19 @@ typedef struct {
     Int countPassed;
     Int singleId; // if > -1, then only test with this id will be run
     Bool ranSingle; // did we run the single test? Or we didn't encounter that id?
+    Bool wasSuccess;
     Arena* a;
 } TestContext;
+
+int
+getReturnCode(TestContext ct) {
+   if (ct.countPassed > 0 
+         && ((ct.ranSingle && ct.countPassed == 1) || ct.countPassed == ct.countTests)) {
+      return 0;
+   } else {
+      return -1;
+   }
+}
 
 typedef libeyr_String String;
 typedef libeyr_CompResult CompResult;

@@ -8,6 +8,16 @@ typedef struct {
     Arena* a;
 } TestContext;
 
+int
+getReturnCode(TestContext ct) {
+   if (ct.countPassed > 0 
+         && ((ct.ranSingle && ct.countPassed == 1) || ct.countPassed == ct.countTests)) {
+      return 0;
+   } else {
+      return -1;
+   }
+}
+
 typedef libeyr_String String;
 typedef libeyr_CompResult CompResult;
 #define BIG 70000000

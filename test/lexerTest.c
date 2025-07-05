@@ -72,7 +72,8 @@ private LexerTestSet* createTestSet0(String name, Arena *a, int count, Arr(Lexer
    result->name = name;
    result->totalTests = count;
    result->tests = allocateOnArena(count*sizeof(LexerTest), a);
-   if (result->tests == NULL) return result;
+   if (result->tests == NULL) 
+      { return result; }
    for (int i = 0; i < count; i++) {
        result->tests[i] = tests[i];
    }
@@ -1280,4 +1281,5 @@ int main(int argc, char** argv) {
    printTestResults(ct);
 
    deleteArena(ct.a);
+   return getReturnCode(ct);
 }

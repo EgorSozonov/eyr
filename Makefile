@@ -55,7 +55,7 @@ $(BIN):
 
 all: | $(BIN) ## Build the whole compiler
 / clear
-/ $(COMPILE_RELEASE) -o $(EXE) libeyr.c $(APP).c #-Wl,--verbose
+/ $(COMPILE_RELEASE) -o $(EXE) $(LIB_NAME).c $(APP).c #-Wl,--verbose
 / @echo "_________________________________________"
 / @echo "|            BUILD SUCCESS              |"
 / @echo "========================================="
@@ -63,15 +63,15 @@ all: | $(BIN) ## Build the whole compiler
 
 library: | $(BIN) ## Build the whole compiler
 / clear
-/ $(COMPILE_RELEASE_LIB) -c -o $(LIB_OUTPUT) libeyr.c
-/ $(COMPILE_RELEASE_LIB) -c -fpic -shared -o $(SHARED_LIB_OUTPUT) libeyr.c
+/ $(COMPILE_RELEASE_LIB) -c -o $(LIB_OUTPUT) $(LIB_NAME).c
+/ $(COMPILE_RELEASE_LIB) -c -fpic -shared -o $(SHARED_LIB_OUTPUT) $(LIB_NAME).c
 / @echo "_________________________________________"
 / @echo "|       LIBRARY BUILD SUCCESS            |"
 / @echo "========================================="
 
 debug: | $(DEBUG_TGT) ## Debug build
 / clear
-/ $(COMPILE_DEBUG) -DVERBOSE -o $(DEBUG_TGT)/$(APP) libeyr.c $(APP).c
+/ $(COMPILE_DEBUG) -DVERBOSE -o $(DEBUG_TGT)/$(APP) #(LIB_NAME).c $(APP).c
 / @echo "_________________________________________"
 / @echo "|         DEBUG BUILD SUCCESS            |"
 / @echo "========================================="
@@ -87,19 +87,18 @@ clean: ## Delete cached build results
 
 
 testLexer: | $(DEBUG_TGT) ## Test the lexical analyzer. Pass TEST=12 to run single test
-/ $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c libeyr.c
+/ $(COMPILE_TEST) -o $(DEBUG_TGT)/lexerTest test/lexerTest.c $(LIB_NAME).c
 / $(DEBUG_TGT)/lexerTest $(TEST)
 
 
 testParser: | $(DEBUG_TGT) ## Test the parser & typechecker. Pass TEST=12 to run single test
-/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c libeyr.c
+/ $(COMPILE_TEST) -DDEBUG -o $(DEBUG_TGT)/parserTest test/parserTest.c $(LIB_NAME).c
 / $(DEBUG_TGT)/parserTest $(TEST)
 
 
 testIntegration: all ## Test the full compilation and program execution
-/ $(COMPILE_TEST) -o $(DEBUG_TGT)/integrationTest test/integrationTest.c libeyr.c
+/ $(COMPILE_TEST) -o $(DEBUG_TGT)/integrationTest test/integrationTest.c $(LIB_NAME).c
 / $(DEBUG_TGT)/integrationTest
-
 
 test: | testLexer testParser testIntegration ## Run all tests
 
