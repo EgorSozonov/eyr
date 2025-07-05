@@ -60,25 +60,23 @@ private Compiler* buildExpectedLexer(Arena *a, int totalTokens, Arr(Token) token
 
 private Compiler*
 expectError0(Int errId, Arena *a, Int totalTokens, Arr(Token) tokens) {
-    Compiler* result = buildExpectedLexer(a, totalTokens, tokens);
-    setLexerError(errId, result);
-    return result;
+   Compiler* result = buildExpectedLexer(a, totalTokens, tokens);
+   setLexerError(errId, result);
+   return result;
 }
 
 #define expectError(msg, toks) expectError0(msg, a, sizeof(toks)/sizeof(Token), toks)
-#define expectEmptyWithError(msg) expectError0(msg, a, 0, NULL)
-
 
 private LexerTestSet* createTestSet0(String name, Arena *a, int count, Arr(LexerTest) tests) {
-    LexerTestSet* result = allocateOnArena(sizeof(LexerTestSet), a);
-    result->name = name;
-    result->totalTests = count;
-    result->tests = allocateOnArena(count*sizeof(LexerTest), a);
-    if (result->tests == NULL) return result;
-    for (int i = 0; i < count; i++) {
-        result->tests[i] = tests[i];
-    }
-    return result;
+   LexerTestSet* result = allocateOnArena(sizeof(LexerTestSet), a);
+   result->name = name;
+   result->totalTests = count;
+   result->tests = allocateOnArena(count*sizeof(LexerTest), a);
+   if (result->tests == NULL) return result;
+   for (int i = 0; i < count; i++) {
+       result->tests[i] = tests[i];
+   }
+   return result;
 }
 
 #define createTestSet(n, a, tests) createTestSet0(n, a, sizeof(tests)/sizeof(LexerTest), tests)
@@ -105,10 +103,10 @@ void runLexerTest(LexerTest test, TestContext* ct) {
       printf("]\nError msg: ");
       CompResult* testRes = getCompResult(result);
       CompResult* expectedRes = getCompResult(test.expectedOutput);
-      print("%s", testRes->errId);
+      libeyr_printErrors(testRes);
       if (expectedRes->wasLexerError) {
-          printf("\nBut was expected: ");
-          print("%s", expectedRes->errId);
+         printf("\nBut was expected: ");
+         libeyr_printErrors(expectedRes);
       } else {
           printf("\nBut was expected to be error-free\n");
       }
@@ -1092,12 +1090,12 @@ LexerTestSet* coreFormTests(Arena* a) {
              .expectedOutput = expect(((Token[]) {
                  (Token){ .tp = tokEach, .pl1 = slScope, .pl2 = 8, .lenBts = 30 },
                  (Token){ .tp = tokMisc, .pl1 = miscForStep0, .pl2 = 4, .startBt = 6, .lenBts = 0 },
-                 
+
                  (Token){ .tp = tokStmt,         .pl2 = 1, .startBt = 7, .lenBts = 6 },
                  (Token){ .tp = tokWord,     .pl1 = 0, .pl2 = 0, .startBt = 7, .lenBts = 4 }, // coll
 
                  (Token){ .tp = tokStmt,         .pl2 = 3, .startBt = 15, .lenBts = 13 },
-                 (Token){ .tp = tokWord, .pl1 = strPrint + S, .pl2 = 0, 
+                 (Token){ .tp = tokWord, .pl1 = strPrint + S, .pl2 = 0,
                           .startBt = 15, .lenBts = 5 },
                  (Token){ .tp = tokMisc, .pl1 = miscEachElem, .pl2 = 0, // .@
                           .startBt = 26, .lenBts = 2 },

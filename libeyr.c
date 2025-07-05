@@ -2004,6 +2004,11 @@ compileErrors[] = {
    "Field access error in a type"
 };
 
+struct libeyr_CompilationErrors {
+   Arr(CompileError) c;
+   Int len;
+};
+
 //}}}
 //{{{ Types & utils
 
@@ -2080,6 +2085,20 @@ eTypes(TypeId t1, TypeId t2) {
 
 void libeyr_printError(Int errId) {
    print("%s", compileErrors[errId]);
+}
+
+void
+libeyr_printErrors(CompResult* cr) {
+   for (Int i = 0; i < cr->errors->len; i++) {
+      print("%s", compileErrors[cr->errors->c[i].id]);
+   }
+}
+
+Int 
+libeyr_getFirstErrorId(CompResult* cr) {
+   if (cr->errors->len == 0)
+      { return -1; }
+   return cr->errors->c[0].id;   
 }
 
 //}}}
@@ -2269,7 +2288,7 @@ throwExcLexer0(CompileError err, Int lineNumber, LX) {
    longjmp(excBuf, 1);
 }
 
-#define throwExcLexer(msg) throwExcLexer0(msg, __LINE__, lx)
+#define throwExcLexer(err) throwExcLexer0(err, __LINE__, lx)
 
 #define lexError(errId) lexError0(errId, lx)
 private CompileError //:lexError
@@ -3524,9 +3543,12 @@ private TypeId pExprWorker(Token tk, Int sentinel, TOKENS, CM);
 
 #define TYPE_CREATE_END cm->types.c[tentativeType.v] = cm->types.len - tentativeType.v - 1
 
-_Noreturn private void
+[[noreturn]] private void
 throwExcParser0(Int errId, Int lineNumber, CM) {
    cm->wasError = true;
+//~#ifdef DEBUG
+//~   err.codeLine = lineNumber;
+//~#endif
 #ifdef VERBOSE
    printf("Parse error on i = %d line %d\n", cm->i, lineNumber);
 #endif
@@ -7255,7 +7277,7 @@ getFirstErrId(CM) {
    if (cm->errors->len > 0) {
       return -1;
    }
-   return cm->errors->c[0].errId;
+   return cm->errors->c[0].id;
 }
 
 //}}}
@@ -7307,11 +7329,15 @@ Int
 equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
 // Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
 // differing token otherwise
-   if (a->wasError != b->wasError || a->errId != b->errId) {
+   if (a->errors->len != b->errors->len) {
       return -1;
    }
-   if (b->wasError) {
-      return a->errId == b->errId ? -2 : -1;
+   if (b->errors->len > 0) {
+      for (Int j = 0; j < a->errors->len; j++) {
+         if (a->errors->c[j].id != b->errors->c[j].id)
+            { return -1; }
+      }
+      return -2;
    }
    int commonLength = a->tokens.len < b->tokens.len ? a->tokens.len : b->tokens.len;
    int i = 0;
@@ -7387,7 +7413,7 @@ printLexer(LX) { //:printLexer
 char const* nodeNames[] = {
    "Int", "Long", "Double", "Bool", "String", "_", "misc",
    "var", "call",
-   "{", "Expr", "=", "[]",
+   "{", "Expr", "=", "[data]", "Struct()",
    "assert", "breakCont", "catch", "import",
    "f{ }", "trait", "return", "try",
    "for{}", "if", "if clause", "impl", "match"
@@ -7400,6 +7426,7 @@ getStats(CM) { return cm->stats; }
 void
 setLexerError(Int errId, CM) {
    cm->wasError = true;
+   add((CompileError){.id = errId}, cm->errors);  
    cm->errId = errId;
 }
 
@@ -8040,6 +8067,8 @@ libeyr_compileFile(String filename) {
 
 private void //:fillInCompilationResult
 fillInCompilationResult(CM, OUT CompResult* cr) {
+   libeyr_CompilationErrors* errors = allocate(libeyr_CompilationErrors, cm->a);
+   *errors = (libeyr_CompilationErrors){.c = cm->errors->c, .len = cm->errors->len};
    *cr = (CompResult) {
       .sourceCode = (StringBuilder){
          .c = cm->sourceCode.c, .len = cm->sourceCode.len, .cap = cm->sourceCode.len
@@ -8059,6 +8088,7 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .names = cm->names != null
             ? ((SliUnt){.len = cm->names->len, .c = cm->names->c})
             : ((SliUnt){.len = 0, .c = null}),
+      .errors = errors,
       .a = cm->a,
       .stats = cm->stats,
       .wasLexerError = (cm->ast.c == null ? cm->wasError : false),

@@ -187,7 +187,7 @@ libeyr_String str(const char* content);
                            //   into @types if pl3 = callField or pl3 = callGetElem.
                            // pl2 = arg count (or, iff pl3 == callField, ind of field within type).
                            // pl3 = "call" constants.
-// Punctuation (inner node). pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
+// Spans. pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
 #define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
 #define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
@@ -199,24 +199,25 @@ libeyr_String str(const char* content);
                            // if pl2 > 0 and pl3 == BIG, it's an array with runtime-known
                            // size and no contents;
                            // if pl2 > 0 and pl3 > 0, then it has fully specified contents
-#define nodAssert      13  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
+#define nodStruct      13  // pl1 = name before typecheck, concrete typeId after. Struct initializer
+#define nodAssert      14  // pl1 = 1 iff it's a debug assert
+#define nodBreakCont   15  // pl1 = number of label to break or continue to, -1 if none needed.
                            // pl3 = 1 iff it's a "continue"
-#define nodCatch       15  // `catch e {`
-#define nodImport      16  // This is for test files only, no need to import anything in main
-#define nodToplevelFn  17  // pl1 = index into @functions
-#define nodTrait       18
-#define nodReturn      19
-#define nodTry         20
-#define nodFor         21  // pl1 = number of nodes to skip to get to the condition. Loops that get
+#define nodCatch       16  // `catch e {`
+#define nodImport      17  // This is for test files only, no need to import anything in main
+#define nodToplevelFn  18  // pl1 = index into @functions
+#define nodTrait       19
+#define nodReturn      20
+#define nodTry         21
+#define nodFor         22  // pl1 = number of nodes to skip to get to the condition. Loops that get
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
-#define nodIf          22
-#define nodIfClause    23  // pl3 = "ifcl" constants
-#define nodImpl        24
-#define nodMatch       25  // pattern matching on sum type tag
-#define countAstForms  26  // sentinel
+#define nodIf          23
+#define nodIfClause    24  // pl3 = "ifcl" constants
+#define nodImpl        25
+#define nodMatch       26  // pattern matching on sum type tag
+#define countAstForms  27  // sentinel
 
 #define countSpanForms (countAstForms - nodScope)
 
@@ -486,6 +487,8 @@ typedef struct { //:CompStats
    Int firstBuiltin;    // the name for the first built-in word in @standardStrings
 } CompStats;
 
+typedef struct libeyr_CompilationErrors libeyr_CompilationErrors;
+
 typedef struct { //:CompResult
    libeyr_StringBuilder sourceCode; // mutable for need to temporarily change "`" to \0 and back
 
@@ -505,6 +508,7 @@ typedef struct { //:CompResult
    CompStats stats;
    Bool wasLexerError;
    Bool wasParserError;
+   libeyr_CompilationErrors* errors;
    Int errId;
    Arena* a;
 } libeyr_CompResult;
@@ -517,7 +521,8 @@ TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
 Int libeyr_sizeOfType(TypeId t, Arr(Int) types);
 Int libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types);
 TypeId libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int ind, Arr(Int) types);
-void libeyr_printError(Int errId);
+void libeyr_printErrors(libeyr_CompResult*);
+Int libeyr_getFirstErrorId(libeyr_CompResult*);
 libeyr_CompResult* libeyr_compileFile(libeyr_String filename);
 libeyr_CompResult* libeyr_compile(libeyr_String sourceCode);
 
