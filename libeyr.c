@@ -1727,9 +1727,7 @@ struct Compiler { // :Compiler
    Int j; // index into the table that is being written to (AST during typecheck)
    Arena* a;
    Arena* aTmp;
-   Bool wasError;
    LCompileError* errors;
-   Int errId;
    CompStats stats;
 };
 
@@ -1771,7 +1769,7 @@ private void initCompiler();
 //{{{ Errors
 //{{{ Compile errors
 
-#define errMaxId 108 // must be updated. The maximal value of the currently existing errIds below
+#define errMaxId 123 // must be updated. The maximal value of the currently existing errIds below
 #define errNonAscii                     0
 #define errPrematureEndOfInput          1
 #define errUnrecognizedByte             2
@@ -1870,6 +1868,7 @@ private void initCompiler();
 #define errTypeOverloadsIntersect      95
 #define errTypeOverloadsOnlyOneZero    96
 #define errTypeNoMatchingOverload      97
+#define errTypeOverloadWrongArity     122 
 #define errTypeWrongArgumentType       98
 #define errTypeWrongReturnType         99
 #define errTypeMismatch               100
@@ -1880,7 +1879,29 @@ private void initCompiler();
 #define errTypeOfListIndex            105
 #define errTypePolymorphicAssignment  106
 #define errTypeGenericCallDoesntUnify 107
+#define errTypeGenericWrongArity      123
 #define errTypeFieldNotFound          108
+// internal errors:
+#define ierrInconsistentSpans         109 // Inconsistent span length / structure of token
+                                          // scopes!
+#define ierrImportedFnNotInScope      110 // There is a -1 or something else in the
+                                          // @activeBindings for an imported function
+#define ierrParsedFunctionNotInScope  111 // There is a -1 or something else in the
+                                          // @activeBindings for a parsed function
+#define ierrOverloadsOverflow         112 // There were more overloads for a function than
+                                          // what was allocated
+#define ierrOverloadsNotFull          113 // There were fewer overloads for a function than
+                                          // what was allocated
+#define ierrOverloadsIncoherent       114 // The overloads table is incoherent
+#define ierrExpressionIsNotAnExpr     115 // What is supposed to be an expression in the AST is
+                                          // not a nodExpr
+#define ierrComplexExpression         116 // Error in a complex expression's internal definitions
+#define ierrGenericTypesInconsistent  117 // Two generic types have inconsistent layout
+                                          // (premature end of type)
+#define ierrOuterTypeOfParam          118 // Tried to get an outer type of param or generic
+#define ierrInconsistentTypeExpr      119 // Reduced type expression has != 1 elements
+#define ierrNotAFunction              120 // Expected to find a function type here
+#define ierrIllegalEmit               121 // This entity cannot have this emit type in codegen
 
 private char const* const
 compileErrors[] = {
@@ -1894,7 +1915,7 @@ compileErrors[] = {
    "Free-floating field accessor",
    "Numeric literal cannot end with underscore!",
    "Numeric literal width is exceeded!",
-   "Integer literals cannot exceed 64 bit!",
+   "Integer literals cannot exceed 64 bit!", // 10
    "Floating-point literals cannot exceed 2**53 in the significant bits, and 22 in the decimal power!",
    "Could not lex a numeric literal, empty sequence!",
    "Multiple dots in numeric literals are not allowed!",
@@ -1904,7 +1925,7 @@ compileErrors[] = {
    "The comma is only allowed inside clauses!",
    "The statement ender `,` is not allowed inside subexpressions!",
    "Function definitions must be directly in a statement",
-   "Unmatched closing punctuation",
+   "Unmatched closing punctuation", // 20
    "Scopes may only be opened in multi-line syntax forms or in `for`, `if` forms",
    "Unknown operator",
    "Incorrect assignment operator: must be directly inside an ordinary statement, after the binding"
@@ -1915,7 +1936,7 @@ compileErrors[] = {
    "Core form must be directly inside statement",
    "The else statement must be inside an if, ifEq, ifPr or match form",
    "Core form requires opening parenthesis/curly brace immediately after keyword!",
-   "Malformed token stream (atoms and parentheses must not be bare)",
+   "Malformed token stream (atoms and parentheses must not be bare)", // 30
    "Import names must be unique!",
    "Immutable variables cannot be reassigned to!",
    "Premature end of tokens",
@@ -1925,17 +1946,19 @@ compileErrors[] = {
    "A core form may not contain any assignments!",
    "Inappropriate reserved word!",
    "A left-hand clause in an if can only contain variables, boolean literals and expressions!",
-   "A right-hand clause in an if can only contain atoms, expressions, scopes and some core forms!",
+   "A right-hand clause in an if can only contain atoms, expressions, scopes and some "
+      "core forms!", // 40
    "Empty `if` expression",
    "Malformed `if` expression, should look like (if pred: `true case` else `default`)",
    "An `else` subexpression must be the last thing in an `if`",
    "Function parameter list must look like this: `{x y ->  body...}`",
    "Duplicate parameter names in a function are not allowed",
    "The entrypoint must be named `main` and this function name must be unique!",
-   "Function definition must contain a body which must be a Scope immediately following its parameter list!",
-   "Operator overloads must respect the arity of the operator!",
+   "Function definition must contain a body which must be a Scope immediately following its "
+      "parameter list!",
+   "Operator overloads must respect the arity of the operator! Expected arity $0 but got $1",
    "A loop should look like `for {x = 0, x < 101; x++ -> loopBody } `",
-   "A loop header should contain a condition",
+   "A loop header should contain a condition", // 50
    "Empty loop step code & body, but at least one must be present!",
    "A for loop's stepper can only contain assignments, expressions and asserts",
    "The break keyword can only be used inside a loop scope!",
@@ -1943,11 +1966,11 @@ compileErrors[] = {
       " one thing only: the positive number of enclosing loops to continue/break!",
    "Invalid depth of break/continue! It must be a positive 32-bit integer!",
    "Wrong syntax of an 'each' loop",
-   "Invalid value provided for an 'each' loop!",
-   "Collection name not found among any active 'each' loops",
+   "Invalid value provided for an 'each' loop: $0",
+   "Collection name $0 not found among any active 'each' loops",
    "Duplicate function declaration: a function with same name and arity already exists in this scope!",
-   "Cannot parse expression!",
-   "Wrong argument count for a function",
+   "Cannot parse expression!", // 60
+   "Wrong argument count for a function", 
    "Expressions cannot contain scopes or statements!",
    "Functionless expression!",
    "Wrong count of names in a type definition!",
@@ -1957,18 +1980,19 @@ compileErrors[] = {
    "Cannot parse type declaration!",
    "Error parsing type params. Should look like this: [T U/2]",
    "Wrong number of arguments for operator!",
-   "Unknown binding!",
+   "Unknown binding!", // 70
    "Unknown function!",
    "Operator used in an inappropriate location!",
    "Cannot parse assignment, it must look like `freshIdentifier` = `expression`",
-   "An array or list's elements must all be of the same type",
+   "An array or list's elements must all be of the same type. "
+      "Element type $0 but previous element $1",
    "Could not determine the element type of an array or list!",
    "Cannot parse mutation, it must look like `freshIdentifier` += `expression`",
    "Assignment error: existing identifier is being shadowed",
    "Assignment error: left side must be a var name, a type name, or an existing var with one or"
       " more accessors",
    "Accessor on the left side of an assignment at toplevel",
-   "Assignment to a function variable should look like `fn F(Int -> Long) = overloadedName,`",
+   "Assignment to a function variable should look like `fn F(Int -> Long) = overloadedName,`", // 80
    "A function signature should look like `fn [Int -> Long] f{a-> ...},`",
    "A function type should contain exactly one arrow and return type (unless "
       "it's void): `F[Par1 Par2 -> ReturnType]`, `F[Par1 ->]`",
@@ -1981,27 +2005,42 @@ compileErrors[] = {
       "must be the only thing in the collection declaration",
    "Not implemented yet",
    "Empty source code",
-   "Unknown type",
+   "Unknown type", // 90
    "Unexpected to find a type here",
    "Expected to find a type here",
-   "Unknown type constructor",
-   "The type of first argument to a call must be known, otherwise I can't resolve the function"
-      " overload!",
+   "Unknown type constructor: $0",
+   "The type of first argument to a call must be known, otherwise can't resolve the function"
+      " overload! Function: $0",
    "Two or more overloads of a single function intersect (impossible to choose one over the other)",
-   "Only one nullary function version is possible, "
-      "otherwise I can't disambiguate the overloads!",
-   "No matching function overload was found",
-   "Wrong argument type",
+   "Only one nullary function version is possible, otherwise I can't disambiguate the overloads!",
+   "No matching function overload was found for name $0 and first parameter type $1",
+   "Wrong argument type, got $0 but expected $1",
    "Wrong return type",
-   "Declared type doesn't match actual type",
-   "Expression must have the Bool type",
+   "Declared type doesn't match actual type", // 100
+   "Expression must have the Bool type, but has: $0",
    "Wrong arity for the type constructor",
    "Only up to 254 type parameters are supported",
    "Trying to get the element of a type which is not a list",
    "The type of a list/array index must be Int",
    "Assignments and constants must be monomorphic (no type params)",
    "Generic function's type cannot be unified with its argument types",
-   "Field access error in a type"
+   "Field access error: cannot find field $0 in the type $1",
+   // internal errors
+   "Inconsistent span length / structure of token scopes",
+   "There is a -1 or something else in the @activeBindings for an imported function", // 110
+   "There is a -1 or something else in the @activeBindings for a parsed function",
+   "There were more overloads for a function than what was allocated",
+   "There were fewer overloads for a function than what was allocated",
+   "The overloads table is incoherent",
+   "What is supposed to be an expression in the AST is not a nodExpr",
+   "Error in a complex expression's internal definitions",
+   "Two generic types have inconsistent layout (premature end of type)",
+   "Tried to get an outer type of param or generic",
+   "Reduced type expression has != 1 elements",
+   "Expected to find a function type here",
+   "This entity cannot have this emit type in codegen",
+   "The matching function overload for name $0 has the wrong arity, $1. Type $2",
+   "Generic function's type has wrong arity $0 but should be $1"
 };
 
 struct libeyr_CompilationErrors {
@@ -2013,7 +2052,7 @@ struct libeyr_CompilationErrors {
 //{{{ Types & utils
 
 typedef enum {
-   errtpSource, // indices into source code
+   errtpSource, // for indices into source code
    errtpToken,  // indices into @tokens
    errtpAst     // indices into @ast
 } ErrorPositionKind;
@@ -2025,37 +2064,38 @@ typedef struct { //:ErrorPosition
                    // refer to tokens within that span
 } ErrorPosition;
 
-typedef union { //:ErrTextUnion
-   struct {
-      TypeId type1;
-      TypeId type2;
-   };
-   NameId name;
-} ErrTextUnion;
 
-#define errtpType 1
-#define errtpSource 2 // error referes to source code byte indices
+typedef enum { //:ErrorTextKind
+   errtxtType, // for indices into @types
+   errtxtName,  // indices into @names
+   errtxtTokType, // "tok" constants
+   errtxtNumber, // just ordinary numbers
+   errtxtOper // operators
+} ErrorTextKind;
 
-typedef struct { //:ErrText
+typedef struct { //:ErrorTextSumType
+   ErrorTextKind kind; // "errtp" constants
+   Int c;
+} ErrorTextSumType;
+
+typedef struct { //:ErrorText
    Int count;
-   Bool isPresent;
-   Int tp; // "errtp" constants
-   ErrTextUnion c;
-} ErrText;
+   ErrorTextSumType c[3];
+} ErrorText;
 
 struct CompileError { //:CompileError
    Int id; // one of the "err" constants
    ErrorPosition positional;
-   ErrText textual;
-#ifdef DEBUG 
+   ErrorText textual;
+#ifdef DEBUG
    Int codeLine;
-#endif 
+#endif
 };
 
-DEFINE_LIST(CompileError) //:createLChInterval
+DEFINE_LIST(CompileError) //:createLCompileError
 
 private CompileError //:e
-e(Int id, ErrorPosition p, ErrText t) {
+e(Int id, ErrorPosition p, ErrorText t) {
    p.count = 1;
    t.count = 1;
    return (CompileError){.id = id, .positional = p, .textual = t};
@@ -2064,11 +2104,11 @@ e(Int id, ErrorPosition p, ErrText t) {
 private CompileError //:e0
 e0(Int id, ErrorPosition p) {
    p.count = 1;
-   return (CompileError){.id = id, .positional = p, .textual = (ErrText){.count = 0} };
+   return (CompileError){.id = id, .positional = p, .textual = (ErrorText){.count = 0} };
 }
 
 private CompileError //:e1
-e1(Int id, ErrText t) {
+e1(Int id, ErrorText t) {
    t.count = 1;
    return (CompileError){ .id = id, .positional = (ErrorPosition){.count = 0}, .textual = t };
 }
@@ -2078,10 +2118,10 @@ ePos(ErrorPositionKind tp, Int ind) {
    return (ErrorPosition){.count = 1, .tp = tp, .indices = {ind}};
 }
 
-private ErrText //:eTypes
-eTypes(TypeId t1, TypeId t2) {
-   return (ErrText){.tp = errtpType, (ErrTextUnion){.type1 = t1, .type2 = t2} };
-}
+//~private ErrorText //:typesErr
+//~typesErr(TypeId t1, TypeId t2) {
+//~   return (ErrorText){.tp = errtpType, (ErrorTextUnion){.type1 = t1, .type2 = t2} };
+//~}
 
 void libeyr_printError(Int errId) {
    print("%s", compileErrors[errId]);
@@ -2094,36 +2134,12 @@ libeyr_printErrors(CompResult* cr) {
    }
 }
 
-Int 
+Int
 libeyr_getFirstErrorId(CompResult* cr) {
    if (cr->errors->len == 0)
       { return -1; }
-   return cr->errors->c[0].id;   
+   return cr->errors->c[0].id;
 }
-
-//}}}
-//{{{ Internal errors
-
-#define iErrorInconsistentSpans          1 // Inconsistent span length / structure of token
-                                           // scopes!
-#define iErrorImportedFunctionNotInScope 2 // There is a -1 or something else in the
-                                           // @activeBindings for an imported function
-#define iErrorParsedFunctionNotInScope   3 // There is a -1 or something else in the
-                                           // @activeBindings for a parsed function
-#define iErrorOverloadsOverflow          4 // There were more overloads for a function than
-                                           // what was allocated
-#define iErrorOverloadsNotFull           5 // There were fewer overloads for a function than
-                                           // what was allocated
-#define iErrorOverloadsIncoherent        6 // The overloads table is incoherent
-#define iErrorExpressionIsNotAnExpr      7 // What is supposed to be an expression in the AST is
-                                           // not a nodExpr
-#define iErrorComplexExpression          8 // Error in a complex expression's internal definitions
-#define iErrorGenericTypesInconsistent   9 // Two generic types have inconsistent layout
-                                           // (premature end of type)
-#define iErrorOuterTypeOfParam          10 // Tried to get an outer type of param or generic
-#define iErrorInconsistentTypeExpr      11 // Reduced type expression has != 1 elements
-#define iErrorNotAFunction              12 // Expected to find a function type here
-#define iErrorIllegalEmit               13 // This entity cannot have this emit type in codegen
 
 //}}}
 //}}}
@@ -2133,6 +2149,7 @@ libeyr_getFirstErrorId(CompResult* cr) {
 #define CURR_BT source[lx->i]
 #define NEXT_BT source[lx->i + 1]
 #define IND_BT (lx->i - lx->stats.standardTextLen)
+
 #ifdef DEBUG
 #define VALIDATEI(cond, errInd) if (!(cond)) { throwExcInternal0(errInd, __LINE__, cm); }
 #endif
@@ -2261,13 +2278,11 @@ ensureCapacityTypes(Int neededSpace, CM) {
    }
 }
 
-_Noreturn private void
+[[noreturn]] private void
 throwExcInternal0(Int errId, Int lineNumber, CM) {
-   cm->wasError = true;
 #ifdef DEBUG
    printf("Internal error %d at line %d\n", errId, lineNumber);
 #endif
-   cm->errId = errId;
    print("%s", compileErrors[errId]);
    longjmp(excBuf, 1);
 }
@@ -2277,7 +2292,6 @@ throwExcInternal0(Int errId, Int lineNumber, CM) {
 [[noreturn]] private void
 throwExcLexer0(CompileError err, Int lineNumber, LX) {
 // Sets i to beyond input's length to communicate to callers that lexing is over
-   lx->wasError = true;
 #ifdef DEBUG
    err.codeLine = lineNumber;
 #endif
@@ -2291,6 +2305,7 @@ throwExcLexer0(CompileError err, Int lineNumber, LX) {
 #define throwExcLexer(err) throwExcLexer0(err, __LINE__, lx)
 
 #define lexError(errId) lexError0(errId, lx)
+
 private CompileError //:lexError
 lexError0(Int errId, LX) {
 // An error where there is only a positional part, and it's built using current lexer position
@@ -2299,9 +2314,9 @@ lexError0(Int errId, LX) {
       if (lx->lexBtrack->c[j].tp == tokStmt) {
          indStatement = j;
          break;
-      } 
+      }
    }
-   
+
    Int startBt, endBt;
    if (indStatement > -1) {
       startBt = lx->tokens.c[lx->lexBtrack->c[indStatement].tokenInd].startBt;
@@ -2309,14 +2324,13 @@ lexError0(Int errId, LX) {
       startBt = MAX(lx->i - 10, 0);
    }
    endBt = lx->i;
-   
+
    return (CompileError){
       .id = errId,
       .positional = (ErrorPosition){.count = 2, .tp = errtpSource, .indices = {startBt, endBt}},
-      .textual = (ErrText){.count = 0} 
+      .textual = (ErrorText){.count = 0}
    };
 }
-
 
 //}}}
 //{{{ Lexer proper
@@ -2324,7 +2338,7 @@ lexError0(Int errId, LX) {
 private void //:checkPrematureEnd
 checkPrematureEnd(Int requiredSymbols, LX) {
 // Checks that there are at least 'requiredSymbols' symbols left in the input
-   VALIDATEL(lx->i + requiredSymbols <= lx->stats.inpLength, lexError(errPrematureEndOfInput)) 
+   VALIDATEL(lx->i + requiredSymbols <= lx->stats.inpLength, lexError(errPrematureEndOfInput))
 }
 
 private void //:setSpanLengthLexer
@@ -2694,7 +2708,7 @@ mbCloseAssignRight(BtToken* top, CM) {
       { return; }
    setStmtSpanLength(top->tokenInd, cm);
    VALIDATEI(cm->lexBtrack->len > 0 && (last(cm->lexBtrack).tp == tokAssignment),
-           iErrorInconsistentSpans
+           ierrInconsistentSpans
    )
    *top = removeLast(cm->lexBtrack);
    setStmtSpanLength(top->tokenInd, cm);
@@ -2710,7 +2724,7 @@ lxCloseFnDef(BtToken* top, CM) {
    *top = removeLast(bt); // the tokAssignRight
    setStmtSpanLength(top->tokenInd, cm);
 
-   VALIDATEI(bt->len > 0 && last(bt).tp == tokAssignment, iErrorInconsistentSpans)
+   VALIDATEI(bt->len > 0 && last(bt).tp == tokAssignment, ierrInconsistentSpans)
 
    *top = removeLast(bt); // the tokAssignment
    setStmtSpanLength(top->tokenInd, cm);
@@ -2851,7 +2865,7 @@ private void //:lexAt
 lexAt(SRC, LX) {
 // `[@Int 15]`
    VALIDATEL(lx->i < lx->stats.inpLength, lexError(errPrematureEndOfInput));
-   VALIDATEL(lx->lexBtrack->len > 0 && last(lx->lexBtrack).tp == tokData, 
+   VALIDATEL(lx->lexBtrack->len > 0 && last(lx->lexBtrack).tp == tokData,
       lexError(errMetaOnlyInArr));
    BtToken top = last(lx->lexBtrack);
    VALIDATEL(lx->tokens.c[top.tokenInd].pl1 < BIG, lexError(errMetaArrSyntax));
@@ -3461,7 +3475,7 @@ lexUnexpectedSymbol(SRC, LX) { //:lexUnexpectedSymbol
 }
 
 private void
-lexNonAsciiError(SRC, LX) { //:lexNonAsciiError
+lexNonAsciierr(SRC, LX) { //:lexNonAsciierr
    throwExcLexer(lexError(errNonAscii));
 }
 
@@ -3472,7 +3486,7 @@ tabulateLexer() { //:tabulateLexer
       p[i] = &lexUnexpectedSymbol;
    }
    for (Int i = 128; i < 256; i++) {
-      p[i] = &lexNonAsciiError;
+      p[i] = &lexNonAsciierr;
    }
    for (Int i = aDigit0; i <= aDigit9; i++) {
       p[i] = &lexNumber;
@@ -3525,7 +3539,7 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 //{{{ Parser
 //{{{ Parser utils
 
-#define VALIDATEP(cond, errId) if (!(cond)) { throwExcParser0(errId, __LINE__, cm); }
+#define VALIDATEP(cond, error) if (!(cond)) { throwExcParser0(error, __LINE__, cm); }
 
 private TypeId exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM);
 private void eClose(Expr* s, CM);
@@ -3543,21 +3557,137 @@ private TypeId pExprWorker(Token tk, Int sentinel, TOKENS, CM);
 
 #define TYPE_CREATE_END cm->types.c[tentativeType.v] = cm->types.len - tentativeType.v - 1
 
+//{{{ Parse error utils
+
+#define pError0(errId) pError0_0(errId, cm)
+
+private CompileError //:pError0
+pError0_0(Int errId, CM) {
+// An error where there is only a positional part, and it's built using current parser position
+   Int indSpan = -1;
+   for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
+      ParseFrame fr = cm->parseFrames->c[j];
+
+      if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
+         indSpan = fr.startNodeInd;
+         break;
+      }
+   }
+
+   Int startNode, endNode;
+   if (indSpan > -1) {
+      startNode = indSpan;
+   } else {
+      startNode = MAX(cm->ast.len - 10, 0);
+   }
+   endNode = cm->ast.len;
+
+   return (CompileError){
+      .id = errId,
+      .positional = (ErrorPosition){.count = 2, .tp = errtpToken, .indices = {startNode, endNode}},
+      .textual = (ErrorText){.count = 0}
+   };
+}
+
+#define pError(errId, errorText) pError_0(errId, errorText, cm)
+
+private CompileError //:pError
+pError_0(Int errId, ErrorText errorText, CM) {
+// A full parser error, and it's built using current parser position
+   CompileError err = pError0_0(errId, cm);
+   err.textual = errorText;
+   return err;
+}
+
+private ErrorText //:typeErr
+typeErr(TypeId t) {
+   return (ErrorText){
+      .count = 1,
+      .c = {(ErrorTextSumType){.kind = errtxtType, .c = t.v } }
+   };
+}
+
+private ErrorText //:typeErr2
+typeErr2(TypeId t1, TypeId t2) {
+   return (ErrorText){
+      .count = 2,
+      .c = {(ErrorTextSumType){.kind = errtxtType, .c = t1.v },
+            (ErrorTextSumType){.kind = errtxtType, .c = t2.v }
+      }
+   };
+}
+
+private ErrorText //:nameErr
+nameErr(Int name) {
+   return (ErrorText){
+      .count = 1,
+      .c = {(ErrorTextSumType){.kind = errtxtName, .c = name } }
+   };
+}
+
+private ErrorText //:nameAndTypeErr
+nameAndTypeErr(Int name, TypeId t) {
+   return (ErrorText){
+      .count = 2,
+      .c = {
+         (ErrorTextSumType){.kind = errtxtName, .c = name }, 
+         (ErrorTextSumType){.kind = errtxtType, .c = t.v } 
+      }
+   };
+}
+
+private ErrorText //:nameNumberTypeErr
+nameNumberTypeErr(Int name, Int n, TypeId t) {
+   return (ErrorText){
+      .count = 3,
+      .c = {
+         (ErrorTextSumType){.kind = errtxtName, .c = name }, 
+         (ErrorTextSumType){.kind = errtxtNumber, .c = n }, 
+         (ErrorTextSumType){.kind = errtxtType, .c = t.v } 
+      }
+   };
+}
+
+private ErrorText //:tokTypeErr
+tokTypeErr(Unt tp) {
+   return (ErrorText){
+      .count = 1,
+      .c = {(ErrorTextSumType){.kind = errtxtTokType, .c = tp } }
+   };
+}
+
+private ErrorText //:numberErr
+numberErr(Int n) {
+   return (ErrorText){
+      .count = 1,
+      .c = {(ErrorTextSumType){.kind = errtxtNumber, .c = n } }
+   };
+}
+
+private ErrorText //:operatorErr
+operatorErr(Int operId) {
+   return (ErrorText){
+      .count = 1,
+      .c = {(ErrorTextSumType){.kind = errtxtOper, .c = operId } }
+   };
+}
+
 [[noreturn]] private void
-throwExcParser0(Int errId, Int lineNumber, CM) {
-   cm->wasError = true;
-//~#ifdef DEBUG
-//~   err.codeLine = lineNumber;
-//~#endif
+throwExcParser0(CompileError error, Int lineNumber, CM) {
+
+#ifdef DEBUG
+   error.codeLine = lineNumber;
+#endif
 #ifdef VERBOSE
    printf("Parse error on i = %d line %d\n", cm->i, lineNumber);
 #endif
-   cm->errId = errId;
+   add(error, cm->errors);
    longjmp(excBuf, 1);
 }
 
 #define throwExcParser(errId) throwExcParser0(errId, __LINE__, cm)
 
+//}}}
 
 private ChInterval //:interOf
 interOf(Token tk) {
@@ -3583,7 +3713,7 @@ createNodVarForName(NameId name, CM) {
 // Resolves an active binding, throws if it's not active
    Int rawValue = cm->activeBindings[name];
 
-   VALIDATEP(rawValue > -1 && rawValue < BIG, errUnknownBinding)
+   VALIDATEP(rawValue > -1 && rawValue < BIG, pError(errUnknownBinding, nameErr(name)))
    Var v = cm->vars.c[rawValue];
    if (v.fnId == -1) {
       return (Node){ .tp = nodVar, .pl1 = rawValue, .pl2 = 0, .pl3 = 0 };
@@ -3610,7 +3740,7 @@ createVarWithType(NameId name, TypeId typeId, Byte access, FunctionId fnId, CM) 
 // "fnId" should be -1 for ordinary (non-function) local vars
 // Consumes no tokens
    Int mbBinding = cm->activeBindings[name];
-   VALIDATEP(mbBinding == -1, errAssignmentShadowing)
+   VALIDATEP(mbBinding == -1, pError(errAssignmentShadowing, nameErr(name)))
    VarId newVarId = createVar(name, access, fnId, cm);
    cm->vars.c[newVarId].typeId = typeId;
    return newVarId;
@@ -3638,11 +3768,11 @@ private void //:eOperatorCall
 eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
 // Pushes a call to the temporary lists during expression parsing
    Expr* e = cm->expr;
-   VALIDATEP(e->frames->len > 0, errExpressionError)
+   VALIDATEP(e->frames->len > 0, pError0(errExpressionError))
    ExprFrame frame = last(e->frames);
 
    if (frame.tp == exfrParen) { // for infix operators
-      VALIDATEP(frame.argCount == 1, errExpressionWrongArgCount)
+      VALIDATEP(frame.argCount == 1, pError0(errExpressionWrongArgCount))
    } else {
       if (frame.tp == exfrCall) {
          // Pop all calls with same or higher precedence. This is where precedence is useful
@@ -3772,64 +3902,6 @@ private Int
 getBinding(Int id, CM) { return cm->activeBindings[id]; }
 
 
-#define pError0(errId) pError0_0(errId, cm)
-private CompileError //:pError0
-pError0_0(Int errId, CM) {
-// An error where there is only a positional part, and it's built using current parser position
-   Int indSpan = -1;
-   for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
-      ParseFrame fr = cm->parseFrames->c[j];
-      
-      if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
-         indSpan = j;
-         break;
-      } 
-   }
-   
-   Int startNode, endNode;
-   if (indSpan > -1) {
-      startNode = lx->tokens.c[lx->lexBtrack->c[indStatement].tokenInd].startBt;
-   } else {
-      startNode = MAX(cm->ast.len - 10, 0);
-   }
-   endNode = cm->ast.len;
-   
-   return (CompileError){
-      .id = errId,
-      .positional = (ErrorPosition){.count = 2, .tp = errtpToken, .indices = {startNode, endNode}},
-      .textual = (ErrText){.count = 0} 
-   };
-}
-
-#define pError(errId) pError_0(errId, cm)
-private CompileError //:pError
-pError_0(Int errId, CM) {
-// An full parser error, and it's built using current parser position
-   Int indSpan = -1;
-   for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
-      ParseFrame fr = cm->parseFrames->c[j];
-      
-      if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
-         indSpan = j;
-         break;
-      } 
-   }
-   
-   Int startNode, endNode;
-   if (indSpan > -1) {
-      startNode = lx->tokens.c[lx->lexBtrack->c[indStatement].tokenInd].startBt;
-   } else {
-      startNode = MAX(cm->ast.len - 10, 0);
-   }
-   endNode = cm->ast.len;
-   
-   return (CompileError){
-      .id = errId,
-      .positional = (ErrorPosition){.count = 2, .tp = errtpToken, .indices = {startNode, endNode}},
-      .textual = (ErrText){.count = 0} 
-   };
-}
-
 //}}}
 //{{{ Forward decls
 
@@ -3880,7 +3952,7 @@ pScope(Token tok, Int sentinel, TOKENS, CM) {
 
 private void //:parseTry
 parseTry(Token tok, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 private void //:ifOpenSpan
@@ -3917,7 +3989,7 @@ pIfClause(Token tok, Int ifcl, TOKENS, CM) {
    Token stmtTok = tokens[cm->i];
    cm->i++; // CONSUME the stmt token
    TypeId typeLeft = pExprWorker(stmtTok, cm->i + stmtTok.pl2, tokens, cm);
-   VALIDATEP(eq(typeLeft, boolTy), errTypeMustBeBool)
+   VALIDATEP(eq(typeLeft, boolTy), pError(errTypeMustBeBool, typeErr(typeLeft)))
    closeParseFrames(cm);
 }
 
@@ -3940,7 +4012,9 @@ private void //:pAssignmentFnVar
 pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
 // Resolution of an overloaded function into a local var.
 // Validates that the right side consists of one word
-   VALIDATEP(assignment.rightTokenInd + 2 == assignment.sentinel, errAssignmentToFunctionVar)
+   VALIDATEP(assignment.rightTokenInd + 2 == assignment.sentinel, 
+      pError0(errAssignmentToFunctionVar)
+   )
    Token rightTk = cm->tokens.c[assignment.rightTokenInd + 1];
    NameId fnName = rightTk.pl1;
 
@@ -3968,10 +4042,10 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
 // NOT OK: `(foo x)[15] = ...`, `(foo x).a.b = ...`
    Node lastNode = cm->ast.c[sentinel - 1];
 
-   VALIDATEP(cm->ast.c[start].tp == nodVar, errAssignmentLeftSide)
+   VALIDATEP(cm->ast.c[start].tp == nodVar, pError0(errAssignmentLeftSide))
    VALIDATEP(
-      lastNode.tp == nodCall
-      && (lastNode.pl3 == callField || lastNode.pl3 == callGetElem), errAssignmentLeftSide
+      lastNode.tp == nodCall && (lastNode.pl3 == callField || lastNode.pl3 == callGetElem), 
+      pError0(errAssignmentLeftSide)
    )
    Int stackLen = 1; // for the leftmost nodVar which is the l-value of the expression
    for (Int j = start + 1; j < sentinel; j++) {
@@ -3979,7 +4053,8 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
       if (nd.tp == nodCall) {
          // only array and field accesses may affect our l-value
          VALIDATEP(
-            nd.pl3 == callField || nd.pl3 == callGetElem || nd.pl2 < stackLen, errAssignmentLeftSide
+            nd.pl3 == callField || nd.pl3 == callGetElem || nd.pl2 < stackLen, 
+            pError0(errAssignmentLeftSide)
          )
          switch (nd.pl3) {
          case callField: break;
@@ -4008,10 +4083,10 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
    Token locTk = (Token){.startBt = startBt, .lenBts = lastBt - startBt};
    Int start = cm->ast.len + 1;
 
-   VALIDATEP(tokens[cm->i + 1].tp == tokWord, errAssignmentLeftSide)
+   VALIDATEP(tokens[cm->i + 1].tp == tokWord, pError0(errAssignmentLeftSide))
    for (Int j = cm->i + 2; j < sentinel; ){
       Token accessorTk = tokens[j];
-      VALIDATEP(accessorTk.tp == tokAccessorIn, errAssignmentLeftSide)
+      VALIDATEP(accessorTk.tp == tokAccessorIn, pError0(errAssignmentLeftSide))
       j = calcSentinel(accessorTk, j);
       add(j, sc);
    }
@@ -4039,7 +4114,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
 
    Bool isGeneric;
    TypeId leftType = tParse(sentinel, OUT &isGeneric, tokens, cm);
-   VALIDATEP(!isGeneric, errTypePolymorphicAssignment)
+   VALIDATEP(!isGeneric, pError(errTypePolymorphicAssignment, typeErr(leftType)))
 
    if (nextTk.pl1 == nameOfStd(strF)) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
@@ -4066,7 +4141,6 @@ pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKENS, CM) {
         .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, interOf(rightTk),
         tokens, cm
       );
-      VALIDATEP(rightType.v != -2, errAssignment)
       return rightType;
    }
 }
@@ -4079,8 +4153,9 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
 
    Token rightTk = tokens[assignment.rightTokenInd];
-   VALIDATEP(assignment.rightTokenInd < assignment.sentinel && rightTk.pl2 > 0,
-           errAssignmentEmptyRight)
+   VALIDATEP(assignment.rightTokenInd < assignment.sentinel && rightTk.pl2 > 0, 
+      pError0(errAssignmentEmptyRight)
+   )
 
    VarId varId = -1;
    Int const assignmentNodeInd = cm->ast.len;
@@ -4095,7 +4170,9 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
       varId = cm->activeBindings[assignment.name];
       Byte assiSort = assiVarAssignment;
       if (varId > -1) {
-         VALIDATEP(cm->vars.c[varId].access == accessPrivMut, errCannotMutateImmutable)
+         VALIDATEP(cm->vars.c[varId].access == accessPrivMut,
+            pError(errCannotMutateImmutable, nameErr(assignment.name))
+         )
 
          leftType = cm->vars.c[varId].typeId;
          if (tIsFunction(leftType, cm) > -1) { // reassignment of a function var
@@ -4137,7 +4214,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    if (varId > -1 && rightType.v > -1 && eq(leftType, ZERO_ARITY_TYPE)) {
       cm->vars.c[varId].typeId = rightType; // inferring the type of left binding
    } ei (leftType.v > -1 && rightType.v > -1) {
-      VALIDATEP(eq(leftType, rightType), errTypeMismatch)
+      VALIDATEP(eq(leftType, rightType), pError(errTypeMismatch, typeErr2(leftType, rightType)))
    }
 closeSpans:
    closeParseFrames(cm);
@@ -4155,7 +4232,7 @@ pPreparseAssignment(Int start, Int sentinel, TOKENS, CM) {
        indRight < sentinel && tokens[indRight].tp != tokAssignRight;
        indRight++) {}
 
-   VALIDATEP((indRight < sentinel && tokens[indRight].pl2 > 0), errAssignmentEmptyRight);
+   VALIDATEP((indRight < sentinel && tokens[indRight].pl2 > 0), pError0(errAssignmentEmptyRight));
 
    return (Assignment){
       .nameTokenInd = start, .rightTokenInd = indRight, .sentinel = sentinel,
@@ -4210,7 +4287,7 @@ pFor(Token forTk, Int sentinel, TOKENS, CM) {
       interOf(condTok), tokens, cm
    );
 
-   VALIDATEP(eq(condType, boolTy), errTypeMustBeBool)
+   VALIDATEP(eq(condType, boolTy), pError(errTypeMustBeBool, typeErr(condType)))
 
    cm->i = condSentinel; // CONSUME the "for" until the loop body
    // readying to parse the body + step statements
@@ -4227,14 +4304,14 @@ pFor(Token forTk, Int sentinel, TOKENS, CM) {
 private void //:pLoopStepMarker
 pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 // tokMisc as a span token must be the marker for stepping code in loops
-   VALIDATEI(tok.pl1 == miscLoopStep && cm->parseFrames->len > 0, iErrorInconsistentSpans);
+   VALIDATEI(tok.pl1 == miscLoopStep && cm->parseFrames->len > 0, ierrInconsistentSpans);
 
    Int j = cm->parseFrames->len - 1;
    for (; j > -1; j--) {
       if (cm->parseFrames->c[j].level == pfrLoop)
          { break; }
    }
-   VALIDATEI(j > -1, iErrorInconsistentSpans); // we must be inside a loop
+   VALIDATEI(j > -1, ierrInconsistentSpans); // we must be inside a loop
    ParseFrame loop = cm->parseFrames->c[j];
    cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
 
@@ -4264,17 +4341,17 @@ eachLoopProcess(
 
    Int j = headerStart + 1;
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strSkip)) {
-      VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
+      VALIDATEP(tokens[j + 1].tp == tokInt, pError0(errEachLoopWrongSyntax));
       *skip = tokens[j + 1].pl2;
-      VALIDATEP(*skip >= 0, errEachLoopInvalidValue)
+      VALIDATEP(*skip >= 0, pError(errEachLoopInvalidValue, numberErr(*skip)))
       j += 2;
    } else
       { *skip = 0; }
 
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
-      VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
+      VALIDATEP(tokens[j + 1].tp == tokInt, pError0(errEachLoopWrongSyntax));
       *step = tokens[j + 1].pl2;
-      VALIDATEP(step != 0, errEachLoopInvalidValue)
+      VALIDATEP(step != 0, pError(errEachLoopInvalidValue, numberErr(*step)))
       j += 2;
    } else {
       *step = 1;
@@ -4282,14 +4359,14 @@ eachLoopProcess(
    tokens[sentinel - 1].pl2 = *step; // will be read by {pLoopStepMarker}
 
    if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strBalk)) {
-      VALIDATEP(tokens[j + 1].tp == tokInt, errEachLoopWrongSyntax);
+      VALIDATEP(tokens[j + 1].tp == tokInt, pError0(errEachLoopWrongSyntax));
       *balk = tokens[j + 1].pl2;
-      VALIDATEP(*balk >= 0, errEachLoopInvalidValue)
+      VALIDATEP(*balk >= 0, pError(errEachLoopInvalidValue, numberErr(*balk)))
       j += 2;
    } else
       { *balk = 0; }
 
-   VALIDATEP(j == headerSentinel, errEachLoopWrongSyntax);
+   VALIDATEP(j == headerSentinel, pError0(errEachLoopWrongSyntax))
    return eachData;
 }
 
@@ -4423,17 +4500,17 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Token miscTk = tokens[cm->i];
 
    VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscLoopStep0 && miscTk.pl2 > 0,
-      errEachLoopWrongSyntax); // pl2 will be 0 if there was no arrow inside the loop
+      pError0(errEachLoopWrongSyntax)); // pl2 will be 0 if there was no arrow inside the loop
 
    Token nameTk = tokens[cm->i + 2]; // skipping the tokMisc and tokStmt
-   VALIDATEP(nameTk.tp == tokWord, errEachLoopWrongSyntax);
+   VALIDATEP(nameTk.tp == tokWord, pError0(errEachLoopWrongSyntax));
    NameId collName = nameTk.pl1;
 
    Int collVarId = cm->activeBindings[collName];
-   VALIDATEP(collVarId > -1, errUnknownBinding);
+   VALIDATEP(collVarId > -1, pError(errUnknownBinding, nameErr(collName)));
    Var collVar = cm->vars.c[collVarId];
    TypeId collType = collVar.typeId;
-   VALIDATEP(tIsList(collType, cm), errTypeOfNotList);
+   VALIDATEP(tIsList(collType, cm), pError(errTypeOfNotList, typeErr(collType)));
 
    TypeId eltType =
       libeyr_typeGetGenericArg(collType, typeReadHeader(collType, cm), 0, cm->types.c);
@@ -4458,7 +4535,7 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
 
 private void //:parseErrorBareAtom
 parseErrorBareAtom(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 private ParseFrame //:popAParseFrame
@@ -4487,10 +4564,12 @@ exprSingleItem(Token tk, CM) {
       typeId = cm->vars.c[node.pl1].typeId;
       newNode(node, interOf(tk), cm);
    } ei (tk.tp == tokOperator) {
-      Int operBindingId = tk.pl1;
-      OpDef operDefinition = OPERATORS[operBindingId];
-      VALIDATEP(operDefinition.prec == precUnary, errOperatorWrongArity)
-      newNode((Node){ .tp = nodVar, .pl1 = operBindingId }, interOf(tk), cm);
+      Int operId = tk.pl1;
+      OpDef operDefinition = OPERATORS[operId];
+      VALIDATEP(operDefinition.prec == precUnary, 
+         pError(errOperatorWrongArity, operatorErr(operId))
+      )
+      newNode((Node){ .tp = nodVar, .pl1 = operId }, interOf(tk), cm);
       // TODO add the type when we support first-class functions
    } ei (tk.tp == tokString) {
       newNode((Node){.tp = tokString, .pl1 = tk.startBt, .pl2 = tk.lenBts}, interOf(tk), cm);
@@ -4501,7 +4580,7 @@ exprSingleItem(Token tk, CM) {
    } ei (tk.tp == tokData) { // `[]`
       newNode((Node){.tp = nodDataLit, .pl1 = -1, .pl2 = 0, .pl3 = 0}, interOf(tk), cm);
    } else {
-      throwExcParser(errUnexpectedToken);
+      throwExcParser(pError0(errUnexpectedToken));
    }
    return typeId;
 }
@@ -4515,7 +4594,7 @@ eEachVariable(Token miscTk, CM) {
       .startBt = miscTk.startBt, .lenBts = miscTk.lenBts + nameTk.lenBts
    };
    Int collVarId = cm->activeBindings[name];
-   VALIDATEP(collVarId > -1, errUnknownBinding);
+   VALIDATEP(collVarId > -1, pError(errUnknownBinding, nameErr(name)))
    LParseFrame* bt = cm->parseFrames;
    Int indEachFrame = bt->len - 1;
    for (; indEachFrame > -1; indEachFrame--) {
@@ -4523,7 +4602,7 @@ eEachVariable(Token miscTk, CM) {
          { break; }
    }
 
-   VALIDATEP(indEachFrame > -1, errEachNotACollection);
+   VALIDATEP(indEachFrame > -1, pError(errEachNotACollection, nameErr(name)))
    Int varId, typeId;
    if (miscTk.pl1 == miscEachElem) { // `coll.@`
       varId =  bt->c[indEachFrame].eachData.elementVar;
@@ -4705,7 +4784,8 @@ subexSkipFirstThing(Int const start, Int const subSentinel, TOKENS, CM) {
    ) {}
    Bool foundPrefix = j > start;
 
-   VALIDATEP(j < subSentinel, errExpressionError); // expression consisting solely of unary opers
+   // expression consisting solely of unary opers
+   VALIDATEP(j < subSentinel, pError0(errExpressionError));
    j = calcSentinel(tokens[j], j);
 
    if (foundPrefix)
@@ -4731,10 +4811,7 @@ subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKENS, CM) {
    } else {
       // the `foo a b c` case
       Token theCall = tokens[start];
-      if (theCall.tp != tokWord) {
-         print("ERR at start %d tok tp %d", start, theCall.tp);
-      }
-      VALIDATEP(theCall.tp == tokWord, errExpressionFunctionless);
+      VALIDATEP(theCall.tp == tokWord, pError(errExpressionFunctionless, tokTypeErr(theCall.tp)));
       add(
          ((ExprFrame) {
             .tp = exfrCall, .name = theCall.pl1, .sentinel = subSentinel, .precedence = precFn,
@@ -4788,7 +4865,7 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
    eBumpArgCount(e->frames);
    Node newDataAlloc = (Node){.tp = nodDataLit };
    if (cTk.pl1 >= BIG) { // `[@...]`
-      VALIDATEP(cTk.pl2 >= 2 && tokens[cm->i + 1].tp == tokType, errMetaArrSyntax)
+      VALIDATEP(cTk.pl2 >= 2 && tokens[cm->i + 1].tp == tokType, pError0(errMetaArrSyntax))
       Int sentinel = calcSentinel(cTk, cm->i);
 
       cm->i++; // CONSUME the tokData
@@ -4796,7 +4873,7 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
       Int const typeSentinel = calcSentinel(typeTk, cm->i);
       Bool isGeneric;
       TypeId elemType = tParse(typeSentinel, &isGeneric, tokens, cm);
-      VALIDATEP(!isGeneric, errTypePolymorphicAssignment);
+      VALIDATEP(!isGeneric, pError(errTypePolymorphicAssignment, typeErr(elemType));
 
       Token countTk = tokens[typeSentinel];
 
@@ -4859,7 +4936,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       );
       cm->i++; // CONSUME the tokAccessor
       Token varTk = tokens[cm->i];
-      VALIDATEP(varTk.tp == tokWord, errExpressionError);
+      VALIDATEP(varTk.tp == tokWord, pError(errExpressionError, tokTypeErr(varTk.tp)));
       Node node = createNodVarForName(varTk.pl1, cm);
       add(node, e->scr);
       add(interOf(varTk), e->locsScr);
@@ -5032,7 +5109,7 @@ closeParseFrames(CM) {
          print("Span inconsistency i %d  frame.level %d frame.sentinelToken %d startInd %d",
             cm->i, frame.sentinel, frame.level, frame.startNodeInd);
       }
-      VALIDATEI(cm->i == frame.sentinel, iErrorInconsistentSpans)
+      VALIDATEI(cm->i == frame.sentinel, ierrInconsistentSpans)
 #endif //}}}
       popAParseFrame(cm);
    }
@@ -5052,26 +5129,27 @@ parseUpTo(Int sentinelToken, TOKENS, CM) {
 
 private void //:pAlias
 pAlias(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 private void //:pAssert
 pAssert(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 private Node //:breakContinue
 breakContinue(Token tok, TOKENS, CM) {
 // Returns the number of levels to break/continue to, or 1 if there weren't any specified
 // For continue, the number is increased by BIG. Consumes no nodes.
-   VALIDATEP(tok.pl2 <= 1, errBreakContinueTooComplex);
+   VALIDATEP(tok.pl2 <= 1, pError0(errBreakContinueTooComplex));
    Bool const isContinue = tok.pl1 == 1;
 
    Int unwindDepth = 1;
    if (tok.pl2 > 0) {
       Token nextTok = tokens[cm->i];
       VALIDATEP(nextTok.tp == tokInt && nextTok.pl1 == 0 && nextTok.pl2 > 0,
-                errBreakContinueInvalidDepth)
+                pError0(errBreakContinueInvalidDepth)
+      )
       unwindDepth = nextTok.pl2;
    }
    Int const fullUnwindDepth = unwindDepth;
@@ -5166,9 +5244,11 @@ pReturn(Token tok, Int sentinel, TOKENS, CM) {
    Token rTk = tokens[cm->i];
    ChInterval loc = {.startBt = rTk.startBt, .lenBts = tok.lenBts - rTk.startBt + tok.startBt};
    TypeId const exprTy = exprHeadless(sentinel, loc, tokens, cm);
-   VALIDATEP(exprTy.v > -1, errReturn)
+   VALIDATEP(exprTy.v > -1, pError0(errReturn))
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
-   VALIDATEP(eq(returnType, exprTy), errTypeWrongReturnType);
+   VALIDATEP(eq(returnType, exprTy), 
+      pError(errTypeWrongReturnType, typeErr2(returnType, exprTy))
+   );
 }
 
 private void //:importVars
@@ -5182,7 +5262,9 @@ importVars(Arr(Var) impts, Int const countVars, CM) {
          printName(ent.name, cm);
 #endif
       }
-      VALIDATEP(cm->activeBindings[ent.name] == -1, errAssignmentShadowing)
+      VALIDATEP(cm->activeBindings[ent.name] == -1, 
+         pError(errAssignmentShadowing, nameErr(ent.name))
+      )
       Int newVarId = cm->vars.len;
       pushInvars(ent, cm);
       cm->activeBindings[ent.name] = newVarId;
@@ -5715,7 +5797,7 @@ internal void //:initializeParser
 initializeParser(Compiler* lx, Arena* a) {
 // Turns a lexer into a parser. Initializes all the parser & typer stuff after lexing is done
 
-   if (lx->wasError)
+   if (lx->errors->len > 0)
       { return; }
 
    Compiler* cm = lx;
@@ -5795,7 +5877,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
    Int start = listId + 1;
    Int const outerSentinel = start + countOverloads;
    if (ov[start] == outerTypeForTypeParam)
-      { VALIDATEP(outerSentinel == start + 1, errTypeOverloadsIntersect); }
+      { VALIDATEP(outerSentinel == start + 1, pError0(errTypeOverloadsIntersect)); }
 
    Int o = start + 1;
    for (Int prevOuter = ov[start]; o < outerSentinel; prevOuter = ov[o], o++) {
@@ -5808,7 +5890,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
          dbgOverloads(name, cm);
       }
 #endif //}}}
-      VALIDATEP(ov[o] != prevOuter, errTypeOverloadsIntersect)
+      VALIDATEP(ov[o] != prevOuter, pError0(errTypeOverloadsIntersect))
    }
 }
 
@@ -5825,7 +5907,7 @@ createNameOverloads(NameId name, CM) {
 
    Int const rawStart = listId + 2;
 
-   VALIDATEI(rawStart != -1, iErrorImportedFunctionNotInScope)
+   VALIDATEI(rawStart != -1, ierrImportedFnNotInScope)
    Int const countOverloads = raw[listId]/2;
 
    Int const rawSentinel = rawStart + raw[listId];
@@ -5947,27 +6029,27 @@ validateOverloadsFull(CM) {
       Int currInd = cm->overloadIds.c[i - 1];
       Int nextInd = cm->overloadIds.c[i];
 
-      VALIDATEI((nextInd > currInd + 2) && (nextInd - currInd) % 2 == 1, iErrorOverloadsIncoherent)
+      VALIDATEI((nextInd > currInd + 2) && (nextInd - currInd) % 2 == 1, ierrOverloadsIncoherent)
 
       Int countOverloads = (nextInd - currInd - 1)/2;
       Int countConcreteOverloads = cm->overloads.c[currInd];
-      VALIDATEI(countConcreteOverloads <= countOverloads, iErrorOverloadsIncoherent)
+      VALIDATEI(countConcreteOverloads <= countOverloads, ierrOverloadsIncoherent)
       for (Int j = currInd + 1; j < currInd + countOverloads; j++) {
          if (cm->overloads.c[j] < 0) {
-            throwExcInternal(iErrorOverloadsNotFull);
+            throwExcInternal(ierrOverloadsNotFull);
          }
          if (cm->overloads.c[j] >= lenTypes) {
-            throwExcInternal(iErrorOverloadsIncoherent);
+            throwExcInternal(ierrOverloadsIncoherent);
          }
       }
       for (Int j = currInd + countOverloads + 1; j < nextInd; j++) {
          if (cm->overloads.c[j] < 0) {
             print("ERR overload missing entity currInd %d nextInd %d j %d cm->overloads.c[j] %d", currInd, nextInd,
                j, cm->overloads.c[j])
-            throwExcInternal(iErrorOverloadsNotFull);
+            throwExcInternal(ierrOverloadsNotFull);
          }
          if (cm->overloads.c[j] >= lenEntities) {
-            throwExcInternal(iErrorOverloadsIncoherent);
+            throwExcInternal(ierrOverloadsIncoherent);
          }
       }
    }
@@ -5983,7 +6065,9 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    Int const tokenInd = cm->i - 1;
 
    Token nameTk = tokens[cm->i];
-   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0 || nameTk.tp == tokOperator, errFnSignature)
+   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0 || nameTk.tp == tokOperator, 
+      pError0(errFnSignature)
+   ) 
    NameId name = nameTk.pl1;
 
    cm->i++; // CONSUME the function name
@@ -6000,7 +6084,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    }
    if (nameTk.tp == tokOperator) {
       Int operArity = OPERATORS[name].prec == precUnary ? 1 : 2;
-      VALIDATEP(arity == operArity, errFnOperatorOverlArity);
+      VALIDATEP(arity == operArity, pError(errFnOperatorOverlArity, numberErr2(operArity, arity));
    }
    FunctionId const newFnId = cm->functions.len;
 
@@ -6012,7 +6096,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
       cm
    );
    if (name == nameOfStd(strMain)) {
-      VALIDATEP(cm->entrypoint == -1, errFnEntrypoint);
+      VALIDATEP(cm->entrypoint == -1, pError0(errFnEntrypoint));
       cm->entrypoint = newFnId;
    }
    addRawOverload(name, fnType, newFnId, cm);
@@ -6033,7 +6117,9 @@ pToplevelBodyWorker(
    cm->i++; // CONSUME the tokFn token
 
    if (arity > 0) {
-      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity, errFnParamList);
+      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity, 
+         pError0(errFnParamList)
+      );
    } else {
       goto bodyParsing;
    }
@@ -6289,7 +6375,7 @@ tGetIndexOfFnFirstParam(TypeId fnType, CM) {
    NameId name = typeReadHeader(fnType, cm).name;
    if (name != nameOfStd(strF))
       { print("A function is not a function! TypeId = %d", fnType); }
-   VALIDATEI(name == nameOfStd(strF), iErrorNotAFunction);
+   VALIDATEI(name == nameOfStd(strF), ierrNotAFunction);
 #endif //}}}
    return typeOf(fnType.v + TYPE_PREFIX);
 }
@@ -6323,7 +6409,7 @@ tGetBody(TypeId ty, CM) {
 private TypeId //:typeGetTypeByName
 typeGetTypeByName(Int t, CM) {
    Int const mbTypeId = cm->activeBindings[t];
-   VALIDATEP(mbTypeId > -1, errUnknownType);
+   VALIDATEP(mbTypeId > -1, pError(errUnknownType, typeErr(t)));
    return typeOf(mbTypeId);
 }
 
@@ -6373,7 +6459,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
       teClose(te, cm);
       Token cTk = tokens[cm->i];
 
-      VALIDATEP(frames->len > 0, errTypeDefError)
+      VALIDATEP(frames->len > 0, pError0(errTypeDefError))
       frames->c[frames->len - 1].countArgs++;
 
       if (cTk.tp == tokType) {
@@ -6393,7 +6479,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    }
    teClose(te, cm);
 
-   VALIDATEI(exp->len == 1, iErrorInconsistentTypeExpr);
+   VALIDATEI(exp->len == 1, ierrInconsistentTypeExpr);
    return typeOf(exp->c[0]);
 }
 
@@ -6403,7 +6489,9 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 // populates @te.exp.
 // Precondition: we are looking at the first type token (e.g. `(L`).
    Token firstTypeTk = tokens[cm->i];
-   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, errTypeDefError)
+   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, 
+      pError(errTypeDefError, tokTypeErr(firstTypeTk.tp))
+   ) 
    TExpr* te = cm->tExpr;
    if (cm->i + 1 == sentinel) { // single-name type
       if (firstTypeTk.tp == tokType)  {
@@ -6588,7 +6676,8 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
       );
    } else { // ordinary type call
       TypeId const typeId = typeOf(cm->activeBindings[typeName]);
-      VALIDATEP(typeId.v > -1, errUnknownTypeConstructor)
+      VALIDATEP(typeId.v > -1, pError(errUnknownTypeConstructor, nameErr(typeName))
+      )
       add(((TypeFrame){
             .tp = tfrTypeCall, .id = typeId, .sentinel = sentinel
          }),
@@ -6609,7 +6698,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 //~      Token cTk = tokens[cm->i];
 //~      cm->i++; // CONSUME the current token
 //~
-//~      VALIDATEP(frames->len > 0, errTypeDefError)
+//~      VALIDATEP(frames->len > 0, pError0(errTypeDefError))
 //~      if (cTk.tp == tokWord) { // name of a field in a struct/variant
 //~         VALIDATEP(cm->i < sentinel, errTypeDefError)
 //~         Int ctxType = last(frames).tp;
@@ -6641,7 +6730,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 //~
 //~   teClose(te, cm);
 //~
-//~   VALIDATEI(exp->len == 1, iErrorInconsistentTypeExpr);
+//~   VALIDATEI(exp->len == 1, ierrInconsistentTypeExpr);
 //~   return typeOf(exp->c[0]);
 //~}
 //~
@@ -6670,14 +6759,15 @@ pTypeDef(TOKENS, CM) {
 // Consumes the whole type assignment right side, or the whole function signature
 // Data format: see "Type expression data format"
 // Precondition: we are 1 past the tokAssignmentRight token
-   VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, errAssignmentLeftSide)
+   VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, pError0(errAssignmentLeftSide))
    cm->tExpr->frames->len = 0;
 
    Int sentinel = cm->i + tokens[cm->i - 1].pl2; // we get the length from the tokAssignmentRight
    Token nameTk = tokens[cm->i];
    cm->i += 2; // CONSUME the type name and the tokAssignmentRight
 
-   VALIDATEP(cm->i < sentinel, errTypeDefError)
+   VALIDATEP(cm->i < sentinel, pError0(errTypeDefError)
+   )
    Bool isGeneric;
    TypeId newType = tParse(sentinel, OUT &isGeneric, tokens, cm);
    NameId name = nameTk.pl1;
@@ -6763,7 +6853,7 @@ tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
 private FunctionId //:findOverload
 findOverload(NameId name, TypeId tpFstArg, CM) {
    Int indOverl = -cm->activeBindings[name] - 2;
-   VALIDATEP(tpFstArg.v > -1, errTypeUnknownFirstArg)
+   VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name)))
    Int fnId;
    Bool ovFound = tFindOverload(tpFstArg, indOverl, cm, OUT &fnId);
 #if defined(DEBUG) //{{{
@@ -6776,7 +6866,7 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
       printName(name, cm);
    }
 #endif //}}}
-   VALIDATEP(ovFound, errTypeNoMatchingOverload)
+   VALIDATEP(ovFound, pError(errTypeNoMatchingOverload, nameAndTypeErr(name, tpFstArg)))
    return fnId;
 }
 
@@ -6791,7 +6881,7 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
          Int a = exp->c[exp->len - argCount];
          print("can't get first type of type %d name %d cmj %d", a, name, cm->j);
       } //}}}
-      VALIDATEP(tpFstArg.v > -1, errTypeUnknownFirstArg)
+      VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name))
    }
    return findOverload(name, tpFstArg, cm);
 }
@@ -6804,7 +6894,7 @@ getOper(Int opName, Int operandType, Compiler* cm) {
    Bool foundOv __attribute__((unused)) = tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
 
    tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
-   VALIDATEI(foundOv, iErrorParsedFunctionNotInScope);
+   VALIDATEI(foundOv, ierrParsedFunctionNotInScope);
    return fnId;
 }
 
@@ -6876,7 +6966,11 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    }
 #endif //}}}
    // first param matches, but does arity?
-   VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == argCount + 1, errTypeNoMatchingOverload)
+   VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == argCount + 1, 
+      pError(errTypeNoMatchingOverload, 
+         nameNumberTypeErr(name, typeReadHeader(typeOfFunc, cm).arity, typeOfFunc)
+      )
+   ) 
 
    TypeId firstParamInd = getFirstParamInd(typeOfFunc, cm);
    if (isGeneric) {
@@ -6884,8 +6978,9 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    } else {
       // We know the type of the function, now to validate arg types against param types
       for (Int k = exp->len - argCount, l = firstParamInd.v; k < exp->len; k++, l++) {
-         VALIDATEP(exp->c[k] > - 1, errUnknownType)
-         VALIDATEP(exp->c[k] == cm->types.c[l], errTypeWrongArgumentType)
+         VALIDATEP(exp->c[k] == cm->types.c[l], 
+            pError(errTypeWrongArgumentType, typeErr2(typeOf(exp->c[k]), typeOf(cm->types.c[l])))
+         ) 
       }
       cm->ast.c[cm->j].pl1 = isVarCall ? varId : fnId;
    }
@@ -6901,12 +6996,15 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 // array accesses
 // Transforms the `#` operator for arrays and lists to a field access
    if (nd.pl3 == callGetElem) {
-      VALIDATEP(exp->len >= 2, errExpressionError)
+      VALIDATEP(exp->len >= 2, pError0(errExpressionError))
 
       TypeId typeColl = typeOf(exp->c[exp->len - 2]);
-      VALIDATEP(tIsList(typeColl, cm), errTypeOfNotList)
+      VALIDATEP(tIsList(typeColl, cm), pError(errTypeOfNotList, errType(typeColl)))
 
-      VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy), errTypeOfListIndex) // list index == Int
+      // list index must be Int
+      VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy), 
+         pError(errTypeOfListIndex, errType(typeOf(exp->c[exp->len - 1])))
+      )
 
       TypeId typeElt =
          libeyr_typeGetGenericArg(typeColl, typeReadHeader(typeColl, cm), 0, cm->types.c);
@@ -6914,11 +7012,13 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       exp->len -= 2; // replace collection and its index type (Int) with element type
       add(typeElt.v, exp);
    } ei (nd.pl3 == callField) { // a field accessor
-      VALIDATEP(exp->len >= 1, errExpressionError)
+      VALIDATEP(exp->len >= 1, pError0(errExpressionError))
       NameId name = nd.pl1;
 
       Int structType = exp->c[exp->len - 1];
-      VALIDATEP(structType > topVerbatimType, errTypeFieldNotFound);
+      VALIDATEP(structType > topVerbatimType, 
+         pError(errTypeFieldNotFound, nameAndTypeErr(name, typeOf(structType)))
+      );
 
       Int fieldInd;
       TypeId fieldType = typeTryGetField(name, typeOf(structType), OUT &fieldInd, cm);
@@ -7011,13 +7111,13 @@ typecheckList(Node nd, Int startInd, CM) {
       TypeId exprType;
       if (startInd + 2 == sentinel) {
          Node singleNode = cm->ast.c[startInd + 1];
-         VALIDATEP(singleNode.tp == nodVar, errMetaArrSyntax)
+         VALIDATEP(singleNode.tp == nodVar, pError0(errMetaArrSyntax))
          exprType = cm->vars.c[singleNode.pl1].typeId;
       } else {
          exprType = typeCheckBigExpr(startInd + 1, sentinel, cm);
       }
 
-      VALIDATEP(eq(exprType, typeOf(tokInt)), errMetaArrSyntax);
+      VALIDATEP(eq(exprType, typeOf(tokInt)), pError0(errMetaArrSyntax));
       return typeOf(nd.pl1);
    }
    TypeId commonEltType = VOID_TYPE;
@@ -7027,10 +7127,13 @@ typecheckList(Node nd, Int startInd, CM) {
          { continue; }
       if (eq(commonEltType, VOID_TYPE))
          { commonEltType = eltType; }
-      else
-         { VALIDATEP(eq(eltType, commonEltType), errListDifferentEltTypes) }
+      else {
+         VALIDATEP(eq(eltType, commonEltType), 
+            pError(errListDifferentEltTypes, typeErr2(eltType, commonEltType))
+         ) 
+      }
    }
-   VALIDATEP(!eq(commonEltType, VOID_TYPE), errListUnknownEltType);
+   VALIDATEP(!eq(commonEltType, VOID_TYPE), pError0(errListUnknownEltType));
    for (Int j = startInd + 1; j < cm->ast.len; ) {
       Node elem = cm->ast.c[j];
       if (elem.tp == nodDataLit && elem.pl1 == -1) {
@@ -7059,7 +7162,9 @@ typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
       if (cm->genericFields.c[j].name == name)
          { break; }
    }
-   VALIDATEP(j < indInGenericFields + hdr.arity, errTypeFieldNotFound);
+   VALIDATEP(j < indInGenericFields + hdr.arity, 
+      pError(errTypeFieldNotFound, nameAndTypeErr(name, t))
+   );
    *fieldInd = j - indInGenericFields;
 
    return typeOf(cm->types.c[t.v + TYPE_PREFIX + (*fieldInd)]);
@@ -7106,25 +7211,18 @@ tGenericSubstituteParams(TypeId t, CM) {
          add(currNode.v, te->tmp);
       } else {
          TypeHeader currHdr = typeReadHeader(currNode, cm);
-         if (currHdr.sort == sorGenericParam) {
-            Int deBruijnInd = cm->types.c[currNode.v + TYPE_PREFIX + 1];
-            add(te->tParams->c[deBruijnInd], te->tmp);
-         } else if (currHdr.isGeneric) {
-            add(te->exp->len, te->tmp);
-            typeExpAddHeader( // it will stop being generic once we substitute all params
-               ((TypeHeader){.sort = currHdr.sort, .arity = currHdr.arity,
-                  .isGeneric = false, .size = currHdr.size
-               }),
-               te
-            );
+         add(te->exp->len, te->tmp);
+         typeExpAddHeader( // it will stop being generic once we substitute all params
+            ((TypeHeader){.sort = currHdr.sort, .arity = currHdr.arity,
+               .isGeneric = false, .size = currHdr.size
+            }),
+            te
+         );
 
-            add(tGetBody(currNode, cm), te->genericSt);
-         } else {
-            add(currNode.v, te->tmp);
-         }
+         add(tGetBody(currNode, cm), te->genericSt);
       }
    }
-   VALIDATEI(te->exp->len == 1, iErrorInconsistentTypeExpr)
+   VALIDATEI(te->exp->len == 1, ierrInconsistentTypeExpr)
    return typeOf(te->exp->c[0]);
 }
 
@@ -7141,7 +7239,9 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
       NameId nameParam = -gener.v - 1;
       for (Int j = 0; j < params->len; j += 2) {
          if (params->c[j] == nameParam) {
-            VALIDATEP(params->c[j + 1] == concr.v, errTypeGenericCallDoesntUnify)
+            VALIDATEP(params->c[j + 1] == concr.v, 
+               pError(errTypeGenericCallDoesntUnify, typeErr2(typeOf(params->c[j + 1]), concr))
+            )
             return;
          }
       }
@@ -7150,27 +7250,19 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
       return;
    }
    TypeHeader generHdr = typeReadHeader(gener, cm);
-   if (generHdr.sort == sorGenericParam) {
-      Int deBruijnInd = generHdr.name;
-      Int currParamVal = cm->tExpr->tParams->c[deBruijnInd];
-
-      if (currParamVal == -1) {
-         cm->tExpr->tParams->c[deBruijnInd] = concr.v;
-      } else {
-         VALIDATEP(currParamVal == concr.v, errTypeGenericCallDoesntUnify)
-      }
-   } else {
-      TypeHeader concrHdr = typeReadHeader(concr, cm);
+   TypeHeader concrHdr = typeReadHeader(concr, cm);
 //~      if (generHdr.arity != concrHdr.arity || generHdr.name != concrHdr.name) {
 //~         print("UNEQ @ %d", cm->j);
 //~         dbgType(gener);
 //~         dbgType(concr);
 //~      }
-      VALIDATEP(generHdr.arity == concrHdr.arity && generHdr.name == concrHdr.name,
-         errTypeGenericCallDoesntUnify);
-      add(tGetBody(gener, cm), genericSt);
-      add(tGetBody(concr, cm), concreteSt);
-   }
+   VALIDATEP(generHdr.arity == concrHdr.arity,
+      pError(errTypeOverloadWrongArity, numberErr2(generHdr.arity, concrHdr.arity))
+   );
+   VALIDATEP(generHdr.name == concrHdr.name,
+      pError(errTypeGenericCallDoesntUnify, typeErr2(gener, concr)));
+   add(tGetBody(gener, cm), genericSt);
+   add(tGetBody(concr, cm), concreteSt);
 }
 
 TypeId //:tGenericTryUnifyFunctionTypes
@@ -7180,7 +7272,9 @@ tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
 // Since we're unifying a generic function with its arguments, we have only the arg types,
 // so don't have anything to unify for the return type.
 // Returns: the concrete return type of a resolved generic function call.
-   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1, errTypeGenericCallDoesntUnify);
+   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1, 
+      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, concreteHdr.arity + 1))
+   );
    Int arity = genericHdr.arity;
    Int genericSent = generic.v + TYPE_PREFIX + arity - 1;
    Int concreteSent = concrete.v + TYPE_PREFIX + arity;
@@ -7430,9 +7524,9 @@ equalityLexer(Compiler* a, Compiler* b) { //:equalityLexer
 
 void
 printLexer(LX) { //:printLexer
-   if (lx->wasError) {
+   if (lx->errors->len > 0) {
       printf("Error: ");
-      print("%s", compileErrors[lx->errId]);
+      print("%s", compileErrors[lx->errors->c[0]]);
    }
    Int indent = 0;
    Arena* a = lx->a;
@@ -7484,22 +7578,19 @@ getStats(CM) { return cm->stats; }
 
 void
 setLexerError(Int errId, CM) {
-   cm->wasError = true;
-   add((CompileError){.id = errId}, cm->errors);  
-   cm->errId = errId;
+   add((CompileError){.id = errId}, cm->errors);
 }
 
 void
 setParserError(Int errId, CM) {
-   cm->wasError = true;
-   cm->errId = errId;
+   add((CompileError){.id = errId}, cm->errors);
 }
 
 void //:printParser
 printParser(CM) {
-   if (cm->wasError) {
+   if (cm->errors->len > 0) {
       printf("Error: ");
-      print("%s", compileErrors[cm->errId]);
+      print("%s", compileErrors[cm->errors.c[0]]);
    }
    Arena* a = cm->a;
    Int indent = 0;
@@ -8020,7 +8111,6 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
          .countOverloads = PROTO.stats.countOverloads,
          .countOverloadedNames = PROTO.stats.countOverloadedNames
       },
-      .wasError = false, .errId = -1,
       .a = a
    };
 
@@ -8035,7 +8125,7 @@ initCompiler() {
 // Its results are global shared const.
    static_assert(TYPE_PREFIX == sizeof(TypeHeader)/4 + 1, "Sizeof TypeHeader check");
    static_assert(sizeof(TypeId) == 4, "C has added useless some padding to opaque id TypeId!");
-   static_assert(sizeof(compileErrors)/sizeof(char*) == errMaxId + 1, 
+   static_assert(sizeof(compileErrors)/sizeof(char*) == errMaxId + 1,
       "CompilerErrors are out of sync with errMaxId!"
    );
 
@@ -8063,9 +8153,9 @@ libeyr_compile(String sourceCode) {
 
    initCompiler();
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
-   if (cm->wasError) {
+   if (cm->errors->len > 0) {
 #if defined(DEBUG)
-      print("%s", compileErrors[cm->errId]);
+      print("%s", compileErrors[cm->errors->c[0]]);
 #endif
 
       cr->wasLexerError = true;
@@ -8074,10 +8164,10 @@ libeyr_compile(String sourceCode) {
    }
 
    cm = parse(cm, a);
-   if (cm->wasError) {
+   if (cm->errors->len > 0) {
 
 #if defined(DEBUG)
-   print("%s", compileErrors[cm->errId]);
+   print("%s", compileErrors[cm->errors->c[0]]);
 #endif
       cr->wasParserError = true;
       cr->errId = cm->errId;
@@ -8102,15 +8192,15 @@ libeyr_compileFile(String filename) {
    String sourceCode = readSourceFile(filename, a);
 
    Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
-   if (cm->wasError) {
-      print("%s", compileErrors[cm->errId]);
+   if (cm->errors->len > 0) {
+      print("%s", compileErrors[cm->errors->c[0]]);
       cr->errId = cm->errId;
       cr->wasLexerError = true;
       return cr;
    }
    cm = parse(cm, a);
-   if (cm->wasError) {
-      print("%s", compileErrors[cm->errId]);
+   if (cm->errors->len > 0) {
+      print("%s", compileErrors[cm->errors->c[0]]);
       cr->errId = cm->errId;
       cr->wasParserError = true;
       return cr;
@@ -8150,8 +8240,8 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .errors = errors,
       .a = cm->a,
       .stats = cm->stats,
-      .wasLexerError = (cm->ast.c == null ? cm->wasError : false),
-      .wasParserError = (cm->ast.c == null ? false : cm->wasError)
+      .wasLexerError = (cm->ast.c == null ? (cm->errors->len > 0) : false),
+      .wasParserError = (cm->ast.c == null ? false : (cm->errors->len > 0))
    };
 }
 

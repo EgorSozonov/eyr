@@ -385,8 +385,7 @@ struct StructField { //:StructField Struct field names + access are in a separat
 #define sorDeclare         1 // Used for definitions of records and sum types, both generic and not
 #define sorTypeCall        2 // A reference to a generic type. May be generic itself (when
                              // not all generic params are filled in)
-#define sorGenericParam    3 // A generic variant. outer = de Bruijn index
-#define sorMaxType         sorGenericParam
+#define sorMaxType         sorTypeCall
 
 typedef struct { //:TypeHeader
    Byte sort;    // "sor" constants above
