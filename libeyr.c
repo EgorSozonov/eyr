@@ -432,7 +432,7 @@ void printLexer(LX);
 defstruct(EachData);
 
 private void eSaveNodes(Int startNodeInd, CM);
-private void eachLoopAddStep(EachData ed, Int step, TOKENS, CM);
+private void eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
 private TypeId exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
@@ -464,6 +464,7 @@ private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 private Int getBinding(Int id, CM);
 TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
+private libeyr_CompilationErrors* getCompilationErrors(CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
 
 #define add(A, X) _Generic((X),\
@@ -1521,7 +1522,6 @@ Bool eq_TypeId(TypeId a, TypeId b) {
 }
 
 struct EachData{ //:EachData Data for "each" loops
-   Int startTokenInd;
    Int collVar;
    Int indexVar;
    Int elementVar;
@@ -1532,6 +1532,7 @@ struct EachData{ //:EachData Data for "each" loops
 #define pfrFn    3 // this frame is a function definition
 
 struct ParseFrame { // :ParseFrame
+   Int startTokenInd;
    Int startNodeInd;
    Int sentinel;      // sentinel token
    Byte level;        // the "pfr" constants above, or 0 if the frame is not a scope
@@ -1964,7 +1965,7 @@ compileErrors[] = {
    "The break keyword can only be used inside a loop scope!",
    "This statement is too complex! Continues and breaks may contain"
       " one thing only: the positive number of enclosing loops to continue/break!",
-   "Invalid depth of break/continue! It must be a positive 32-bit integer!",
+   "Invalid depth of break/continue $0! It must be a positive 32-bit integer!",
    "Wrong syntax of an 'each' loop",
    "Invalid value provided for an 'each' loop: $0",
    "Collection name $0 not found among any active 'each' loops",
@@ -1980,7 +1981,7 @@ compileErrors[] = {
    "Cannot parse type declaration!",
    "Error parsing type params. Should look like this: [T U/2]",
    "Wrong number of arguments for operator!",
-   "Unknown binding!", // 70
+   "Unknown binding $0", // 70
    "Unknown function!",
    "Operator used in an inappropriate location!",
    "Cannot parse assignment, it must look like `freshIdentifier` = `expression`",
@@ -2043,7 +2044,7 @@ compileErrors[] = {
    "Generic function's type has wrong arity $0 but should be $1"
 };
 
-struct libeyr_CompilationErrors {
+struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
    Arr(CompileError) c;
    Int len;
 };
@@ -2051,19 +2052,12 @@ struct libeyr_CompilationErrors {
 //}}}
 //{{{ Types & utils
 
-typedef enum {
-   errtpSource, // for indices into source code
-   errtpToken,  // indices into @tokens
-   errtpAst     // indices into @ast
-} ErrorPositionKind;
 
 typedef struct { //:ErrorPosition
    Int count;
-   ErrorPositionKind tp;
-   Int indices[3]; // indices in @tokens. First index is outer span, the other two (optional)
+   Int indices[3]; // indices in @sourceCode. First index is outer span, the other two (optional)
                    // refer to tokens within that span
 } ErrorPosition;
-
 
 typedef enum { //:ErrorTextKind
    errtxtType, // for indices into @types
@@ -2094,44 +2088,15 @@ struct CompileError { //:CompileError
 
 DEFINE_LIST(CompileError) //:createLCompileError
 
-private CompileError //:e
-e(Int id, ErrorPosition p, ErrorText t) {
-   p.count = 1;
-   t.count = 1;
-   return (CompileError){.id = id, .positional = p, .textual = t};
-}
-
-private CompileError //:e0
-e0(Int id, ErrorPosition p) {
-   p.count = 1;
-   return (CompileError){.id = id, .positional = p, .textual = (ErrorText){.count = 0} };
-}
-
-private CompileError //:e1
-e1(Int id, ErrorText t) {
-   t.count = 1;
-   return (CompileError){ .id = id, .positional = (ErrorPosition){.count = 0}, .textual = t };
-}
-
-private ErrorPosition //:ePos
-ePos(ErrorPositionKind tp, Int ind) {
-   return (ErrorPosition){.count = 1, .tp = tp, .indices = {ind}};
-}
-
-//~private ErrorText //:typesErr
-//~typesErr(TypeId t1, TypeId t2) {
-//~   return (ErrorText){.tp = errtpType, (ErrorTextUnion){.type1 = t1, .type2 = t2} };
+//~private CompileError //:e
+//~e(Int id, ErrorPosition p, ErrorText t) {
+//~   p.count = 1;
+//~   t.count = 1;
+//~   return (CompileError){.id = id, .positional = p, .textual = t};
 //~}
 
 void libeyr_printError(Int errId) {
    print("%s", compileErrors[errId]);
-}
-
-void
-libeyr_printErrors(CompResult* cr) {
-   for (Int i = 0; i < cr->errors->len; i++) {
-      print("%s", compileErrors[cr->errors->c[i].id]);
-   }
 }
 
 Int
@@ -2140,6 +2105,47 @@ libeyr_getFirstErrorId(CompResult* cr) {
       { return -1; }
    return cr->errors->c[0].id;
 }
+
+private void //:printPositionalError
+printPositionalError(ErrorPosition e, CompResult* cr) {
+   if (e.count == 0)
+      { return; }
+   Int len = e.indices[1] - e.indices[0];
+   printf("-----------\n");
+   fwrite(cr->sourceCode.c + e.indices[0], 1, len, stdout);
+   printf("\n-----------\n");
+}
+
+private void //:printTextualError
+printTextualError(Int errId, ErrorText e, CompResult* cr) {
+   
+}
+
+private void //:printError
+printError(CompileError err, CompResult* cr) {
+   print("%s", compileErrors[err.id]);
+   printPositionalError(err.positional, cr);
+   printTextualError(err.id, err.textual, cr);
+   
+#ifdef DEBUG
+   print("Code line: %d", err.codeLine);
+#endif
+}
+
+void
+libeyr_printErrors(CompResult* cr) {
+   if (cr->errors->len == 0)
+      { return; }
+   ei (cr->errors->len == 1)
+      { print("Compilation error!"); }
+   else
+      { print("%d compilation errors!", cr->errors->len); }
+      
+   for (Int i = 0; i < cr->errors->len; i++) {
+      printError(cr->errors->c[i], cr);
+   }
+}
+
 
 //}}}
 //}}}
@@ -2295,9 +2301,6 @@ throwExcLexer0(CompileError err, Int lineNumber, LX) {
 #ifdef DEBUG
    err.codeLine = lineNumber;
 #endif
-#ifdef VERBOSE
-   printf("Error on code line %d, i = %d: %s\n", lineNumber, IND_BT, compileErrors[errId]);
-#endif
    add(err, lx->errors);
    longjmp(excBuf, 1);
 }
@@ -2323,11 +2326,11 @@ lexError0(Int errId, LX) {
    } else {
       startBt = MAX(lx->i - 10, 0);
    }
-   endBt = lx->i;
+   endBt = MIN(lx->i + 1, lx->sourceCode.len);
 
    return (CompileError){
       .id = errId,
-      .positional = (ErrorPosition){.count = 2, .tp = errtpSource, .indices = {startBt, endBt}},
+      .positional = (ErrorPosition){.count = 2, .indices = {startBt, endBt}},
       .textual = (ErrorText){.count = 0}
    };
 }
@@ -3565,26 +3568,29 @@ private CompileError //:pError0
 pError0_0(Int errId, CM) {
 // An error where there is only a positional part, and it's built using current parser position
    Int indSpan = -1;
+   dbgParseFrames(cm);
    for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
       ParseFrame fr = cm->parseFrames->c[j];
-
       if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
          indSpan = fr.startNodeInd;
          break;
       }
    }
 
-   Int startNode, endNode;
+   Int startBt;
+   print("ind span %d", indSpan)
    if (indSpan > -1) {
-      startNode = indSpan;
+      ParseFrame fr = cm->parseFrames->c[indSpan];
+      startBt = cm->tokens.c[fr.startTokenInd].startBt;
    } else {
-      startNode = MAX(cm->ast.len - 10, 0);
+      Int startToken = MAX(cm->tokens.len - 10, 0);
+      startBt = cm->tokens.c[startToken].startBt;
    }
-   endNode = cm->ast.len;
+   Int endBt = cm->tokens.c[cm->i].startBt + cm->tokens.c[cm->i].lenBts;
 
    return (CompileError){
       .id = errId,
-      .positional = (ErrorPosition){.count = 2, .tp = errtpToken, .indices = {startNode, endNode}},
+      .positional = (ErrorPosition){.count = 2, .indices = {startBt, endBt}},
       .textual = (ErrorText){.count = 0}
    };
 }
@@ -3664,6 +3670,16 @@ numberErr(Int n) {
    };
 }
 
+private ErrorText //:numberErr2
+numberErr2(Int n, Int n2) {
+   return (ErrorText){
+      .count = 1,
+      .c = {(ErrorTextSumType){.kind = errtxtNumber, .c = n },
+            (ErrorTextSumType){.kind = errtxtNumber, .c = n2 } 
+      }
+   };
+}
+
 private ErrorText //:operatorErr
 operatorErr(Int operId) {
    return (ErrorText){
@@ -3677,9 +3693,6 @@ throwExcParser0(CompileError error, Int lineNumber, CM) {
 
 #ifdef DEBUG
    error.codeLine = lineNumber;
-#endif
-#ifdef VERBOSE
-   printf("Parse error on i = %d line %d\n", cm->i, lineNumber);
 #endif
    add(error, cm->errors);
    longjmp(excBuf, 1);
@@ -4316,14 +4329,14 @@ pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
    cm->ast.c[loop.startNodeInd].pl3 = cm->ast.len - loop.startNodeInd;
 
    if (loop.eachData.collVar + loop.eachData.indexVar > 0) {
-      eachLoopAddStep(loop.eachData, tok.pl2, tokens, cm);
+      eachLoopAddStep(loop, tok.pl2, tokens, cm);
    }
 }
 
 private EachData //:eachLoopProcess
 eachLoopProcess(
    Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel,
-   Int startTokenInd, Int sentinel, TOKENS, CM,
+   Int sentinel, TOKENS, CM,
    OUT Int* skip, OUT Int* step, OUT Int* balk
 ) {
 // Processes the heading of the each loop (the part between the `{` and the arrow).
@@ -4335,8 +4348,7 @@ eachLoopProcess(
    Int elementVarId = cm->vars.len;
    pushInvars((Var){.access = accessPrivImm, .typeId = eltType, .fnId = -1}, cm);
    EachData eachData = (EachData){
-      .startTokenInd = startTokenInd, .collVar = collVarId, .indexVar = indVarId,
-      .elementVar = elementVarId
+      .collVar = collVarId, .indexVar = indVarId, .elementVar = elementVarId
    };
 
    Int j = headerStart + 1;
@@ -4471,9 +4483,10 @@ eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int skip, Int ste
 }
 
 private void //:eachLoopAddStep
-eachLoopAddStep(EachData ed, Int step, TOKENS, CM) {
+eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM) {
 // Inserts nodes for the stepping statement of an "each" loop
-   Token eachTk = tokens[ed.startTokenInd];
+   Token eachTk = tokens[fr.startTokenInd];
+   EachData ed = fr.eachData;
    ChInterval interv = interOf(eachTk);
    if (step > 0) { // i = i + step
       Int plus = getOper(opPlus, tokInt, cm);
@@ -4519,12 +4532,12 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
 
    ParseFrame eachFrame = (ParseFrame){
+      .startTokenInd = cm->i - 1,
       .startNodeInd = cm->ast.len, .level = pfrLoop, .sentinel = sentinel
    };
-   Int startTokenInd = cm->i - 1;
    Int skip, step, balk;
    eachFrame.eachData = eachLoopProcess(
-      collVarId, eltType, headerStart, headerSentinel, startTokenInd, sentinel, tokens, cm,
+      collVarId, eltType, headerStart, headerSentinel, sentinel, tokens, cm,
       OUT &skip, OUT &step, OUT &balk
    );
    openParsedScopeWorker(eachFrame, (Node){.tp = nodFor}, interOf(eachTk), cm);
@@ -4785,7 +4798,7 @@ subexSkipFirstThing(Int const start, Int const subSentinel, TOKENS, CM) {
    Bool foundPrefix = j > start;
 
    // expression consisting solely of unary opers
-   VALIDATEP(j < subSentinel, pError0(errExpressionError));
+   VALIDATEP(j < subSentinel, pError0(errExpressionError))
    j = calcSentinel(tokens[j], j);
 
    if (foundPrefix)
@@ -4811,7 +4824,7 @@ subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKENS, CM) {
    } else {
       // the `foo a b c` case
       Token theCall = tokens[start];
-      VALIDATEP(theCall.tp == tokWord, pError(errExpressionFunctionless, tokTypeErr(theCall.tp)));
+      VALIDATEP(theCall.tp == tokWord, pError(errExpressionFunctionless, tokTypeErr(theCall.tp)))
       add(
          ((ExprFrame) {
             .tp = exfrCall, .name = theCall.pl1, .sentinel = subSentinel, .precedence = precFn,
@@ -4873,7 +4886,7 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
       Int const typeSentinel = calcSentinel(typeTk, cm->i);
       Bool isGeneric;
       TypeId elemType = tParse(typeSentinel, &isGeneric, tokens, cm);
-      VALIDATEP(!isGeneric, pError(errTypePolymorphicAssignment, typeErr(elemType));
+      VALIDATEP(!isGeneric, pError(errTypePolymorphicAssignment, typeErr(elemType)))
 
       Token countTk = tokens[typeSentinel];
 
@@ -4978,7 +4991,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       break;
    default:
       print("default %d @%d", tokTp, cm->i);
-      throwExcParser(errExpressionCannotContain);
+      throwExcParser(pError0(errExpressionCannotContain));
    }
 }
 
@@ -5160,7 +5173,7 @@ breakContinue(Token tok, TOKENS, CM) {
          { unwindDepth--; }
    }
    if (unwindDepth > 0)
-      { throwExcParser(errBreakContinueInvalidDepth); }
+      { throwExcParser(pError(errBreakContinueInvalidDepth, nameErr(fullUnwindDepth))); }
 
    if (isContinue) {
       // for codegen, we need to mark any loop with steppers being "continue"d to
@@ -5182,46 +5195,46 @@ pBreakCont(Token tok, Int sentinel, TOKENS, CM) {
 
 private void //:pMeta
 pMeta(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errMetaOnlyInArr);
+   throwExcParser(pError0(errMetaOnlyInArr));
 }
 
 private void
 parseCatch(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 private void parseDefer(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 
 private void pTrait(Token tok, Int sentinel, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 
 private void parseImpl(Token tok, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 
 private void parseLambda(Token tok, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 
 private void parseLambda1(Token tok, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 
 private void parseLambda2(Token tok, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 
 private void parsePackage(Token tok, TOKENS, CM) {
-   throwExcParser(errTemp);
+   throwExcParser(pError0(errTemp));
 }
 
 private void //:pReturn
@@ -6084,7 +6097,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    }
    if (nameTk.tp == tokOperator) {
       Int operArity = OPERATORS[name].prec == precUnary ? 1 : 2;
-      VALIDATEP(arity == operArity, pError(errFnOperatorOverlArity, numberErr2(operArity, arity));
+      VALIDATEP(arity == operArity, pError(errFnOperatorOverlArity, numberErr2(operArity, arity)))
    }
    FunctionId const newFnId = cm->functions.len;
 
@@ -6358,9 +6371,7 @@ typeGetOuter(TypeId t, CM) {
    if (t.v <= topVerbatimType)
       { return t; }
    TypeHeader hdr = typeReadHeader(t, cm);
-   if (hdr.sort == sorGenericParam)
-      { return typeOf(outerTypeForTypeParam); }
-   else if (hdr.name == nameOfStd(strF) || hdr.sort == sorDeclare)
+   if (hdr.name == nameOfStd(strF) || hdr.sort == sorDeclare)
       { return t; }
    else { // sorTypeCall which is a struct or union
       // need to skip the prefix, field types, and the index in @genericFields
@@ -6409,7 +6420,7 @@ tGetBody(TypeId ty, CM) {
 private TypeId //:typeGetTypeByName
 typeGetTypeByName(Int t, CM) {
    Int const mbTypeId = cm->activeBindings[t];
-   VALIDATEP(mbTypeId > -1, pError(errUnknownType, typeErr(t)));
+   VALIDATEP(mbTypeId > -1, pError(errUnknownType, typeErr(typeOf(t))));
    return typeOf(mbTypeId);
 }
 
@@ -6438,7 +6449,7 @@ teClose(TExpr* te, CM) {
          newType = tCreateTypeCall(te, sorTypeCall, startInd, frame, cm);
       } else { // tyeParamCall, a call of a type which is a parameter
          // TODO higher-kinded types
-         throwExcParser(errTemp);
+         throwExcParser(pError0(errTemp));
       }
       exp->c[startInd] = newType.v;
       exp->len = startInd + 1; // +1 because we've put one type for the call we've reduced
@@ -6473,7 +6484,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
          NameId name = cTk.pl1;
          teMergeParam(name, te, cm);
       } else {
-         throwExcParser(errTypeExpr);
+         throwExcParser(pError0(errTypeExpr));
       }
       cm->i++; // CONSUME the current token
    }
@@ -6529,7 +6540,7 @@ tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
    NameId prev = tmp->c[0];
    for (Int j = 1; j < tmp->len; j++) {
       if (tmp->c[j] == prev)
-         { throwExcParser(errFnDuplicateParams); }
+         { throwExcParser(pError0(errFnDuplicateParams)); }
    }
    Int const countNames = names->len;
    names->len = 0;
@@ -6724,7 +6735,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 //~         NameId name = cTk.pl1;
 //~         teMergeParam(name, te, cm);
 //~      } else {
-//~         throwExcParser(errTypeDefError);
+//~         throwExcParser(pError0(errTypeDefError));
 //~      }
 //~   }
 //~
@@ -6766,8 +6777,7 @@ pTypeDef(TOKENS, CM) {
    Token nameTk = tokens[cm->i];
    cm->i += 2; // CONSUME the type name and the tokAssignmentRight
 
-   VALIDATEP(cm->i < sentinel, pError0(errTypeDefError)
-   )
+   VALIDATEP(cm->i < sentinel, pError0(errTypeDefError))
    Bool isGeneric;
    TypeId newType = tParse(sentinel, OUT &isGeneric, tokens, cm);
    NameId name = nameTk.pl1;
@@ -6881,7 +6891,7 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
          Int a = exp->c[exp->len - argCount];
          print("can't get first type of type %d name %d cmj %d", a, name, cm->j);
       } //}}}
-      VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name))
+      VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name)))
    }
    return findOverload(name, tpFstArg, cm);
 }
@@ -6999,11 +7009,11 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       VALIDATEP(exp->len >= 2, pError0(errExpressionError))
 
       TypeId typeColl = typeOf(exp->c[exp->len - 2]);
-      VALIDATEP(tIsList(typeColl, cm), pError(errTypeOfNotList, errType(typeColl)))
+      VALIDATEP(tIsList(typeColl, cm), pError(errTypeOfNotList, typeErr(typeColl)))
 
       // list index must be Int
       VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy), 
-         pError(errTypeOfListIndex, errType(typeOf(exp->c[exp->len - 1])))
+         pError(errTypeOfListIndex, typeErr(typeOf(exp->c[exp->len - 1])))
       )
 
       TypeId typeElt =
@@ -7258,9 +7268,10 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
 //~      }
    VALIDATEP(generHdr.arity == concrHdr.arity,
       pError(errTypeOverloadWrongArity, numberErr2(generHdr.arity, concrHdr.arity))
-   );
+   )
    VALIDATEP(generHdr.name == concrHdr.name,
-      pError(errTypeGenericCallDoesntUnify, typeErr2(gener, concr)));
+      pError(errTypeGenericCallDoesntUnify, typeErr2(gener, concr))
+   )
    add(tGetBody(gener, cm), genericSt);
    add(tGetBody(concr, cm), concreteSt);
 }
@@ -7274,7 +7285,7 @@ tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
 // Returns: the concrete return type of a resolved generic function call.
    VALIDATEP(genericHdr.arity == concreteHdr.arity + 1, 
       pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, concreteHdr.arity + 1))
-   );
+   )
    Int arity = genericHdr.arity;
    Int genericSent = generic.v + TYPE_PREFIX + arity - 1;
    Int concreteSent = concrete.v + TYPE_PREFIX + arity;
@@ -7526,7 +7537,7 @@ void
 printLexer(LX) { //:printLexer
    if (lx->errors->len > 0) {
       printf("Error: ");
-      print("%s", compileErrors[lx->errors->c[0]]);
+      print("%s", compileErrors[lx->errors->c[0].id]);
    }
    Int indent = 0;
    Arena* a = lx->a;
@@ -7590,7 +7601,7 @@ void //:printParser
 printParser(CM) {
    if (cm->errors->len > 0) {
       printf("Error: ");
-      print("%s", compileErrors[cm->errors.c[0]]);
+      print("%s", compileErrors[cm->errors->c[0].id]);
    }
    Arena* a = cm->a;
    Int indent = 0;
@@ -7851,11 +7862,6 @@ print("b t = %d", t);
          top->currPos++;
       } else {
          TypeHeader currHdr = typeReadHeader(typeOf(currT), cm);
-         if (currHdr.sort == sorGenericParam) {
-            printf("$%d ", currHdr.name);
-            top->currPos++;
-            goto nextIter;
-         }
          //dbgTypeOuter(currHdr, cm);
 
          Int nextT = currT + TYPE_PREFIX;
@@ -7889,10 +7895,7 @@ dbgType0(TypeId type, CM) {
    if (typeId <= topVerbatimType) {
       printf("%s\n", nodeNames[typeId]);
       return;
-   } else if (hdr.sort == sorGenericParam) {
-      printf("$%d\n", hdr.name);
    } else {
-   print("a");
       dbgType1(type.v, hdr, cm);
    }
 }
@@ -8028,13 +8031,21 @@ getCompResult(CM) {
 
 Int //:equalityParser
 equalityParser(/* test specimen */Compiler* a, /* expected */Compiler* b, Bool compareLocsToo) {
-// Returns -2 if lexers are equal, -1 if they differ in errorfulness, and the index of the first
-// differing token otherwise
+// Returns -2 if parsers are equal, -1 if they differ in errorfulness, and the index of the first
+// differing node otherwise
+   if (a->errors->len != b->errors->len) {
+      return -1;
+   }
+   if (b->errors->len > 0) {
+      for (Int j = 0; j < a->errors->len; j++) {
+         if (a->errors->c[j].id != b->errors->c[j].id)
+            { return -1; }
+      }
+      return -2;
+   }
+
    CompResult* statsA = getCompResult(a);
    CompResult* statsB = getCompResult(b);
-   if (statsA->wasParserError != statsB->wasParserError
-         || statsA->errId != statsB->errId)
-      { return -1; }
    Int const commonLength = MIN(statsA->stats.astLen, statsB->stats.astLen);
    int i = 0;
    for (; i < commonLength; i++) {
@@ -8147,7 +8158,13 @@ libeyr_compile(String sourceCode) {
    CompResult* cr = allocate(CompResult, a);
    if (sourceCode.len == 0) {
       cr->wasLexerError = true;
-      cr->errId = errPrematureEndOfInput;
+      cr->errors = allocate(libeyr_CompilationErrors, a);
+      cr->errors->len = 1;
+      cr->errors->c[0] = ((CompileError){
+         .id = errPrematureEndOfInput,
+         .positional = (ErrorPosition){.count = 0},
+         .textual = (ErrorText){.count = 0}
+      });
       return cr;
    }
 
@@ -8155,11 +8172,12 @@ libeyr_compile(String sourceCode) {
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
    if (cm->errors->len > 0) {
 #if defined(DEBUG)
-      print("%s", compileErrors[cm->errors->c[0]]);
+      print("%s", compileErrors[cm->errors->c[0].id]);
 #endif
 
       cr->wasLexerError = true;
-      cr->errId = cm->errId;
+      cr->errors = allocate(libeyr_CompilationErrors, a);
+      *(cr->errors) = (libeyr_CompilationErrors){.c = cm->errors->c, .len = cm->errors->len};
       return cr;
    }
 
@@ -8167,10 +8185,10 @@ libeyr_compile(String sourceCode) {
    if (cm->errors->len > 0) {
 
 #if defined(DEBUG)
-   print("%s", compileErrors[cm->errors->c[0]]);
+   print("%s", compileErrors[cm->errors->c[0].id]);
 #endif
       cr->wasParserError = true;
-      cr->errId = cm->errId;
+      cr->errors = getCompilationErrors(cm);
       return cr;
    }
    fillInCompilationResult(cm, OUT cr);
@@ -8183,7 +8201,11 @@ libeyr_compileFile(String filename) {
    CompResult* cr = allocate(CompResult, a);
    cr->a = a;
    if (filename.len == 0) {
-      cr->errId = errEmptySourceCode;
+      
+      cr->errors = allocate(libeyr_CompilationErrors, cr->a);
+      CompileError* err = allocate(CompileError, cr->a);
+      *err = (CompileError){.id = errEmptySourceCode};
+      *(cr->errors) = (libeyr_CompilationErrors){.c = err, .len = 1 };
       cr->wasLexerError = true;
       return cr;
    }
@@ -8193,15 +8215,14 @@ libeyr_compileFile(String filename) {
 
    Compiler* cm = lexicallyAnalyzeFromFile(sourceCode, a);
    if (cm->errors->len > 0) {
-      print("%s", compileErrors[cm->errors->c[0]]);
-      cr->errId = cm->errId;
+      fillInCompilationResult(cm, cr);
       cr->wasLexerError = true;
       return cr;
    }
    cm = parse(cm, a);
    if (cm->errors->len > 0) {
-      print("%s", compileErrors[cm->errors->c[0]]);
-      cr->errId = cm->errId;
+      fillInCompilationResult(cm, cr);
+      cr->errors = getCompilationErrors(cm);
       cr->wasParserError = true;
       return cr;
    }
@@ -8214,10 +8235,15 @@ libeyr_compileFile(String filename) {
    return cr;
 }
 
-private void //:fillInCompilationResult
-fillInCompilationResult(CM, OUT CompResult* cr) {
+private libeyr_CompilationErrors* //:getCompilationErrors
+getCompilationErrors(CM) {
    libeyr_CompilationErrors* errors = allocate(libeyr_CompilationErrors, cm->a);
    *errors = (libeyr_CompilationErrors){.c = cm->errors->c, .len = cm->errors->len};
+   return errors;
+}
+
+private void //:fillInCompilationResult
+fillInCompilationResult(CM, OUT CompResult* cr) {
    *cr = (CompResult) {
       .sourceCode = (StringBuilder){
          .c = cm->sourceCode.c, .len = cm->sourceCode.len, .cap = cm->sourceCode.len
@@ -8237,7 +8263,7 @@ fillInCompilationResult(CM, OUT CompResult* cr) {
       .names = cm->names != null
             ? ((SliUnt){.len = cm->names->len, .c = cm->names->c})
             : ((SliUnt){.len = 0, .c = null}),
-      .errors = errors,
+      .errors = getCompilationErrors(cm),
       .a = cm->a,
       .stats = cm->stats,
       .wasLexerError = (cm->ast.c == null ? (cm->errors->len > 0) : false),

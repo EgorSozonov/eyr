@@ -1933,8 +1933,8 @@ main(int argc, char** argv) {
    }
 
    CompResult* compResult = libeyr_compileFile(task.inputFilename);
-   if (compResult->errMsg.len > 0) {
-      printString(compResult->errMsg);
+   if (compResult->wasLexerError || compResult->wasParserError) {
+      libeyr_printErrors(compResult);
       return 1;
    }
 

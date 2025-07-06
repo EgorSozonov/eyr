@@ -66,14 +66,14 @@ library: | $(BIN) ## Build the whole compiler
 / $(COMPILE_RELEASE_LIB) -c -o $(LIB_OUTPUT) $(LIB_NAME).c
 / $(COMPILE_RELEASE_LIB) -c -fpic -shared -o $(SHARED_LIB_OUTPUT) $(LIB_NAME).c
 / @echo "_________________________________________"
-/ @echo "|       LIBRARY BUILD SUCCESS            |"
+/ @echo "|       LIBRARY BUILD SUCCESS           |"
 / @echo "========================================="
 
 debug: | $(DEBUG_TGT) ## Debug build
 / clear
-/ $(COMPILE_DEBUG) -DVERBOSE -o $(DEBUG_TGT)/$(APP) #(LIB_NAME).c $(APP).c
+/ $(COMPILE_DEBUG) -DVERBOSE -o $(DEBUG_TGT)/$(APP) $(LIB_NAME).c $(APP).c
 / @echo "_________________________________________"
-/ @echo "|         DEBUG BUILD SUCCESS            |"
+/ @echo "|         DEBUG BUILD SUCCESS           |"
 / @echo "========================================="
 #/ cd $(DEBUG_TGT) && LD_LIBRARY_PATH=$(GCC_PATH):$(LD_LIBRARY_PATH) \
 #  PATH=$(GCC_PATH):$(PATH) \

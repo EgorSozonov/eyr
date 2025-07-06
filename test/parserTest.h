@@ -198,5 +198,6 @@ void newNode(Node node, ChInterval loc, CM);
 void parseMain(CM, Arena* a);
 Long longOfDoubleBits(double d);
 NameId nameOfStandard(Int strId);
+void libeyr_printErrors(CompResult* cr);
 
 //}}}

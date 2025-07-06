@@ -508,7 +508,6 @@ typedef struct { //:CompResult
    Bool wasLexerError;
    Bool wasParserError;
    libeyr_CompilationErrors* errors;
-   Int errId;
    Arena* a;
 } libeyr_CompResult;
 

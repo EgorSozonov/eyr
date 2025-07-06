@@ -184,9 +184,9 @@ void runTest(ParserTest test, TestContext* ct) {
       printf("\n\nERROR IN [%d][", testId);
       printStringNoLn(test.name);
       printf("]\nError msg: ");
-      libeyr_printError(testRes->errId);
+      libeyr_printErrors(testRes);
       printf("\nBut was expected: ");
-      libeyr_printError(controlRes->errId);
+      libeyr_printErrors(controlRes);
       printf("\n");
       print("   LEXER:")
       printLexer(test.test);
