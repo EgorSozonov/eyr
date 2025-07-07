@@ -172,15 +172,16 @@ libeyr_String str(const char* content);
 #define tokBool         3  // pl2 = value (1 or 0)
 #define tokString       4  // pl1 = startBt, pl2 = lenBts
 
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
+#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUnderscore
+                           // pl2 = name of field/kwarg iff miscField.
                            // Also stands for "Void" among the primitive types
 
 // AST nodes
-#define nodVar          7  // pl1 = index into @vars.
+#define nodVar          6  // pl1 = index into @vars.
                            // pl2 = fnId iff pl3 = assiFnVarUse /\ assiFnVarDef
                            // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
                            //     of the "assi" constants
-#define nodCall         8  // pl1 =
+#define nodCall         7  // pl1 =
                            //   index into @functions (after type resolution) when pl3 = callNormal,
                            //   into @monos if pl3 = callMonomorph,
                            //   into @vars if pl3 = callVar,
@@ -188,36 +189,37 @@ libeyr_String str(const char* content);
                            // pl2 = arg count (or, iff pl3 == callField, ind of field within type).
                            // pl3 = "call" constants.
 // Spans. pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
-#define nodScope        9  // if it's the outer scope of a forNode, then pl3 = length of nodes till
+#define nodScope        8  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
-#define nodExpr        10  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  11  // Followed by nodVar or complex left side. pl3 = distance to the right
+#define nodExpr         9  // pl1 = 1 iff it's a composite expression (has internal var decls)
+#define nodAssignment  10  // Followed by nodVar or complex left side. pl3 = distance to the right
                            // side, which is always an atom, nodExpr or a nodDataLit
-#define nodDataLit     12  // pl1 = concrete collection type, pl3 = count of elements.
+#define nodDataLit     11  // pl1 = concrete collection type, pl3 = count of elements.
                            // if pl2 == 0, it's an array with comp-time size but no
                            // contents;
                            // if pl2 > 0 and pl3 == BIG, it's an array with runtime-known
                            // size and no contents;
                            // if pl2 > 0 and pl3 > 0, then it has fully specified contents
-#define nodStruct      13  // pl1 = name before typecheck, concrete typeId after. Struct initializer
-#define nodAssert      14  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   15  // pl1 = number of label to break or continue to, -1 if none needed.
+#define nodStruct      12  // pl1 = name before typecheck, concrete typeId after. pl2 = count of fields.
+                           // Struct initializer
+#define nodAssert      13  // pl1 = 1 iff it's a debug assert
+#define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
                            // pl3 = 1 iff it's a "continue"
-#define nodCatch       16  // `catch e {`
-#define nodImport      17  // This is for test files only, no need to import anything in main
-#define nodToplevelFn  18  // pl1 = index into @functions
-#define nodTrait       19
-#define nodReturn      20
-#define nodTry         21
-#define nodFor         22  // pl1 = number of nodes to skip to get to the condition. Loops that get
+#define nodCatch       15  // `catch e {`
+#define nodImport      16  // This is for test files only, no need to import anything in main
+#define nodToplevelFn  17  // pl1 = index into @functions
+#define nodTrait       18
+#define nodReturn      19
+#define nodTry         20
+#define nodFor         21  // pl1 = number of nodes to skip to get to the condition. Loops that get
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
-#define nodIf          23
-#define nodIfClause    24  // pl3 = "ifcl" constants
-#define nodImpl        25
-#define nodMatch       26  // pattern matching on sum type tag
-#define countAstForms  27  // sentinel
+#define nodIf          22
+#define nodIfClause    23  // pl3 = "ifcl" constants
+#define nodImpl        24
+#define nodMatch       25  // pattern matching on sum type tag
+#define countAstForms  26  // sentinel
 
 #define countSpanForms (countAstForms - nodScope)
 

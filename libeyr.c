@@ -172,6 +172,7 @@ typedef struct { // :Token
 #define miscLoopStep   4    // token that marks stepping code in a "for" loop
 #define miscEachElem   5    // `coll.@` in an "each" loop - element
 #define miscEachInd    6    // `coll.#` in an "each" loop - index of element
+#define miscField      7    // `:kwarg` in a function call or `:field` in a struct initializer
 
 typedef struct { //:ChInterval
    Int startBt;
@@ -1770,7 +1771,7 @@ private void initCompiler();
 //{{{ Errors
 //{{{ Compile errors
 
-#define errMaxId 123 // must be updated. The maximal value of the currently existing errIds below
+#define errMaxId 124 // must be updated. The maximal value of the currently existing errIds below
 #define errNonAscii                     0
 #define errPrematureEndOfInput          1
 #define errUnrecognizedByte             2
@@ -1832,6 +1833,7 @@ private void initCompiler();
 #define errEachNotACollection          58
 #define errDuplicateFunction           59
 #define errExpressionError             60
+#define errExpressionExpectedWord     124
 #define errExpressionWrongArgCount     61
 #define errExpressionCannotContain     62
 #define errExpressionFunctionless      63
@@ -1973,7 +1975,7 @@ compileErrors[] = {
    "Cannot parse expression!", // 60
    "Wrong argument count for a function", 
    "Expressions cannot contain scopes or statements!",
-   "Functionless expression!",
+   "Expected to see a word naming a function",
    "Wrong count of names in a type definition!",
    "Type declarations may only contain types (like Int),"
       " type params (like A), type constructors (like List) and parentheses!",
@@ -2041,7 +2043,8 @@ compileErrors[] = {
    "Expected to find a function type here",
    "This entity cannot have this emit type in codegen",
    "The matching function overload for name $0 has the wrong arity, $1. Type $2",
-   "Generic function's type has wrong arity $0 but should be $1"
+   "Generic function's type has wrong arity $0 but should be $1",
+   "Expected a word"
 };
 
 struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
@@ -2062,15 +2065,14 @@ typedef struct { //:ErrorPosition
 typedef enum { //:ErrorTextKind
    errtxtType, // for indices into @types
    errtxtName,  // indices into @names
-   errtxtTokType, // "tok" constants
    errtxtNumber, // just ordinary numbers
    errtxtOper // operators
 } ErrorTextKind;
 
-typedef struct { //:ErrorTextSumType
-   ErrorTextKind kind; // "errtp" constants
+typedef struct { //:ErrTextSumType
+   ErrorTextKind tp; // "errtp" constants
    Int c;
-} ErrorTextSumType;
+} ErrTextSumType;
 
 typedef struct { //:ErrorText
    Int count;
@@ -2118,7 +2120,35 @@ printPositionalError(ErrorPosition e, CompResult* cr) {
 
 private void //:printTextualError
 printTextualError(Int errId, ErrorText e, CompResult* cr) {
+   char const* text = compileErrors[errId];
+   if (e.count == 0) {
+      print("%s", text);
+      return;
+   }
    
+   for (char const* p = text; *p != '\0'; p++) {
+      if (*p == '$' && *(p + 1) >= aDigit0 && *(p + 1) < (aDigit0 + 3)) {
+         Int ind = *(p + 1) - aDigit0;
+         if (ind < e.count) {
+            ErrorTextSumType printable = e.c[ind];
+            switch (printable.tp) {
+            case errtxtType: {
+               
+            }
+            case errtxtName: {
+               Unt unsign = cr->names->c[printable.c];
+               Int startBt = unsign & LOWER24BITS;
+               Int len = (unsign >> 24) & 0xFF;
+               fwrite(cr->sourceCode.c + startBt, 1, len, stdout);
+               printf("\n");
+            }
+            
+            case errtxtNumber:
+            case errtxtOper:
+            }
+         }
+      }
+   }
 }
 
 private void //:printError
@@ -2136,10 +2166,6 @@ void
 libeyr_printErrors(CompResult* cr) {
    if (cr->errors->len == 0)
       { return; }
-   ei (cr->errors->len == 1)
-      { print("Compilation error!"); }
-   else
-      { print("%d compilation errors!", cr->errors->len); }
       
    for (Int i = 0; i < cr->errors->len; i++) {
       printError(cr->errors->c[i], cr);
@@ -3609,7 +3635,7 @@ private ErrorText //:typeErr
 typeErr(TypeId t) {
    return (ErrorText){
       .count = 1,
-      .c = {(ErrorTextSumType){.kind = errtxtType, .c = t.v } }
+      .c = {(ErrTextSumType){.tp = errtxtType, .c = t.v } }
    };
 }
 
@@ -3617,8 +3643,8 @@ private ErrorText //:typeErr2
 typeErr2(TypeId t1, TypeId t2) {
    return (ErrorText){
       .count = 2,
-      .c = {(ErrorTextSumType){.kind = errtxtType, .c = t1.v },
-            (ErrorTextSumType){.kind = errtxtType, .c = t2.v }
+      .c = {(ErrTextSumType){.tp = errtxtType, .c = t1.v },
+            (ErrTextSumType){.tp = errtxtType, .c = t2.v }
       }
    };
 }
@@ -3627,7 +3653,7 @@ private ErrorText //:nameErr
 nameErr(Int name) {
    return (ErrorText){
       .count = 1,
-      .c = {(ErrorTextSumType){.kind = errtxtName, .c = name } }
+      .c = {(ErrTextSumType){.tp = errtxtName, .c = name } }
    };
 }
 
@@ -3636,8 +3662,8 @@ nameAndTypeErr(Int name, TypeId t) {
    return (ErrorText){
       .count = 2,
       .c = {
-         (ErrorTextSumType){.kind = errtxtName, .c = name }, 
-         (ErrorTextSumType){.kind = errtxtType, .c = t.v } 
+         (ErrTextSumType){.tp = errtxtName, .c = name }, 
+         (ErrTextSumType){.tp = errtxtType, .c = t.v } 
       }
    };
 }
@@ -3647,18 +3673,10 @@ nameNumberTypeErr(Int name, Int n, TypeId t) {
    return (ErrorText){
       .count = 3,
       .c = {
-         (ErrorTextSumType){.kind = errtxtName, .c = name }, 
-         (ErrorTextSumType){.kind = errtxtNumber, .c = n }, 
-         (ErrorTextSumType){.kind = errtxtType, .c = t.v } 
+         (ErrTextSumType){.tp = errtxtName, .c = name }, 
+         (ErrTextSumType){.tp = errtxtNumber, .c = n }, 
+         (ErrTextSumType){.tp = errtxtType, .c = t.v } 
       }
-   };
-}
-
-private ErrorText //:tokTypeErr
-tokTypeErr(Unt tp) {
-   return (ErrorText){
-      .count = 1,
-      .c = {(ErrorTextSumType){.kind = errtxtTokType, .c = tp } }
    };
 }
 
@@ -3666,7 +3684,7 @@ private ErrorText //:numberErr
 numberErr(Int n) {
    return (ErrorText){
       .count = 1,
-      .c = {(ErrorTextSumType){.kind = errtxtNumber, .c = n } }
+      .c = {(ErrTextSumType){.tp = errtxtNumber, .c = n } }
    };
 }
 
@@ -3674,8 +3692,8 @@ private ErrorText //:numberErr2
 numberErr2(Int n, Int n2) {
    return (ErrorText){
       .count = 1,
-      .c = {(ErrorTextSumType){.kind = errtxtNumber, .c = n },
-            (ErrorTextSumType){.kind = errtxtNumber, .c = n2 } 
+      .c = {(ErrTextSumType){.tp = errtxtNumber, .c = n },
+            (ErrTextSumType){.tp = errtxtNumber, .c = n2 } 
       }
    };
 }
@@ -4824,7 +4842,7 @@ subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKENS, CM) {
    } else {
       // the `foo a b c` case
       Token theCall = tokens[start];
-      VALIDATEP(theCall.tp == tokWord, pError(errExpressionFunctionless, tokTypeErr(theCall.tp)))
+      VALIDATEP(theCall.tp == tokWord, pError0(errExpressionFunctionless))
       add(
          ((ExprFrame) {
             .tp = exfrCall, .name = theCall.pl1, .sentinel = subSentinel, .precedence = precFn,
@@ -4949,7 +4967,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       );
       cm->i++; // CONSUME the tokAccessor
       Token varTk = tokens[cm->i];
-      VALIDATEP(varTk.tp == tokWord, pError(errExpressionError, tokTypeErr(varTk.tp)));
+      VALIDATEP(varTk.tp == tokWord, pError0(errExpressionExpectedWord));
       Node node = createNodVarForName(varTk.pl1, cm);
       add(node, e->scr);
       add(interOf(varTk), e->locsScr);
@@ -6501,7 +6519,7 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 // Precondition: we are looking at the first type token (e.g. `(L`).
    Token firstTypeTk = tokens[cm->i];
    VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, 
-      pError(errTypeDefError, tokTypeErr(firstTypeTk.tp))
+      pError0(errTypeDefError)
    ) 
    TExpr* te = cm->tExpr;
    if (cm->i + 1 == sentinel) { // single-name type
@@ -7575,14 +7593,13 @@ printLexer(LX) { //:printLexer
 
 // Must agree in order with node types in eyr.internal.h
 char const* nodeNames[] = {
-   "Int", "Long", "Double", "Bool", "String", "_", "misc",
+   "Int", "Long", "Double", "Bool", "String", "misc",
    "var", "call",
    "{", "Expr", "=", "[data]", "Struct()",
    "assert", "breakCont", "catch", "import",
    "f{ }", "trait", "return", "try",
    "for{}", "if", "if clause", "impl", "match"
 };
-
 
 CompStats
 getStats(CM) { return cm->stats; }
