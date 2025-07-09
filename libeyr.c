@@ -1941,7 +1941,7 @@ compileErrors[] = {
    "Core form requires opening parenthesis/curly brace immediately after keyword!",
    "Malformed token stream (atoms and parentheses must not be bare)", // 30
    "Import names must be unique!",
-   "Immutable variables cannot be reassigned to!",
+   "Variable $0 is immutable and cannot be reassigned",
    "Premature end of tokens",
    "Unexpected token",
    "Core syntax form too short",
@@ -2076,7 +2076,7 @@ typedef struct { //:ErrTextSumType
 
 typedef struct { //:ErrorText
    Int count;
-   ErrorTextSumType c[3];
+   ErrTextSumType c[3];
 } ErrorText;
 
 struct CompileError { //:CompileError
@@ -2126,34 +2126,51 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
       return;
    }
    
-   for (char const* p = text; *p != '\0'; p++) {
-      if (*p == '$' && *(p + 1) >= aDigit0 && *(p + 1) < (aDigit0 + 3)) {
-         Int ind = *(p + 1) - aDigit0;
-         if (ind < e.count) {
-            ErrorTextSumType printable = e.c[ind];
-            switch (printable.tp) {
-            case errtxtType: {
-               
-            }
-            case errtxtName: {
-               Unt unsign = cr->names->c[printable.c];
-               Int startBt = unsign & LOWER24BITS;
-               Int len = (unsign >> 24) & 0xFF;
-               fwrite(cr->sourceCode.c + startBt, 1, len, stdout);
-               printf("\n");
-            }
-            
-            case errtxtNumber:
-            case errtxtOper:
-            }
+   char const* prev = text;
+   char const* curr = text;
+
+   for (; *curr != '\0'; curr++) {
+      if (*curr == '$' && *(curr + 1) >= aDigit0 && *(curr + 1) < (aDigit0 + 3)) {
+         Int ind = *(curr + 1) - aDigit0;
+         if (ind >= e.count) {
+            continue;
          }
+         fwrite(prev, 1, curr - prev, stdout);
+         
+         ErrTextSumType printable = e.c[ind];
+         switch (printable.tp) {
+         case errtxtType: {
+            break;
+         }
+         case errtxtName: {
+            Unt unsign = cr->names.c[printable.c];
+            Int startBt = unsign & LOWER24BITS;
+            Int len = (unsign >> 24) & 0xFF;
+            fwrite(cr->sourceCode.c + startBt, 1, len, stdout);
+            break;
+         }
+         case errtxtNumber: {
+            printf("%d", printable.c);
+            break;
+         } 
+         case errtxtOper:
+            NameLoc nameLoc = OPERATORS[printable.c].name;
+            Int startBt = nameLoc & LOWER24BITS;
+            Int len = (nameLoc >> 24) & 0xFF;
+            fwrite(cr->sourceCode.c + startBt, 1, len, stdout);
+            break;
+         }
+         prev = curr + 2; // skipping the `$1`
+         curr++;
       }
    }
+   if (curr > prev)
+      { fwrite(prev, 1, curr - prev, stdout); }
+   printf("\n"); 
 }
 
 private void //:printError
 printError(CompileError err, CompResult* cr) {
-   print("%s", compileErrors[err.id]);
    printPositionalError(err.positional, cr);
    printTextualError(err.id, err.textual, cr);
    
@@ -3594,7 +3611,6 @@ private CompileError //:pError0
 pError0_0(Int errId, CM) {
 // An error where there is only a positional part, and it's built using current parser position
    Int indSpan = -1;
-   dbgParseFrames(cm);
    for (Int j = cm->parseFrames->len - 1; j > -1; j--) {
       ParseFrame fr = cm->parseFrames->c[j];
       if (cm->ast.c[fr.startNodeInd].tp >= nodScope) {
@@ -3604,7 +3620,6 @@ pError0_0(Int errId, CM) {
    }
 
    Int startBt;
-   print("ind span %d", indSpan)
    if (indSpan > -1) {
       ParseFrame fr = cm->parseFrames->c[indSpan];
       startBt = cm->tokens.c[fr.startTokenInd].startBt;
@@ -3702,7 +3717,7 @@ private ErrorText //:operatorErr
 operatorErr(Int operId) {
    return (ErrorText){
       .count = 1,
-      .c = {(ErrorTextSumType){.kind = errtxtOper, .c = operId } }
+      .c = {(ErrTextSumType){.tp = errtxtOper, .c = operId } }
    };
 }
 
