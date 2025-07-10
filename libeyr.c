@@ -1565,11 +1565,21 @@ struct ExprFrame {   // :ExprFrame
    NameId name;
    Int sentinel;   // token sentinel
    Int precedence;
-   Int argCount;   // accumulated number of arguments. Used for exfrCall & exfrDataAlloc only
-   Int startNode;  // The id of first written node in @scr. Used for data allocators
+   Int argCount;   // accumulated number of arguments. Used for exfrCall & exfrDataLit only
+   Int startNode;  // The id of first written node in @scr. Used for data literals
    ChInterval chi; // The original char interval this frame is based on
    Bool isVarCall; // Iff it's a local variable being called rather than an overloaded fn name
 };
+
+#define exfrParen      1 // Parens
+#define exfrExWrapper  2 // Expression wrapper created inside data allocators
+#define exfrCall       3
+#define exfrUnaryCall  4
+#define exfrDataLit    5
+#define exfrAccessor   6 // an umbrella for an accessor chain like `a[i][j][k]`
+#define exfrAccessIn   7 // internal accessor like `..[i]`
+#define exfrStruct     8 // struct initializer like `Foo(:x 5 :y 15)`
+
 
 DEFINE_LIST(ExprFrame) //:createLExprFrame
 DEFINE_LIST(ChInterval) //:createLChInterval
@@ -1617,14 +1627,6 @@ struct Scopes { // :Scopes
    Int countScopes;
 };
 
-
-#define exfrParen      1 // Parens
-#define exfrExWrapper  2 // Expression wrapper created inside data allocators
-#define exfrCall       3
-#define exfrUnaryCall  4
-#define exfrDataAlloc  5
-#define exfrAccessor   6 // an umbrella for an accessor chain like `a[i][j][k]`
-#define exfrAccessIn   7 // internal accessor like `..[i]`
 
 DEFINE_LIST(Var)
 
@@ -1771,7 +1773,7 @@ private void initCompiler();
 //{{{ Errors
 //{{{ Compile errors
 
-#define errMaxId 124 // must be updated. The maximal value of the currently existing errIds below
+#define errMaxId 125 // must be updated. The maximal value of the currently existing errIds below
 #define errNonAscii                     0
 #define errPrematureEndOfInput          1
 #define errUnrecognizedByte             2
@@ -1821,6 +1823,7 @@ private void initCompiler();
 #define errFnEntrypoint                46
 #define errFnMissingBody               47
 #define errFnOperatorOverlArity        48
+#define errFnOperatorNotOverloadable  125
 #define errLoopSyntaxError             49
 #define errLoopNoCondition             50
 #define errLoopEmptyStepBody           51
@@ -2044,7 +2047,8 @@ compileErrors[] = {
    "This entity cannot have this emit type in codegen",
    "The matching function overload for name $0 has the wrong arity, $1. Type $2",
    "Generic function's type has wrong arity $0 but should be $1",
-   "Expected a word"
+   "Expected a word",
+   "Operator $0 is not overloadable"
 };
 
 struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
@@ -4717,7 +4721,7 @@ private void //:eBumpArgCount
 eBumpArgCount(LExprFrame* frames) {
    Int const ind = frames->len - 1;
    Int const tp = frames->c[ind].tp;
-   if (tp == exfrCall || tp == exfrDataAlloc || tp == exfrParen || tp == exfrExWrapper)
+   if (tp == exfrCall || tp == exfrDataLit || tp == exfrParen || tp == exfrExWrapper)
       { frames->c[ind].argCount++; }
 }
 
@@ -4750,6 +4754,13 @@ eWriteCallToScratch(ExprFrame frame, Expr* e) {
    add(frame.chi, e->locsScr);
 }
 
+private void //:reorderStruct
+reorderStruct(Expr* restrict e, CM) {
+// Validates that keys in a struct initializer match the type, and replaces the nodes in @exp.
+// (:key value :key value) => (value value) in the order of the struct fields
+   
+}
+
 private void //:eClose
 eClose(Expr* restrict e, CM) {
 // Flushes the finished subexpr frames from the top of the funcall stack.
@@ -4759,7 +4770,7 @@ eClose(Expr* restrict e, CM) {
       switch (frame.tp) {
       case exfrCall:
          eWriteCallToScratch(frame, e); break;
-      case exfrDataAlloc:
+      case exfrDataLit:
          subexSaveDataLiteral(frame, e, cm); break;
       case exfrParen:
          eWriteUnaryCalls(e);
@@ -4773,11 +4784,15 @@ eClose(Expr* restrict e, CM) {
          eWriteUnaryCalls(e);
          eBumpArgCount(e->frames);
          break;
-      case exfrExWrapper:
+      case exfrExWrapper: // a nodExpr inside a nodDataLit
          eWriteUnaryCalls(e);
          e->scr->c[frame.startNode - 1].pl2 = e->scr->len - frame.startNode;
          break;
+      case exfrStruct:
+         reorderStruct(e, cm);
+         break;
       }
+
    }
 }
 
@@ -4879,7 +4894,7 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
    if (parensSentinel == cm->i + 2) { // A nullary call like `(call)`
       Token callTk = tokens[cm->i + 1];
       ChInterval callLoc = interOf(callTk);
-      if (parent.tp == exfrDataAlloc) {
+      if (parent.tp == exfrDataLit) {
          // inside a data allocator, subexprs need to be wrapped in nodExpr for t-checking & codegen
          add(((Node){ .tp = nodExpr, .pl1 = 1 }), e->scr);
          add(loc, e->locsScr);
@@ -4892,7 +4907,7 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
       cm->i++; // CONSUME the tokParens (and the loop in eParse will consume the call)
    } else {
       Unt tp = exfrParen;
-      if (parent.tp == exfrDataAlloc) {
+      if (parent.tp == exfrDataLit) {
          // inside a data allocator, subexprs need to be wrapped in nodExpr for t-checking & codegen
          tp = exfrExWrapper;
          add(((Node){ .tp = nodExpr, .pl1 = 0 }), e->scr);
@@ -4931,7 +4946,7 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
       } else {
          newDataAlloc.pl3 = arrLitRuntimeLength; // we don't know the length to allocate at compile time
          add(((ExprFrame) {
-            .tp = exfrDataAlloc, .name = nameOfStd(strArr), .sentinel = sentinel,
+            .tp = exfrDataLit, .name = nameOfStd(strArr), .sentinel = sentinel,
             .startNode = e->scr->len, .chi = interOf(cTk)  }),
            e->frames
          );
@@ -4945,7 +4960,7 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
    } else {
       newDataAlloc.pl3 = arrLitKnownElements; // we don't know the length to allocate at compile time
       add(((ExprFrame) {
-            .tp = exfrDataAlloc, .name = nameOfStd(strArr),
+            .tp = exfrDataLit, .name = nameOfStd(strArr),
             .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
             .chi = interOf(cTk)  }),
            e->frames
@@ -5664,7 +5679,7 @@ buildOperators(CM) {
    TypeId strOfStrStr    = addConcrFnType(2, (Int[]){ tokString, tokString, tokString}, cm);
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
-
+   
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
    buildOper(opNotEqual,     boolOfIntInt, emitNotEq, cm);
@@ -6130,6 +6145,9 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    }
    if (nameTk.tp == tokOperator) {
       Int operArity = OPERATORS[name].prec == precUnary ? 1 : 2;
+      VALIDATEP(OPERATORS[name].overloadable, 
+         pError(errFnOperatorNotOverloadable, operatorErr(name))
+      )
       VALIDATEP(arity == operArity, pError(errFnOperatorOverlArity, numberErr2(operArity, arity)))
    }
    FunctionId const newFnId = cm->functions.len;
@@ -6284,7 +6302,7 @@ parseMain(CM, Arena* a) {
 
       //printParser(cm);
       //dbgAllTypes(cm);
-      //dbgType(typeOf(266));
+      dbgType(typeOf(175));
       //dbgType(typeOf(321));
    } else {
 #ifndef DEBUG
@@ -7700,7 +7718,7 @@ dbgExprFrames(CM) {
          printf("Call %d", fr.name);
       } ei (fr.tp == exfrUnaryCall) {
          printf("Unary %d", fr.name);
-      } ei (fr.tp == exfrDataAlloc) {
+      } ei (fr.tp == exfrDataLit) {
          printf("DataAlloc");
       } ei (fr.tp == exfrParen) {
          printf("(");
@@ -8260,7 +8278,7 @@ libeyr_compileFile(String filename) {
    }
 
 #ifdef VERBOSE
-   printParser(cm);
+   //printParser(cm);
 #endif
 
    fillInCompilationResult(cm, OUT cr);
