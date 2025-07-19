@@ -463,7 +463,7 @@ private Int calcSentinel(Token tok, Int tokInd);
 private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 
 private Int getBinding(Int id, CM);
-TypeId tGenericResolveConcrete(Function fn, Arr(Int) cont, Int start, Int end, CM);
+TypeId tResolveGenericFnCall(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
 private libeyr_CompilationErrors* getCompilationErrors(CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
@@ -953,7 +953,7 @@ private bool isSpace(Byte a) { //:isSpace
    return a == aSpace || a == aNewline;
 }
 
-private String
+private String //:stringOf
 stringOf(char const* cString) {
    Int len = strlen(cString);
    return (String){.c = cString, .len = len};
@@ -1874,7 +1874,7 @@ private void initCompiler();
 #define errTypeOverloadsIntersect      95
 #define errTypeOverloadsOnlyOneZero    96
 #define errTypeNoMatchingOverload      97
-#define errTypeOverloadWrongArity     122 
+#define errTypeOverloadWrongArity     122
 #define errTypeWrongArgumentType       98
 #define errTypeWrongReturnType         99
 #define errTypeMismatch               100
@@ -1976,7 +1976,7 @@ compileErrors[] = {
    "Collection name $0 not found among any active 'each' loops",
    "Duplicate function declaration: a function with same name and arity already exists in this scope!",
    "Cannot parse expression!", // 60
-   "Wrong argument count for a function", 
+   "Wrong argument count for a function",
    "Expressions cannot contain scopes or statements!",
    "Expected to see a word naming a function",
    "Wrong count of names in a type definition!",
@@ -2043,7 +2043,7 @@ compileErrors[] = {
    "Two generic types have inconsistent layout (premature end of type)",
    "Tried to get an outer type of param or generic",
    "Reduced type expression has != 1 elements",
-   "Expected to find a function type here",
+   "Expected to find a function type here", // 120
    "This entity cannot have this emit type in codegen",
    "The matching function overload for name $0 has the wrong arity, $1. Type $2",
    "Generic function's type has wrong arity $0 but should be $1",
@@ -2129,7 +2129,7 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
       print("%s", text);
       return;
    }
-   
+
    char const* prev = text;
    char const* curr = text;
 
@@ -2140,8 +2140,9 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
             continue;
          }
          fwrite(prev, 1, curr - prev, stdout);
-         
+
          ErrTextSumType printable = e.c[ind];
+         print("\nprinting error type %d value %d", printable.tp, printable.c);
          switch (printable.tp) {
          case errtxtType: {
             break;
@@ -2154,9 +2155,10 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
             break;
          }
          case errtxtNumber: {
+            print("printing number");
             printf("%d", printable.c);
             break;
-         } 
+         }
          case errtxtOper:
             NameLoc nameLoc = OPERATORS[printable.c].name;
             Int startBt = nameLoc & LOWER24BITS;
@@ -2170,14 +2172,14 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
    }
    if (curr > prev)
       { fwrite(prev, 1, curr - prev, stdout); }
-   printf("\n"); 
+   printf("\n");
 }
 
 private void //:printError
 printError(CompileError err, CompResult* cr) {
-   printPositionalError(err.positional, cr);
+   //printPositionalError(err.positional, cr);
    printTextualError(err.id, err.textual, cr);
-   
+
 #ifdef DEBUG
    print("Code line: %d", err.codeLine);
 #endif
@@ -2187,7 +2189,7 @@ void
 libeyr_printErrors(CompResult* cr) {
    if (cr->errors->len == 0)
       { return; }
-      
+
    for (Int i = 0; i < cr->errors->len; i++) {
       printError(cr->errors->c[i], cr);
    }
@@ -3681,8 +3683,8 @@ nameAndTypeErr(Int name, TypeId t) {
    return (ErrorText){
       .count = 2,
       .c = {
-         (ErrTextSumType){.tp = errtxtName, .c = name }, 
-         (ErrTextSumType){.tp = errtxtType, .c = t.v } 
+         (ErrTextSumType){.tp = errtxtName, .c = name },
+         (ErrTextSumType){.tp = errtxtType, .c = t.v }
       }
    };
 }
@@ -3692,9 +3694,9 @@ nameNumberTypeErr(Int name, Int n, TypeId t) {
    return (ErrorText){
       .count = 3,
       .c = {
-         (ErrTextSumType){.tp = errtxtName, .c = name }, 
-         (ErrTextSumType){.tp = errtxtNumber, .c = n }, 
-         (ErrTextSumType){.tp = errtxtType, .c = t.v } 
+         (ErrTextSumType){.tp = errtxtName, .c = name },
+         (ErrTextSumType){.tp = errtxtNumber, .c = n },
+         (ErrTextSumType){.tp = errtxtType, .c = t.v }
       }
    };
 }
@@ -3709,10 +3711,11 @@ numberErr(Int n) {
 
 private ErrorText //:numberErr2
 numberErr2(Int n, Int n2) {
+print("craeting num err %d %d", n, n2);
    return (ErrorText){
       .count = 1,
       .c = {(ErrTextSumType){.tp = errtxtNumber, .c = n },
-            (ErrTextSumType){.tp = errtxtNumber, .c = n2 } 
+            (ErrTextSumType){.tp = errtxtNumber, .c = n2 }
       }
    };
 }
@@ -4062,7 +4065,7 @@ private void //:pAssignmentFnVar
 pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
 // Resolution of an overloaded function into a local var.
 // Validates that the right side consists of one word
-   VALIDATEP(assignment.rightTokenInd + 2 == assignment.sentinel, 
+   VALIDATEP(assignment.rightTokenInd + 2 == assignment.sentinel,
       pError0(errAssignmentToFunctionVar)
    )
    Token rightTk = cm->tokens.c[assignment.rightTokenInd + 1];
@@ -4094,7 +4097,7 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
 
    VALIDATEP(cm->ast.c[start].tp == nodVar, pError0(errAssignmentLeftSide))
    VALIDATEP(
-      lastNode.tp == nodCall && (lastNode.pl3 == callField || lastNode.pl3 == callGetElem), 
+      lastNode.tp == nodCall && (lastNode.pl3 == callField || lastNode.pl3 == callGetElem),
       pError0(errAssignmentLeftSide)
    )
    Int stackLen = 1; // for the leftmost nodVar which is the l-value of the expression
@@ -4103,7 +4106,7 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
       if (nd.tp == nodCall) {
          // only array and field accesses may affect our l-value
          VALIDATEP(
-            nd.pl3 == callField || nd.pl3 == callGetElem || nd.pl2 < stackLen, 
+            nd.pl3 == callField || nd.pl3 == callGetElem || nd.pl2 < stackLen,
             pError0(errAssignmentLeftSide)
          )
          switch (nd.pl3) {
@@ -4203,7 +4206,7 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
 
    Token rightTk = tokens[assignment.rightTokenInd];
-   VALIDATEP(assignment.rightTokenInd < assignment.sentinel && rightTk.pl2 > 0, 
+   VALIDATEP(assignment.rightTokenInd < assignment.sentinel && rightTk.pl2 > 0,
       pError0(errAssignmentEmptyRight)
    )
 
@@ -4616,7 +4619,7 @@ exprSingleItem(Token tk, CM) {
    } ei (tk.tp == tokOperator) {
       Int operId = tk.pl1;
       OpDef operDefinition = OPERATORS[operId];
-      VALIDATEP(operDefinition.prec == precUnary, 
+      VALIDATEP(operDefinition.prec == precUnary,
          pError(errOperatorWrongArity, operatorErr(operId))
       )
       newNode((Node){ .tp = nodVar, .pl1 = operId }, interOf(tk), cm);
@@ -4758,7 +4761,7 @@ private void //:reorderStruct
 reorderStruct(Expr* restrict e, CM) {
 // Validates that keys in a struct initializer match the type, and replaces the nodes in @exp.
 // (:key value :key value) => (value value) in the order of the struct fields
-   
+
 }
 
 private void //:eClose
@@ -5307,7 +5310,7 @@ pReturn(Token tok, Int sentinel, TOKENS, CM) {
    TypeId const exprTy = exprHeadless(sentinel, loc, tokens, cm);
    VALIDATEP(exprTy.v > -1, pError0(errReturn))
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
-   VALIDATEP(eq(returnType, exprTy), 
+   VALIDATEP(eq(returnType, exprTy),
       pError(errTypeWrongReturnType, typeErr2(returnType, exprTy))
    );
 }
@@ -5323,7 +5326,7 @@ importVars(Arr(Var) impts, Int const countVars, CM) {
          printName(ent.name, cm);
 #endif
       }
-      VALIDATEP(cm->activeBindings[ent.name] == -1, 
+      VALIDATEP(cm->activeBindings[ent.name] == -1,
          pError(errAssignmentShadowing, nameErr(ent.name))
       )
       Int newVarId = cm->vars.len;
@@ -5557,6 +5560,7 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    pushIntypes(tokInt, cm);
    *arrayLength = mergeType(tentativeType, cm);
 
+
    // # (length) L $0 -> Int
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
@@ -5581,6 +5585,8 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    pushIntypes(-1, cm);
    pushIntypes(voidType, cm);
    *listAdd = mergeType(tentativeType, cm);
+
+   print("list add len %d", (*listAdd).v)
 }
 
 private void //:buildStandardStrings
@@ -5679,7 +5685,7 @@ buildOperators(CM) {
    TypeId strOfStrStr    = addConcrFnType(2, (Int[]){ tokString, tokString, tokString}, cm);
    TypeId douOfDouDou    = addConcrFnType(2, (Int[]){ tokDouble, tokDouble, tokDouble}, cm);
    TypeId douOfDou       = addConcrFnType(1, (Int[]){ tokDouble, tokDouble}, cm);
-   
+
    // !. // dummy host name
    buildOper(opBitwiseNeg,   intOfInt, emitBitNegate, cm);
    buildOper(opNotEqual,     boolOfIntInt, emitNotEq, cm);
@@ -6126,15 +6132,16 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    Int const tokenInd = cm->i - 1;
 
    Token nameTk = tokens[cm->i];
-   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0 || nameTk.tp == tokOperator, 
+   VALIDATEP(nameTk.tp == tokWord && nameTk.pl2 == 0 || nameTk.tp == tokOperator,
       pError0(errFnSignature)
-   ) 
+   )
    NameId name = nameTk.pl1;
 
    cm->i++; // CONSUME the function name
    Token secondTk = tokens[cm->i];
 
    TypeId fnType = voidToVoid;
+
    Bool isGeneric = false;
    Int arity = 0;
    if (secondTk.tp == tokType) {
@@ -6145,11 +6152,12 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    }
    if (nameTk.tp == tokOperator) {
       Int operArity = OPERATORS[name].prec == precUnary ? 1 : 2;
-      VALIDATEP(OPERATORS[name].overloadable, 
+      VALIDATEP(OPERATORS[name].overloadable,
          pError(errFnOperatorNotOverloadable, operatorErr(name))
       )
       VALIDATEP(arity == operArity, pError(errFnOperatorOverlArity, numberErr2(operArity, arity)))
    }
+
    FunctionId const newFnId = cm->functions.len;
 
    Int genericInd = isGeneric ? listCreateMultiAssocList(cm->functionMonos) : -1;
@@ -6181,7 +6189,7 @@ pToplevelBodyWorker(
    cm->i++; // CONSUME the tokFn token
 
    if (arity > 0) {
-      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity, 
+      VALIDATEP(tokens[cm->i].tp == tokStmt && tokens[cm->i].pl2 == arity,
          pError0(errFnParamList)
       );
    } else {
@@ -6301,7 +6309,7 @@ parseMain(CM, Arena* a) {
       updateStats(cm);
 
       //printParser(cm);
-      //dbgAllTypes(cm);
+      dbgAllTypes(cm);
       dbgType(typeOf(175));
       //dbgType(typeOf(321));
    } else {
@@ -6457,11 +6465,22 @@ tIsList(TypeId t, CM) {
    return outer.v == cm->stats.listType || outer.v == cm->stats.arrayType;
 }
 
+private Int //:tGetBodyStart
+tGetBodyStart(TypeId t, TypeHeader hdr) {
+   if (hdr.name == nameOfStd(strF)) {
+      return t.v + TYPE_PREFIX; // even in struct defs, fields are the body
+   } else { // structs or struct type calls, need to skip the fields and field ind
+      return t.v + TYPE_PREFIX + hdr.arity + 1;
+   }
+}
+
 private TypeLoc //:tGetBody
-tGetBody(TypeId ty, CM) {
+tGetBody(TypeId ty, TypeHeader hdr, CM) {
+// A type location that covers the internal content of a type
+// (i.e. type params etc, but not struct fields or field inds)
    return (TypeLoc){
-      .currPos = ty.v + TYPE_PREFIX,
-      .sentinel = ty.v + TYPE_PREFIX + typeReadHeader(ty, cm).arity
+      .currPos = tGetBodyStart(ty, hdr),
+      .sentinel = ty.v + TYPE_PREFIX + hdr.arity
    };
 }
 
@@ -6551,9 +6570,9 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 // populates @te.exp.
 // Precondition: we are looking at the first type token (e.g. `(L`).
    Token firstTypeTk = tokens[cm->i];
-   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, 
+   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar,
       pError0(errTypeDefError)
-   ) 
+   )
    TExpr* te = cm->tExpr;
    if (cm->i + 1 == sentinel) { // single-name type
       if (firstTypeTk.tp == tokType)  {
@@ -6963,7 +6982,7 @@ private void //:typeCheckFnGenericCall
 typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
    Function fn = cm->functions.c[fnId];
 
-   TypeId concreteType = tGenericResolveConcrete(fn, exp->c, exp->len - argCount, exp->len, cm);
+   TypeId concreteType = tResolveGenericFnCall(fn, exp->c, exp->len - argCount, exp->len, cm);
 
    Int concreteFn = searchMultiAssocList(concreteType.v, fn.genericInd, cm->functionMonos);
 
@@ -7027,11 +7046,11 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    }
 #endif //}}}
    // first param matches, but does arity?
-   VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == argCount + 1, 
-      pError(errTypeNoMatchingOverload, 
+   VALIDATEP(typeReadHeader(typeOfFunc, cm).arity == argCount + 1,
+      pError(errTypeNoMatchingOverload,
          nameNumberTypeErr(name, typeReadHeader(typeOfFunc, cm).arity, typeOfFunc)
       )
-   ) 
+   )
 
    TypeId firstParamInd = getFirstParamInd(typeOfFunc, cm);
    if (isGeneric) {
@@ -7039,9 +7058,9 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    } else {
       // We know the type of the function, now to validate arg types against param types
       for (Int k = exp->len - argCount, l = firstParamInd.v; k < exp->len; k++, l++) {
-         VALIDATEP(exp->c[k] == cm->types.c[l], 
+         VALIDATEP(exp->c[k] == cm->types.c[l],
             pError(errTypeWrongArgumentType, typeErr2(typeOf(exp->c[k]), typeOf(cm->types.c[l])))
-         ) 
+         )
       }
       cm->ast.c[cm->j].pl1 = isVarCall ? varId : fnId;
    }
@@ -7063,7 +7082,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       VALIDATEP(tIsList(typeColl, cm), pError(errTypeOfNotList, typeErr(typeColl)))
 
       // list index must be Int
-      VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy), 
+      VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy),
          pError(errTypeOfListIndex, typeErr(typeOf(exp->c[exp->len - 1])))
       )
 
@@ -7077,7 +7096,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
       NameId name = nd.pl1;
 
       Int structType = exp->c[exp->len - 1];
-      VALIDATEP(structType > topVerbatimType, 
+      VALIDATEP(structType > topVerbatimType,
          pError(errTypeFieldNotFound, nameAndTypeErr(name, typeOf(structType)))
       );
 
@@ -7189,9 +7208,9 @@ typecheckList(Node nd, Int startInd, CM) {
       if (eq(commonEltType, VOID_TYPE))
          { commonEltType = eltType; }
       else {
-         VALIDATEP(eq(eltType, commonEltType), 
+         VALIDATEP(eq(eltType, commonEltType),
             pError(errListDifferentEltTypes, typeErr2(eltType, commonEltType))
-         ) 
+         )
       }
    }
    VALIDATEP(!eq(commonEltType, VOID_TYPE), pError0(errListUnknownEltType));
@@ -7223,7 +7242,7 @@ typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
       if (cm->genericFields.c[j].name == name)
          { break; }
    }
-   VALIDATEP(j < indInGenericFields + hdr.arity, 
+   VALIDATEP(j < indInGenericFields + hdr.arity,
       pError(errTypeFieldNotFound, nameAndTypeErr(name, t))
    );
    *fieldInd = j - indInGenericFields;
@@ -7280,7 +7299,7 @@ tGenericSubstituteParams(TypeId t, CM) {
             te
          );
 
-         add(tGetBody(currNode, cm), te->genericSt);
+         add(tGetBody(currNode, currHdr, cm), te->genericSt);
       }
    }
    VALIDATEI(te->exp->len == 1, ierrInconsistentTypeExpr)
@@ -7293,6 +7312,9 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
 ) {
 // Unification of a single node pair in the type trees. Possibly pushes TypeLocs to the stacks,
 // or sets param values in @tExpr->params
+print("Unificatoin of %d and %d", gener.v, concr.v);
+
+   dbgType(typeOf(192)); 
    if (eq(gener, concr))
       { return; }
    if (gener.v < -1) {
@@ -7300,7 +7322,7 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
       NameId nameParam = -gener.v - 1;
       for (Int j = 0; j < params->len; j += 2) {
          if (params->c[j] == nameParam) {
-            VALIDATEP(params->c[j + 1] == concr.v, 
+            VALIDATEP(params->c[j + 1] == concr.v,
                pError(errTypeGenericCallDoesntUnify, typeErr2(typeOf(params->c[j + 1]), concr))
             )
             return;
@@ -7312,19 +7334,14 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
    }
    TypeHeader generHdr = typeReadHeader(gener, cm);
    TypeHeader concrHdr = typeReadHeader(concr, cm);
-//~      if (generHdr.arity != concrHdr.arity || generHdr.name != concrHdr.name) {
-//~         print("UNEQ @ %d", cm->j);
-//~         dbgType(gener);
-//~         dbgType(concr);
-//~      }
-   VALIDATEP(generHdr.arity == concrHdr.arity,
-      pError(errTypeOverloadWrongArity, numberErr2(generHdr.arity, concrHdr.arity))
-   )
    VALIDATEP(generHdr.name == concrHdr.name,
       pError(errTypeGenericCallDoesntUnify, typeErr2(gener, concr))
    )
-   add(tGetBody(gener, cm), genericSt);
-   add(tGetBody(concr, cm), concreteSt);
+   VALIDATEP(generHdr.arity == concrHdr.arity,
+      pError(errTypeOverloadWrongArity, numberErr2(generHdr.arity, concrHdr.arity))
+   )
+   add(tGetBody(gener, generHdr, cm), genericSt);
+   add(tGetBody(concr, concrHdr, cm), concreteSt);
 }
 
 TypeId //:tGenericTryUnifyFunctionTypes
@@ -7334,7 +7351,7 @@ tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
 // Since we're unifying a generic function with its arguments, we have only the arg types,
 // so don't have anything to unify for the return type.
 // Returns: the concrete return type of a resolved generic function call.
-   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1, 
+   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1,
       pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, concreteHdr.arity + 1))
    )
    Int arity = genericHdr.arity;
@@ -7345,9 +7362,9 @@ tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
    te->concreteSt->len = 0;
    te->tParams->len = 0;
 
-   add(((TypeLoc){.currPos = generic.v + TYPE_PREFIX, .sentinel = genericSent}),
+   add(((TypeLoc){.currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent}),
       te->genericSt);
-   add(((TypeLoc){.currPos = concrete.v + TYPE_PREFIX, .sentinel = concreteSent}),
+   add(((TypeLoc){.currPos = tGetBodyStart(concrete, concreteHdr), .sentinel = concreteSent}),
       te->concreteSt);
    for (; te->genericSt->len > 0 && te->concreteSt->len > 0; ) {
       TypeLoc* genericLoc = &last(te->genericSt);
@@ -7370,12 +7387,16 @@ tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
 
 TypeId //:tGenericTryUnifyTypes
 tGenericTryUnifyTypes(Function fn, TypeId concrete, CM) {
-// Resolves type params in a generic type
-// Returns: for a generic function call, its concrete return type. Otherwise, -1.
+// Resolves type params in a generic type. For example:
+// `[A $E]` with `[A Int]`, `F[Int [A $E] -> $E]` with `F[Int [A Str] -> Str]`
+// Returns: for a generic function call, its concrete return type (`Str` in the second example).
+// Otherwise, -1.
    TypeHeader genericHdr = typeReadHeader(fn.typeId, cm);
    TypeHeader concreteHdr = typeReadHeader(concrete, cm);
 
    cm->tExpr->tParams->len = 0;
+   
+   dbgType(fn.typeId);
    if (genericHdr.name == nameOfStd(strF)) {
       return tGenericTryUnifyFunctionTypes(fn.typeId, genericHdr, concrete, concreteHdr, cm);
    } else  {
@@ -7408,8 +7429,8 @@ tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
    return mergeType(typeOf(tentativeType), cm);
 }
 
-TypeId //:tGenericResolveConcrete
-tGenericResolveConcrete(Function fn, Arr(Int) argTypes, Int start, Int end, CM) {
+TypeId //:tResolveGenericFnCall
+tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int start, Int end, CM) {
 // Finds or creates a concrete type for a generic function call.
 // 1. Copies the param types into @types to build an actual type
 // 2. Walks two trees in depth-first fashion, left-to-right
@@ -7880,53 +7901,54 @@ dbgTypeOuter(TypeHeader currHdr, CM) {
 
 void
 dbgType1(Int t, TypeHeader hdr, CM) {
-print("b t = %d", t);
-   //printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
-   printIntArrayOff(t, 8, cm->types.c);
+   printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
 
    LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
    TypeLoc* top = null;
+   
 
    Int sentinel = t + cm->types.c[t] + 1;
    Int startingT = t + TYPE_PREFIX;
    Bool isFn = hdr.name == nameOfStd(strF);
-   if (isFn) {
-      printf("F[");
-   } else {
-      if (hdr.sort == sorTypeCall)
-         { startingT += (hdr.arity + 1); } // skip the fields and field index
-      else if (hdr.sort == sorDeclare) {
-         sentinel = t + TYPE_PREFIX  + (cm->types.c[t] - (TYPE_PREFIX - 1))/2;
-         printf("Data ");
-      }
-   }
-   //dbgTypeOuter(hdr, cm);
-
+   
+   startingT = tGetBodyStart(typeOf(t), hdr);
+   if (isFn)
+      { printf("F["); }
    add(((TypeLoc){ .currPos = startingT, .sentinel = sentinel }), st);
    top = st->c;
 
    for (Int countIters = 0; top != null && countIters < 10; countIters++)  {
-      Int currT = cm->types.c[top->currPos];
-      if (currT <= topVerbatimType)  {
-         printf("%s ", currT != voidType ? nodeNames[currT] : "Void");
+      Int typeStart = cm->types.c[top->currPos];
+      if (typeStart < 0) {
+         printf("$");
+         printNameNoLn(-typeStart - 1, cm);
          top->currPos++;
-      } else {
-         TypeHeader currHdr = typeReadHeader(typeOf(currT), cm);
-         //dbgTypeOuter(currHdr, cm);
+         goto nextIter;
+      } ei(typeStart <= topVerbatimType)  { 
+         printf("%s ", typeStart != voidType ? nodeNames[typeStart] : "Void");
+         top->currPos++;
+         goto nextIter;
+      } 
+      TypeHeader currHdr = typeReadHeader(typeOf(typeStart), cm);
 
-         Int nextT = currT + TYPE_PREFIX;
-         if (currHdr.name != nameOfStd(strF))
-            { nextT++; }
-         top->currPos++;
-         if (currHdr.sort == sorTypeCall) {
-            TypeLoc newTypeLoc = (TypeLoc){ .currPos = nextT,
-                  .sentinel = currT + cm->types.c[currT] + 1};
-            add(newTypeLoc, st);
-            top = &last(st);
-         }
+      top->currPos++;
+      if (currHdr.name == nameOfStd(strF)) {
+         printf("F[");
+      } ei (currHdr.sort == sorTypeCall) {
+         add(((TypeLoc){
+               .currPos = tGetBodyStart(typeOf(typeStart), currHdr),
+               .sentinel = typeStart + cm->types.c[typeStart] + 1}),
+            st
+         );
+         top = &last(st);
+      } else {
+         printf("[");
+         printNameNoLn(currHdr.name, cm);
+         printf(" ");
       }
+      
       nextIter:
-      // closing open spans
+      // closing open type spans
       while (top != null && top->currPos == top->sentinel) {
          st->len--;
          top = st->len > 0 ? &last(st) : null;
@@ -8251,7 +8273,7 @@ libeyr_compileFile(String filename) {
    CompResult* cr = allocate(CompResult, a);
    cr->a = a;
    if (filename.len == 0) {
-      
+
       cr->errors = allocate(libeyr_CompilationErrors, cr->a);
       CompileError* err = allocate(CompileError, cr->a);
       *err = (CompileError){.id = errEmptySourceCode};
