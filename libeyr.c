@@ -454,6 +454,7 @@ private Int teMergeParam(NameId name, TExpr* restrict te, CM);
 
 private TypeId tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
+void printNameNoLn(NameId nameId, CM);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
 private void tFreshState(TExpr* st);
@@ -508,8 +509,6 @@ void printName(NameId nameId, CM);
 void printIntArray(Int count, Arr(Int) arr);
 void printAssocList(Int listInd, MultiAssocList* ml);
 void printParser(Compiler* cm);
-void dbgType0(TypeId type, CM);
-#define dbgType(t) dbgType0(t, cm)
 private void dbgExprFrames(CM);
 private void printLInt(LInt* st);
 void dbgTypeFrames(TExpr* st);
@@ -5561,7 +5560,7 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    *arrayLength = mergeType(tentativeType, cm);
 
 
-   // # (length) L $0 -> Int
+   // # (length) L $T -> Int
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
    typeAddHeader(
@@ -5573,7 +5572,7 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    pushIntypes(tokInt, cm);
    *listLength = mergeType(tentativeType, cm);
 
-   // the type of add: [L $0] $0 -> Void
+   // the type of add: [L $T] $T -> Void
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 2, cm);
    typeAddHeader(
@@ -5582,12 +5581,11 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
          cm
    );
    pushIntypes(cm->stats.listType, cm);
-   pushIntypes(-1, cm);
+   pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
    pushIntypes(voidType, cm);
    *listAdd = mergeType(tentativeType, cm);
 
    print("list add len %d", (*listAdd).v)
-   dbgType(typeOf(14));
 }
 
 private void //:buildStandardStrings
@@ -5617,7 +5615,7 @@ buildPreludeTypes(CM) {
 
    // Array
    Int typeIndA = cm->types.len;
-   pushIntypes(TYPE_PREFIX + 2, cm); // 2 = 3 - 1, since header size = TYPE_PREFIX - 1
+   pushIntypes(TYPE_PREFIX + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX - 1
    NameId name = nameOfStd(strArr);
    typeAddHeader(((TypeHeader){
       .sort = sorDeclare, .isGeneric = true, .arity = 2, .name = name, .size = 16}), cm
@@ -5625,6 +5623,7 @@ buildPreludeTypes(CM) {
    pushIntypes(-1, cm); // dummy value for the raw pointer, not to be used within Eyr
    pushIntypes(tokInt, cm);
    pushIntypes(cm->genericFields.len, cm);
+   pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
    pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
    pushIngenericFields(((StructField){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
 
@@ -5633,7 +5632,7 @@ buildPreludeTypes(CM) {
 
    // List
    Int typeIndL = cm->types.len;
-   pushIntypes(TYPE_PREFIX + 4, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX - 1
+   pushIntypes(TYPE_PREFIX + 4, cm); // 4 = 5 - 1, since header size = TYPE_PREFIX - 1
    name = nameOfStd(strL);
    typeAddHeader(((TypeHeader){
       .sort = sorDeclare, .arity = 3, .isGeneric = true, .name = name, .size = 16 }),
@@ -5643,7 +5642,7 @@ buildPreludeTypes(CM) {
    pushIntypes(tokInt, cm);
    pushIntypes(tokInt, cm);
    pushIntypes(cm->genericFields.len, cm);
-   pushIntypes(-1, cm); // the generic param
+   pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
    pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
    pushIngenericFields(((StructField){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
    pushIngenericFields(((StructField){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
@@ -6311,8 +6310,10 @@ parseMain(CM, Arena* a) {
       updateStats(cm);
 
       //printParser(cm);
-      //dbgAllTypes(cm);
-      dbgType(typeOf(175));
+      dbgAllTypes(cm);
+      //dbgType(typeOf(7));
+      //dbgType(typeOf(15));
+      //dbgType(typeOf(177));
       //dbgType(typeOf(321));
    } else {
 #ifndef DEBUG
@@ -6485,6 +6486,90 @@ tGetBody(TypeId ty, TypeHeader hdr, CM) {
       .sentinel = ty.v + cm->types.c[ty.v] + 1//TYPE_PREFIX + hdr.arity
    };
 }
+
+void
+dbgType1(Int t, TypeHeader hdr, CM) {
+   printf("type %d len %d", t, cm->types.c[t] + 1);
+   printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
+
+   LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
+   TypeLoc* top = null;
+
+   add(((TypeLoc){ .currPos = t, .sentinel = t + cm->types.c[t] + 1 }), st);
+   top = st->c;
+
+   Bool atHeader = true;
+   for (Int countIters = 0; top != null && countIters < 10; countIters++)  {
+      Int typeVal = cm->types.c[top->currPos];
+      //print("typeVal %d at currPos %d", typeVal, top->currPos)
+      if (atHeader) {
+       //  print("heade pos %d sent %d", top->currPos, top->sentinel)
+         TypeHeader currHdr = typeReadHeader(typeOf(top->currPos), cm);
+         top->currPos = tGetBodyStart(typeOf(top->currPos), currHdr);
+//~         print("set currpos to %d", top->currPos)
+         atHeader = false;
+
+         if (currHdr.name == nameOfStd(strF)) {
+            printf("F[");
+         } else {
+            printf("[");
+            printNameNoLn(currHdr.name, cm);
+            printf(" ");
+         }
+      } ei (typeVal < 0) { // type parameter
+         printf("$");
+         if (typeVal == -1) {
+            printf("E");
+         } else {
+            printNameNoLn(-typeVal - 1, cm);
+         }
+         printf(" ");
+         top->currPos++;
+      } ei(typeVal <= topVerbatimType)  {
+         printNameNoLn(nameOfStd(strInt) + typeVal, cm);
+         printf(" ");
+         top->currPos++;
+      } else {
+         top->currPos++;
+         add(((TypeLoc){
+               .currPos = typeVal, .sentinel = typeVal + cm->types.c[typeVal] + 1}
+            ),
+            st
+         );
+         top = &last(st);
+         atHeader = true;
+         continue;
+      }
+
+      nextIter:
+      // closing open type spans
+      while (top != null && top->currPos == top->sentinel) {
+         st->len--;
+         top = st->len > 0 ? &last(st) : null;
+         printf("] ");
+      }
+   }
+   printf("\n");
+}
+
+void //:printType
+printType0(TypeId type, CM) {
+// Print a single type fully for error-reporting purposes
+   Int typeId = type.v;
+
+   TypeHeader hdr = typeReadHeader(type, cm);
+   if (typeId <= topVerbatimType) {
+
+      printNameNoLn(nameOfStd(strInt) + typeId, cm);
+      printf(" ");
+      return;
+   } else {
+      dbgType1(type.v, hdr, cm);
+   }
+}
+void printType0(TypeId type, CM);
+#define printType(t) printType0(t, cm)
+
 
 //}}}
 //{{{ Parsing type names
@@ -7395,7 +7480,7 @@ tGenericTryUnifyTypes(Function fn, TypeId concrete, CM) {
    TypeHeader concreteHdr = typeReadHeader(concrete, cm);
 
    cm->tExpr->tParams->len = 0;
-   
+
    if (genericHdr.name == nameOfStd(strF)) {
       return tGenericTryUnifyFunctionTypes(fn.typeId, genericHdr, concrete, concreteHdr, cm);
    } else  {
@@ -7723,7 +7808,7 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
    print("]");
    printf("types: ");
    for (Int j = 0; j < len; j++) {
-      dbgType(typeOf(ml->c[listInd + 2 + 2*j]));
+      printType(typeOf(ml->c[listInd + 2 + 2*j]));
       printf("\n");
    }
 }
@@ -7886,94 +7971,6 @@ dbgParseFrames(CM) {
 //}}}
 //{{{ Types testing
 
-void //:dbgTypeOuter
-dbgTypeOuter(TypeHeader currHdr, CM) {
-// Print the name of the outer type. `(Tu Int Double)` -> `Tu`
-   if (currHdr.name == nameOfStd(strF)) {
-      printf("F[");
-   } else {
-      printf("[");
-      printNameNoLn(currHdr.name, cm);
-      printf(" ");
-   }
-}
-
-void
-dbgType1(Int t, TypeHeader hdr, CM) {
-   printf("type %d ", t);
-   printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
-
-   LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
-   TypeLoc* top = null;
-
-   add(((TypeLoc){ .currPos = t, .sentinel = t + cm->types.c[t] + 1 }), st);
-   top = st->c;
-
-   Bool atHeader = true;
-   for (Int countIters = 0; top != null && countIters < 10; countIters++)  {
-      Int typeVal = cm->types.c[top->currPos];
-      print("typeVal %d at currPos %d", typeVal, top->currPos)
-      if (atHeader) {
-         print("heade pos %d sent %d", top->currPos, top->sentinel)
-         TypeHeader currHdr = typeReadHeader(typeOf(top->currPos), cm);
-         top->currPos = tGetBodyStart(typeOf(top->currPos), currHdr);
-         print("set currpos to %d", top->currPos)
-         atHeader = false;
-
-         if (currHdr.name == nameOfStd(strF)) {
-            printf("F[");
-         } else {
-            printf("[");
-            printNameNoLn(currHdr.name, cm);
-            printf(" ");
-         }
-      } ei (typeVal < 0) { // type parameter
-         printf("$");
-         if (typeVal == -1) {
-            printf("E");
-         } else {
-            printNameNoLn(-typeVal - 1, cm);
-         }
-         top->currPos++;
-      } ei(typeVal <= topVerbatimType)  { 
-         printf("%s ", typeVal != voidType ? nodeNames[typeVal] : "Void");
-         top->currPos++;
-      } else {
-         top->currPos++;
-         add(((TypeLoc){
-               .currPos = typeVal, .sentinel = typeVal + cm->types.c[typeVal] + 1}
-            ),
-            st
-         );
-         top = &last(st);
-         atHeader = true;
-         continue;
-      }
-
-      nextIter:
-      // closing open type spans
-      while (top != null && top->currPos == top->sentinel) {
-         st->len--;
-         top = st->len > 0 ? &last(st) : null;
-         printf("] ");
-      }
-   }
-   printf("\n");
-}
-
-void //:dbgType
-dbgType0(TypeId type, CM) {
-// Print a single type fully for debugging purposes
-   Int typeId = type.v;
-
-   TypeHeader hdr = typeReadHeader(type, cm);
-   if (typeId <= topVerbatimType) {
-      printf("%s\n", nodeNames[typeId]);
-      return;
-   } else {
-      dbgType1(type.v, hdr, cm);
-   }
-}
 
 void
 dbgTypeFrames(TExpr* te) { //:dbgTypeFrames
@@ -8021,7 +8018,7 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 void
 dbgAllTypes(CM) {
    for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
-      dbgType(typeOf(j));
+      printType(typeOf(j));
    }
 }
 

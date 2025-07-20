@@ -429,7 +429,7 @@ typedef struct { //:TypeHeader
 #define strSkip     strFirstNonReserved // types must come first here?, see "buildPreludeTypes"
 #define strStep     22
 #define strBalk     23
-#define strInt      24 // these types must be together
+#define strInt      24 // these types must be together and in same order as in tokInt, tokLong etc
 #define strLong     25
 #define strDouble   26
 #define strBool     27
