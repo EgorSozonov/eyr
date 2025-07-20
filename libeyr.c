@@ -466,6 +466,8 @@ private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 private Int getBinding(Int id, CM);
 TypeId tResolveGenericFnCall(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
+void printType(TypeId type, CM);
+
 private libeyr_CompilationErrors* getCompilationErrors(CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
 
@@ -516,6 +518,8 @@ void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
 void dbgParseFrames(CM);
 void dbgNodes(LNode*);
+
+#define dbgType(t) printType(t, cm);
 void dbgAllTypes(CM);
 
 #endif
@@ -2021,7 +2025,7 @@ compileErrors[] = {
    "No matching function overload was found for name $0 and first parameter type $1",
    "Wrong argument type, got $0 but expected $1",
    "Wrong return type",
-   "Declared type doesn't match actual type", // 100
+   "Declared type doesn't match actual type. $0 vs $1", // 100
    "Expression must have the Bool type, but has: $0",
    "Wrong arity for the type constructor",
    "Only up to 254 type parameters are supported",
@@ -2141,9 +2145,9 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
          fwrite(prev, 1, curr - prev, stdout);
 
          ErrTextSumType printable = e.c[ind];
-         print("\nprinting error type %d value %d", printable.tp, printable.c);
          switch (printable.tp) {
          case errtxtType: {
+            printType(typeOf(printable.c), cr->types.c);
             break;
          }
          case errtxtName: {
@@ -4074,6 +4078,11 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
       fnName, libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c), cm
    );
    TypeId fnType = cm->functions.c[fnId].typeId;
+   VALIDATEP(eq(leftType, fnType), pError(errTypeMismatch, typeErr2(leftType, fnType)));
+   
+   dbgType(leftType);
+   dbgType(fnType);
+   
    NameId varName = leftNameTk.pl1;
    Int pl3;
    Int varId = createVarWithType(
@@ -5584,8 +5593,6 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
    pushIntypes(voidType, cm);
    *listAdd = mergeType(tentativeType, cm);
-
-   print("list add len %d", (*listAdd).v)
 }
 
 private void //:buildStandardStrings
@@ -6310,7 +6317,7 @@ parseMain(CM, Arena* a) {
       updateStats(cm);
 
       //printParser(cm);
-      dbgAllTypes(cm);
+      //dbgAllTypes(cm);
       //dbgType(typeOf(7));
       //dbgType(typeOf(15));
       //dbgType(typeOf(177));
@@ -6488,25 +6495,22 @@ tGetBody(TypeId ty, TypeHeader hdr, CM) {
 }
 
 void
-dbgType1(Int t, TypeHeader hdr, CM) {
-   printf("type %d len %d", t, cm->types.c[t] + 1);
-   printIntArrayOff(t, cm->types.c[t] + 1, cm->types.c);
+printType1(Int t, TypeHeader hdr, Arr(Int) types, Arena* a) {
+   printf("type %d len %d", t, types.c[t] + 1);
+   printIntArrayOff(t, types.c[t] + 1, types.c);
 
-   LTypeLoc* st = createLTypeLoc(16, cm->aTmp);
+   LTypeLoc* st = createLTypeLoc(16, a);
    TypeLoc* top = null;
 
-   add(((TypeLoc){ .currPos = t, .sentinel = t + cm->types.c[t] + 1 }), st);
+   add(((TypeLoc){ .currPos = t, .sentinel = t + types.c[t] + 1 }), st);
    top = st->c;
 
    Bool atHeader = true;
    for (Int countIters = 0; top != null && countIters < 10; countIters++)  {
-      Int typeVal = cm->types.c[top->currPos];
-      //print("typeVal %d at currPos %d", typeVal, top->currPos)
+      Int typeVal = types.c[top->currPos];
       if (atHeader) {
-       //  print("heade pos %d sent %d", top->currPos, top->sentinel)
          TypeHeader currHdr = typeReadHeader(typeOf(top->currPos), cm);
          top->currPos = tGetBodyStart(typeOf(top->currPos), currHdr);
-//~         print("set currpos to %d", top->currPos)
          atHeader = false;
 
          if (currHdr.name == nameOfStd(strF)) {
@@ -6553,23 +6557,19 @@ dbgType1(Int t, TypeHeader hdr, CM) {
 }
 
 void //:printType
-printType0(TypeId type, CM) {
+printType(TypeId type, Arr(Int) types, Arena* a) {
 // Print a single type fully for error-reporting purposes
    Int typeId = type.v;
 
-   TypeHeader hdr = typeReadHeader(type, cm);
+   TypeHeader hdr = libeyr_readTypeHeader(type, types);
    if (typeId <= topVerbatimType) {
-
-      printNameNoLn(nameOfStd(strInt) + typeId, cm);
+      printNameNoLnCr(nameOfStd(strInt) + typeId, cm->sourceCode.c);
       printf(" ");
       return;
    } else {
-      dbgType1(type.v, hdr, cm);
+      printType1(type.v, hdr, types, a);
    }
 }
-void printType0(TypeId type, CM);
-#define printType(t) printType0(t, cm)
-
 
 //}}}
 //{{{ Parsing type names
@@ -7592,6 +7592,19 @@ printNameNoLn(NameId nameId, CM) {
    printNameAndLen(unsign, cm);
 }
 
+void //:printNameAndLenCr
+printNameAndLenCr(Unt unsign, Arr(Byte) sourceCode) {
+   Int startBt = unsign & LOWER24BITS;
+   Int len = (unsign >> 24) & 0xFF;
+   fwrite(sourceCode + startBt, 1, len, stdout);
+}
+
+void //:printNameNoLnCr
+printNameNoLnCr(NameId nameId, CR) {
+   Unt unsign = cr->names->c[nameId];
+   printNameAndLenCr(unsign, cr->sourceCode.c);
+}
+
 Int
 getFirstErrId(CM) {
    if (cm->errors->len > 0) {
@@ -7808,7 +7821,7 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
    print("]");
    printf("types: ");
    for (Int j = 0; j < len; j++) {
-      printType(typeOf(ml->c[listInd + 2 + 2*j]));
+      dbgType(typeOf(ml->c[listInd + 2 + 2*j]));
       printf("\n");
    }
 }
@@ -8018,7 +8031,7 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 void
 dbgAllTypes(CM) {
    for (Int j = outerTypeForTypeParam + 1; j < cm->types.len; j += (cm->types.c[j] + 1)) {
-      printType(typeOf(j));
+      dbgType(typeOf(j));
    }
 }
 
