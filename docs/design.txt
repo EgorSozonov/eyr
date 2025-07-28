@@ -194,3 +194,18 @@ to ensure that the outer arena lives longer than them. Useful for fork-join para
    join forkedThread; // "childArena" gets destroyed but the results of the thread are in "parent"
 
 
+   [[[Optimization (so for the future)]]]
+   
+When the types of interface values are statically-known, resolve method calls statically
+interface TransactionProcessor {...}
+class { p1 FooProcessor; p2 BarProcessor; ...;
+   fn process f{
+      each { procs [A TransactionProcessor] = [p1 p2 p3] -> procs.@ .method a }
+      // ^ here, we know the array statically, and even though members are of different types,
+      // they are of the same interface. We can unroll the loop and make the `.method`
+      // statically-dispatched.
+      // This is a substitute for the pattern of "abstract class and then we call the different
+      // implementations in a loop". Maybe we can do away with abstract classes altogether, just
+      // plain inheritance of no more than 3 layers?
+   }
+}

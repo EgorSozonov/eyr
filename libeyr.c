@@ -456,6 +456,9 @@ private TypeId tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
 void printNameNoLn(NameId nameId, CM);
 
+defstruct(PrintableCompiler);
+void printNameNoLnCr(NameId nameId, PrintableCompiler prc);
+
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
 private void tFreshState(TExpr* st);
 //~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
@@ -466,7 +469,7 @@ private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 private Int getBinding(Int id, CM);
 TypeId tResolveGenericFnCall(Function fn, Arr(Int) cont, Int start, Int end, CM);
 TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
-void printType(TypeId type, CM);
+void printType(TypeId type, PrintableCompiler prc);
 
 private libeyr_CompilationErrors* getCompilationErrors(CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
@@ -519,7 +522,11 @@ void dbgScopes(CM);
 void dbgParseFrames(CM);
 void dbgNodes(LNode*);
 
-#define dbgType(t) printType(t, cm);
+#define dbgType(t) printf("type %d len %d", t, cm->types.c[t.v] + 1);\
+   printIntArrayOff(t.v, cm->types.c[t.v] + 1, cm->types.c);\
+   printType(t, printableOfCompiler(cm));\
+   printf("\n");
+
 void dbgAllTypes(CM);
 
 #endif
@@ -1772,6 +1779,26 @@ private Bool _wasInit = false;
 
 private void initCompiler();
 
+struct PrintableCompiler { //:PrintableCompiler Just the bits of the compiler needed to print type names
+   Arr(Byte) sourceCode;
+   Arr(Int) types;
+   Arr(Int) names;
+   Arena* a;
+};
+
+private PrintableCompiler //:printableOfCompiler
+printableOfCompiler(CM) {
+   return (PrintableCompiler){
+      .sourceCode = cm->sourceCode.c, .types = cm->types.c, .names = cm->names->c, .a = cm->a
+   };
+}
+
+private PrintableCompiler //:printableOfCompResult
+printableOfCompResult(CompResult* cr) {
+   return (PrintableCompiler){
+      .types = cr->types.c, .sourceCode = cr->sourceCode.c, .names = cr->names.c, .a = cr->a
+   }; 
+}
 //}}}
 //{{{ Errors
 //{{{ Compile errors
@@ -2147,7 +2174,7 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
          ErrTextSumType printable = e.c[ind];
          switch (printable.tp) {
          case errtxtType: {
-            printType(typeOf(printable.c), cr->types.c);
+            printType(typeOf(printable.c), printableOfCompResult(cr));
             break;
          }
          case errtxtName: {
@@ -2180,7 +2207,7 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
 
 private void //:printError
 printError(CompileError err, CompResult* cr) {
-   //printPositionalError(err.positional, cr);
+   printPositionalError(err.positional, cr);
    printTextualError(err.id, err.textual, cr);
 
 #ifdef DEBUG
@@ -2197,7 +2224,6 @@ libeyr_printErrors(CompResult* cr) {
       printError(cr->errors->c[i], cr);
    }
 }
-
 
 //}}}
 //}}}
@@ -6494,80 +6520,70 @@ tGetBody(TypeId ty, TypeHeader hdr, CM) {
    };
 }
 
-void
-printType1(Int t, TypeHeader hdr, Arr(Int) types, Arena* a) {
-   printf("type %d len %d", t, types.c[t] + 1);
-   printIntArrayOff(t, types.c[t] + 1, types.c);
-
-   LTypeLoc* st = createLTypeLoc(16, a);
-   TypeLoc* top = null;
-
-   add(((TypeLoc){ .currPos = t, .sentinel = t + types.c[t] + 1 }), st);
-   top = st->c;
-
-   Bool atHeader = true;
-   for (Int countIters = 0; top != null && countIters < 10; countIters++)  {
-      Int typeVal = types.c[top->currPos];
-      if (atHeader) {
-         TypeHeader currHdr = typeReadHeader(typeOf(top->currPos), cm);
-         top->currPos = tGetBodyStart(typeOf(top->currPos), currHdr);
-         atHeader = false;
-
-         if (currHdr.name == nameOfStd(strF)) {
-            printf("F[");
-         } else {
-            printf("[");
-            printNameNoLn(currHdr.name, cm);
-            printf(" ");
-         }
-      } ei (typeVal < 0) { // type parameter
-         printf("$");
-         if (typeVal == -1) {
-            printf("E");
-         } else {
-            printNameNoLn(-typeVal - 1, cm);
-         }
-         printf(" ");
-         top->currPos++;
-      } ei(typeVal <= topVerbatimType)  {
-         printNameNoLn(nameOfStd(strInt) + typeVal, cm);
-         printf(" ");
-         top->currPos++;
-      } else {
-         top->currPos++;
-         add(((TypeLoc){
-               .currPos = typeVal, .sentinel = typeVal + cm->types.c[typeVal] + 1}
-            ),
-            st
-         );
-         top = &last(st);
-         atHeader = true;
-         continue;
-      }
-
-      nextIter:
-      // closing open type spans
-      while (top != null && top->currPos == top->sentinel) {
-         st->len--;
-         top = st->len > 0 ? &last(st) : null;
-         printf("] ");
-      }
-   }
-   printf("\n");
-}
-
 void //:printType
-printType(TypeId type, Arr(Int) types, Arena* a) {
+printType(TypeId typeId, PrintableCompiler prc) {
 // Print a single type fully for error-reporting purposes
-   Int typeId = type.v;
+   Int t = typeId.v;
 
-   TypeHeader hdr = libeyr_readTypeHeader(type, types);
-   if (typeId <= topVerbatimType) {
-      printNameNoLnCr(nameOfStd(strInt) + typeId, cm->sourceCode.c);
+   if (t <= topVerbatimType) {
+      printNameNoLnCr(nameOfStd(strInt) + t, prc);
       printf(" ");
       return;
    } else {
-      printType1(type.v, hdr, types, a);
+      LTypeLoc* st = createLTypeLoc(16, prc.a);
+      TypeLoc* top = null;
+
+      add(((TypeLoc){ .currPos = t, .sentinel = t + prc.types[t] + 1 }), st);
+      top = st->c;
+
+      Bool atHeader = true;
+      for (Int countIters = 0; top != null && countIters < 10; countIters++)  {
+         Int typeVal = prc.types[top->currPos];
+         if (atHeader) {
+            TypeHeader currHdr = libeyr_readTypeHeader(typeOf(top->currPos), prc.types);
+            top->currPos = tGetBodyStart(typeOf(top->currPos), currHdr);
+            atHeader = false;
+
+            if (currHdr.name == nameOfStd(strF)) {
+               printf("F[");
+            } else {
+               printf("[");
+               printNameNoLnCr(currHdr.name, prc);
+               printf(" ");
+            }
+         } ei (typeVal < 0) { // type parameter
+            printf("$");
+            if (typeVal == -1) {
+               printf("E");
+            } else {
+               printNameNoLnCr(-typeVal - 1, prc);
+            }
+            printf(" ");
+            top->currPos++;
+         } ei(typeVal <= topVerbatimType)  {
+            printNameNoLnCr(nameOfStd(strInt) + typeVal, prc);
+            printf(" ");
+            top->currPos++;
+         } else {
+            top->currPos++;
+            add(((TypeLoc){
+                  .currPos = typeVal, .sentinel = typeVal + prc.types[typeVal] + 1}
+               ),
+               st
+            );
+            top = &last(st);
+            atHeader = true;
+            continue;
+         }
+
+         nextIter:
+         // closing open type spans
+         while (top != null && top->currPos == top->sentinel) {
+            st->len--;
+            top = st->len > 0 ? &last(st) : null;
+            printf("]");
+         }
+      }
    }
 }
 
@@ -7600,9 +7616,9 @@ printNameAndLenCr(Unt unsign, Arr(Byte) sourceCode) {
 }
 
 void //:printNameNoLnCr
-printNameNoLnCr(NameId nameId, CR) {
-   Unt unsign = cr->names->c[nameId];
-   printNameAndLenCr(unsign, cr->sourceCode.c);
+printNameNoLnCr(NameId nameId, PrintableCompiler prc) {
+   Unt unsign = prc.names[nameId];
+   printNameAndLenCr(unsign, prc.sourceCode);
 }
 
 Int
