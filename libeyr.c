@@ -101,7 +101,7 @@ typedef struct { // :Token
                            // After {reorderFor}, it's placed right between body and stepping code.
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
 #define tokTypeVar      7  // pl1 same as tokWord. `$A`
-#define tokKwArg        8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
+#define tokKey          8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
 #define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
 #define tokFieldAcc    10  // pl1 = nameId. `.field`
 
@@ -112,32 +112,33 @@ typedef struct { // :Token
 #define tokParens      14  // subexpressions and struct/sum type instances
 #define tokType        15  // `Int`, `[Tu Int Str]` or `F[A -> B]`. Atom if pl2 = 0, span otherwise.
                            // If span, then pl1 = nameId of the type
-#define tokData        16  // []. If pl1 == 1, it's a list. If pl1 += BIG, it's filled by meta
-                           // `[@ Int 15]`
-#define tokAccessor    17  // The umbrella around an accessor subexpression like `x[i][j][k]`
-#define tokAccessorIn  18  // The internal `[]` block inside an accessor
-#define tokAssignment  19
-#define tokAssignRight 20  // Right-hand side of assignment
-#define tokMeta        21  // @meta(...)
-#define tokAlias       22
-#define tokAssert      23
-#define tokBreakCont   24  // pl1 = 1 iff it's a continue
-#define tokTrait       25
-#define tokImport      26  // For test files and package decls
-#define tokReturn      27
+#define tokStruct      16  // Struct literal `Foo(:id 15 :name name)` 
+#define tokData        17  // Data literals `[]`. If pl1 == 1, it's a list. If pl1 += BIG, it's 
+                           // filled by meta `[@ Int 15]`
+#define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
+#define tokAccessorIn  19  // The internal `[]` block inside an accessor
+#define tokAssignment  20
+#define tokAssignRight 21  // Right-hand side of assignment
+#define tokMeta        22  // @meta(...)
+#define tokAlias       23
+#define tokAssert      24
+#define tokBreakCont   25  // pl1 = 1 iff it's a continue
+#define tokTrait       26
+#define tokImport      27  // For test files and package decls
+#define tokReturn      28
 
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       28  // `(do ...)` firstScopeTokenType
-#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      30  // `eif ... {`
-#define tokElse        31  // `else { `
-#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
-#define tokFn          33  // `f{a b -> body}`. pl1 = entityId
-#define tokTry         34  // `try {`
-#define tokCatch       35  // `catch e MyExc {`
-#define tokImpl        36
-#define tokFor         37
-#define tokEach        38
+#define tokScope       29  // `(do ...)` firstScopeTokenType
+#define tokIf          30  // `if ... { `. The If, ElseIf and Else tokens must be in that order
+#define tokElseIf      31  // `eif ... {`
+#define tokElse        32  // `else { `
+#define tokMatch       33  // `(match ... ` pattern matching on sum type tag
+#define tokFn          34  // `f{a b -> body}`. pl1 = entityId
+#define tokTry         35  // `try {`
+#define tokCatch       36  // `catch e MyExc {`
+#define tokImpl        37
+#define tokFor         38
+#define tokEach        39
 
 #define topVerbatimTokenVariant tokString
 #define firstSpanTokenType  tokStmt
@@ -366,7 +367,8 @@ PARSE_FN(pLoopStepMarker) PARSE_FN(pAlias) PARSE_FN(pAssert)
 PARSE_FN(pBreakCont) PARSE_FN(pMeta) PARSE_FN(pReturn) PARSE_FN(pIf) PARSE_FN(pElseIf)
 PARSE_FN(pElse) PARSE_FN(pFor) PARSE_FN(pEach)
 
-private ParseFn const PARSE_TABLE[countSyntaxForms] = {
+private ParseFn const //:PARSE_TABLE
+PARSE_TABLE[countSyntaxForms] = {
    [tokInt]        = parseErrorBareAtom,
    [tokLong]       = &parseErrorBareAtom,
    [tokDouble]     = &parseErrorBareAtom,
@@ -375,7 +377,7 @@ private ParseFn const PARSE_TABLE[countSyntaxForms] = {
    [tokMisc]       = &pLoopStepMarker,
    [tokWord]       = &parseErrorBareAtom,
    [tokTypeVar]    = &parseErrorBareAtom,
-   [tokKwArg]      = &parseErrorBareAtom,
+   [tokKey]        = &parseErrorBareAtom,
    [tokOperator]   = &parseErrorBareAtom,
    [tokFieldAcc]   = &parseErrorBareAtom,
 
@@ -2822,22 +2824,28 @@ closeStatement(LX) {
 }
 
 private void //:wordNormal
-wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
-         Bool wasCapitalized, SRC, LX) {
+wordNormal(
+   Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt, Bool wasCapitalized, SRC, LX
+) {
 // RealStartBt is the word-initial "$", "." etc if any, startBt is the first letter of the word
 // Consumes the word and, for some symbols, the following symbol
    Int const lenBts = lx->i - realStartBt;
    Token newToken = (Token){ .tp = wordType, .pl1 = uniqueStringId, .pl2 = 0,
          .startBt = realStartBt, .lenBts = lenBts };
-   if (wordType == tokWord && wasCapitalized) { // a type
+   if (wordType == tokWord && wasCapitalized) { // a type name
       if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aBracketLeft // `F[...]`
          && uniqueStringId == nameOfStd(strF)
       ) {
          add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}),
                lx->lexBtrack
          );
-         lx->i++; // CONSUME the `[`
-      } ei (lx->tokens.len > 0) {
+         lx->i++; // CONSUME the left bracket
+      } ei (lx->i < lx->stats.inpLength && CURR_BT == aParenLeft) { // struct literal `Foo()`
+         newToken.tp = tokStruct;
+         openPunctuation(tokStruct, slSubexpr, realStartBt, lx);
+         lx->i++; // CONSUME the left parenthesis
+         return;
+      } ei (lx->tokens.len > 0) { // a type name may need to change the outer []
          Token prevToken = lx->tokens.c[lx->tokens.len - 1];
          if (prevToken.tp == tokData && prevToken.pl1 < BIG) { // convert a [] to a type span
             lx->tokens.c[lx->tokens.len - 1] = (Token){
@@ -2855,14 +2863,14 @@ wordNormal(Unt wordType, Int uniqueStringId, Int startBt, Int realStartBt,
          openPunctuation(tokAccessor, slSubexpr, realStartBt, lx);
          pushIntokens(newToken, lx);
          openPunctuation(tokAccessorIn, slSubexpr, lx->i, lx);
-         lx->i++; // CONSUME the `[`
+         lx->i++; // CONSUME the left bracket
          return;
       } ei (CURR_BT == aApostrophe) { // mutable var definition
          newToken.pl2 = 1;
          lx->i++; // CONSUME the `'`
       } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {// fn body `f{..}`
          openPunctuation(tokFn, slScope, realStartBt, lx);
-         lx->i++; // CONSUME the `{`
+         lx->i++; // CONSUME the left curly brace 
          return;
       }
    }
@@ -2986,6 +2994,13 @@ lexDot(SRC, LX) {
    } else {
       throwExcLexer(lexError(errPrematureEndOfInput));
    }
+}
+
+private void //:lexColon
+lexColon(SRC, LX) {
+// The colon marks symbols (struct fields, keyword args in function calls)
+   lx->i++;  // CONSUME the ":". Doing it at the start so that span will calc len right
+   wordInternal(tokKey, source, lx);
 }
 
 private void //:lexSemicolon
@@ -3550,18 +3565,19 @@ lexStringLiteral(SRC, LX) { //:lexStringLiteral
    lx->i = j + 1; // CONSUME the string literal, including the closing quote character
 }
 
-private void
-lexUnexpectedSymbol(SRC, LX) { //:lexUnexpectedSymbol
+private void //:lexUnexpectedSymbol
+lexUnexpectedSymbol(SRC, LX) {
+   printLexer(lx);
    throwExcLexer(lexError(errUnrecognizedByte));
 }
 
-private void
-lexNonAsciierr(SRC, LX) { //:lexNonAsciierr
+private void //:lexNonAsciierr
+lexNonAsciierr(SRC, LX) {
    throwExcLexer(lexError(errNonAscii));
 }
 
-private void
-tabulateLexer() { //:tabulateLexer
+private void //:tabulateLexer
+tabulateLexer() {
    LexerFn* p = LEX_TABLE;
    for (Int i = 0; i < 128; i++) {
       p[i] = &lexUnexpectedSymbol;
@@ -3582,6 +3598,7 @@ tabulateLexer() { //:tabulateLexer
    p[aComma] = &lexComma;
    p[aDot] = &lexDot;
    p[aAt] = &lexAt;
+   p[aColon] = &lexColon;
    p[aSemicolon] = &lexSemicolon;
    p[aEqual] = &lexEqual;
    p[aUnderscore] = &lexUnderscore;
@@ -4743,6 +4760,7 @@ subexSaveDataLiteral(ExprFrame frame, Expr* e, CM) {
 
    eSaveDataLiteralNodes(frame.startNode, scr, e->locsScr, cm);
    TypeId eltType = typecheckList(cm->ast.c[astInd], astInd, cm);
+   
    TypeId collType = tCreateSingleParamTypeCall(nameOfStd(strArr), eltType, cm);
 
    // replace the nodes in @scr with a single var
@@ -4975,7 +4993,7 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
 
       Token countTk = tokens[typeSentinel];
 
-      newDataAlloc.pl1 = elemType.v;
+      newDataAlloc.pl1 = tCreateSingleParamTypeCall(nameOfStd(strArr), elemType, cm).v;
       if (countTk.tp == tokInt) {
          newDataAlloc.pl3 = arrLitKnownLength;
          newDataAlloc.pl2 = countTk.pl2;
@@ -5682,6 +5700,8 @@ buildPreludeTypes(CM) {
    cm->activeBindings[name] = typeIndL;
    cm->stats.listType = typeIndL;
    // no need to merge the types as they are surely unique
+   
+   cm->stats.voidToVoidType = addConcrFnType(0, (Int[]){ voidType}, cm).v;
 }
 
 private void //:buildOper
@@ -5860,6 +5880,7 @@ importPrelude(CM) {
    }
    importVars(AARG(constImports, Var), cm);
    importFns(AARG(fnImports, Function), cm);
+   cm->stats.firstParsedType = cm->types.len;
 }
 
 internal Compiler* //:createLexer
@@ -6160,7 +6181,7 @@ validateOverloadsFull(CM) {
 #endif
 
 private void //:pFnSignature
-pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
+pFnSignature(Token tokToplevel, TOKENS, CM) {
 // Parses a function signature. Emits no nodes, adds data to @toplevels, @functions, @overloads.
 // Pre-condition: we are right past tokToplevelFn
    Int const tokenInd = cm->i - 1;
@@ -6174,7 +6195,7 @@ pFnSignature(Token tokToplevel, TypeId voidToVoid, TOKENS, CM) {
    cm->i++; // CONSUME the function name
    Token secondTk = tokens[cm->i];
 
-   TypeId fnType = voidToVoid;
+   TypeId fnType = typeOf(cm->stats.voidToVoidType);
 
    Bool isGeneric = false;
    Int arity = 0;
@@ -6309,14 +6330,13 @@ pToplevelSignatures(TOKENS, CM) {
    cm->i = 0;
    Int const len = cm->tokens.len;
 
-   TypeId const voidToVoid = addConcrFnType(0, (Int[]){ voidType}, cm);
    Int nextI = 0;
    for (Token tok = tokens[cm->i]; cm->i < len; cm->i = nextI, tok = tokens[nextI]) {
       nextI = calcSentinel(tok, cm->i);
       if (tok.tp != tokToplevelFn)
          { continue; }
       cm->i++; // CONSUME the tokToplevelFn
-      pFnSignature(tok, voidToVoid, tokens, cm);
+      pFnSignature(tok, tokens, cm);
    }
 }
 
@@ -6344,10 +6364,6 @@ parseMain(CM, Arena* a) {
 
       //printParser(cm);
       //dbgAllTypes(cm);
-      //dbgType(typeOf(7));
-      //dbgType(typeOf(15));
-      //dbgType(typeOf(177));
-      //dbgType(typeOf(321));
    } else {
 #ifndef DEBUG
       print("Exception!");
@@ -7286,10 +7302,13 @@ typecheckAndProcessListElt(Int* j, CM) {
 
 private TypeId //:typecheckList
 typecheckList(Node nd, Int startInd, CM) {
-// startInd = index of the nodDataLit, not the first element
-   if ((nd.pl2 == 0 && nd.pl1 != -1)) // element type has been declared with `@`
+// node = nodDataLit, startInd = index of the nodDataLit, not the first element
+// Returns the element type of the list/array. Fills in the missing types.
+
+   // Elements haven't been specified but the type has been declared with `@`
+   if ((nd.pl2 == 0 && nd.pl1 != -1))
       { return typeOf(nd.pl1); }
-   ei (nd.pl3 == BIG) { // element type has been declared with `@`
+   ei (nd.pl3 == BIG) {
       Int sentinel = calcNodeSentinel(nd, startInd);
       TypeId exprType;
       if (startInd + 2 == sentinel) {
@@ -7303,6 +7322,8 @@ typecheckList(Node nd, Int startInd, CM) {
       VALIDATEP(eq(exprType, typeOf(tokInt)), pError0(errMetaArrSyntax));
       return typeOf(nd.pl1);
    }
+   
+   // The case where the elements are specified
    TypeId commonEltType = VOID_TYPE;
    for (Int j = startInd + 1; j < cm->ast.len; j++) {
       TypeId eltType = typecheckAndProcessListElt(&j, cm);
@@ -7320,7 +7341,7 @@ typecheckList(Node nd, Int startInd, CM) {
    for (Int j = startInd + 1; j < cm->ast.len; ) {
       Node elem = cm->ast.c[j];
       if (elem.tp == nodDataLit && elem.pl1 == -1) {
-         cm->ast.c[j].pl1 = commonEltType.v;
+         cm->ast.c[j].pl1 = tCreateSingleParamTypeCall(nameOfStd(strArr), commonEltType, cm).v;
       }
       if (elem.pl3 == arrLitKnownLength) {
          cm->ast.c[j].pl3 = elem.pl2;
@@ -7635,9 +7656,9 @@ getFirstErrId(CM) {
 // Must agree in order with Token types in eyr.internal.h
 char const* tokNames[] = {
    "Int", "Long", "Double", "Bool", "String", "misc",
-   "word", "@TVar", ":kwarg", "oper", ".field",
+   "word", "@TVar", ":key", "oper", ".field",
    "stmt", "clause", "TOPLEVEL", "()",
-   "Type", "data", "a[b][c]", "[]",
+   "Type", "Struct()", "data", "a[b][c]", "[]",
    "=", "=...", "@()", "alias", "assert", "breakCont",
    "trait", "import", "return",
    "{", "if...", "eif ...", "else {", "match", "f{",

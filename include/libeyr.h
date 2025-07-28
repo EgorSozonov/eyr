@@ -199,7 +199,7 @@ libeyr_String str(const char* content);
                            // contents;
                            // if pl2 > 0 and pl3 == BIG, it's an array with runtime-known
                            // size and no contents;
-                           // if pl2 > 0 and pl3 > 0, then it has fully specified contents
+                           // if pl2 > 0 and pl3 > 0, then it has fully specified contents.
 #define nodStruct      12  // pl1 = name before typecheck, concrete typeId after. pl2 = count of fields.
                            // Struct initializer
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
@@ -482,9 +482,11 @@ typedef struct { //:CompStats
    Int typesLen;
    Int listType;
    Int arrayType;
+   Int voidToVoidType;
 
    Int standardTextLen; // length of @standardText
    Int firstParsedName; // the name index for the first parsed word in @names
+   Int firstParsedType; // the length of @types just before parsing
    Int firstBuiltin;    // the name for the first built-in word in @standardStrings
 } CompStats;
 

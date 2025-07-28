@@ -160,45 +160,52 @@ typedef struct {
 #define tokBool         3  // pl2 = value (1 or 0)
 #define tokString       4
 
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
+#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff
+                           // miscUnderscore, step iff nonzero and miscLoopStep
                            // Also stands for "Void" among the primitive types
+                           // Also works as a marker in "for" loops: initially it's placed after
+                           // tokFor and pl2 = token ind of body start.
+                           // After {reorderFor}, it's placed right between body and stepping code.
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
-#define tokTypeVar      7  // pl1 same as tokWord. The `$A`
-#define tokKwArg        8  // pl2 = same as tokWord. The ":argName"
+#define tokTypeVar      7  // pl1 same as tokWord. `$A`
+#define tokKey          8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
 #define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
-#define tokFieldAcc    10  // pl2 = nameId
+#define tokFieldAcc    10  // pl1 = nameId. `.field`
 
 // Statement or subexpr span types. pl2 = count of inner tokens
 #define tokStmt        11  // firstSpanTokenType
 #define tokClause      12  // Element of a comma-separated list
 #define tokToplevelFn  13  // Toplevel function definition
 #define tokParens      14  // subexpressions and struct/sum type instances
-#define tokType        15  // `(Tu Int Str)` or `F(A -> B)`. pl1 = nameId
-#define tokData        16  // []
-#define tokAccessor    17  // The umbrella around an accessor subexpression like `x[i][j][k]`
-#define tokAccessorIn  18  // The internal `[]` block inside an accessor
-#define tokAssignment  19
-#define tokAssignRight 20  // Right-hand side of assignment
-#define tokMeta        21  // Right-hand side of assignment
-#define tokAlias       22
-#define tokAssert      23
-#define tokBreakCont   24  // pl1 = 1 iff it's a continue
-#define tokTrait       25
-#define tokImport      26  // For test files and package decls
-#define tokReturn      27
+#define tokType        15  // `Int`, `[Tu Int Str]` or `F[A -> B]`. Atom if pl2 = 0, span otherwise.
+                           // If span, then pl1 = nameId of the type
+#define tokStruct      16  // Struct literal `Foo(:id 15 :name name)` 
+#define tokData        17  // Data literals `[]`. If pl1 == 1, it's a list. If pl1 += BIG, it's 
+                           // filled by meta `[@ Int 15]`
+#define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
+#define tokAccessorIn  19  // The internal `[]` block inside an accessor
+#define tokAssignment  20
+#define tokAssignRight 21  // Right-hand side of assignment
+#define tokMeta        22  // @meta(...)
+#define tokAlias       23
+#define tokAssert      24
+#define tokBreakCont   25  // pl1 = 1 iff it's a continue
+#define tokTrait       26
+#define tokImport      27  // For test files and package decls
+#define tokReturn      28
 
 // Bracketed (multi-statement) token types. pl1 = spanLevel, see the "sl" constants
-#define tokScope       28  // `(do ...)` firstScopeTokenType
-#define tokIf          29  // `if ... { `. The If, ElseIf and Else tokens must be in that order
-#define tokElseIf      30  // `eif ... {`
-#define tokElse        31  // `else { `
-#define tokMatch       32  // `(match ... ` pattern matching on sum type tag
-#define tokFn          33  // `f{a b -> body}`. pl1 = entityId
-#define tokTry         34  // `try {`
-#define tokCatch       35  // `catch e MyExc {`
-#define tokImpl        36
-#define tokFor         37
-#define tokEach        38
+#define tokScope       29  // `(do ...)` firstScopeTokenType
+#define tokIf          30  // `if ... { `. The If, ElseIf and Else tokens must be in that order
+#define tokElseIf      31  // `eif ... {`
+#define tokElse        32  // `else { `
+#define tokMatch       33  // `(match ... ` pattern matching on sum type tag
+#define tokFn          34  // `f{a b -> body}`. pl1 = entityId
+#define tokTry         35  // `try {`
+#define tokCatch       36  // `catch e MyExc {`
+#define tokImpl        37
+#define tokFor         38
+#define tokEach        39
 
 #define topVerbatimTokenVariant tokString
 #define topVerbatimType     tokMisc

@@ -38,7 +38,7 @@ private Compiler* buildExpectedLexer(Arena *a, int totalTokens, Arr(Token) token
         Token tok = tokens[i];
         // offset nameIds and startBts for the standardText and standard nameIds correspondingly
         tok.startBt += testRes->stats.standardTextLen;
-        if (tok.tp == tokWord || tok.tp == tokKwArg || tok.tp == tokType
+        if (tok.tp == tokWord || tok.tp == tokKey || tok.tp == tokType
              || (tok.tp == tokOperator && tok.pl2 == 10)
              || tok.tp == tokTypeVar || tok.tp == tokFieldAcc
         ) {
@@ -101,7 +101,7 @@ void runLexerTest(LexerTest test, TestContext* ct) {
    } else if (equalityStatus == -1) {
       printf("\n\nERROR IN [%d][", testId);
       printStringNoLn(test.name);
-      printf("]\nError msg: ");
+      printf("]\nError msg:\n");
       CompResult* testRes = getCompResult(result);
       CompResult* expectedRes = getCompResult(test.expectedOutput);
       libeyr_printErrors(testRes);
@@ -117,6 +117,37 @@ void runLexerTest(LexerTest test, TestContext* ct) {
       printStringNoLn(test.name);
       printf("]\nOn token %d\n", equalityStatus);
       printLexer(result);
+   }
+}
+
+void runATestSet(LexerTestSet* (*testGenerator)(Arena*), TestContext* ct) {
+    LexerTestSet* testSet = (testGenerator)(ct->a);
+    for (int j = 0; j < testSet->totalTests; j++) {
+        LexerTest test = testSet->tests[j];
+        runLexerTest(test, ct);
+    }
+}
+
+void
+printTestResults(TestContext ct) {
+   if (ct.countTests == 0) {
+      printf("There were no tests to run!\n");
+   } else if (ct.countPassed == ct.countTests) {
+      if (ct.countTests > 1) {
+         printf("Passed all %d tests!\n", ct.countTests);
+      } else {
+         printf("The test was passed.\n");
+      }
+   } else if (ct.singleId > -1) {
+      if (ct.ranSingle) {
+         printf(ct.countPassed == 1 ? "\nThe test was passed.\n" : "\nFailed the test!\n");
+      } else {
+         printf("Wanted to run test %d but encountered only %d tests\n",
+            ct.singleId, ct.countTests
+         );
+      }
+   } else {
+      printf("Failed %d tests out of %d!\n", (ct.countTests - ct.countPassed), ct.countTests);
    }
 }
 
@@ -1198,6 +1229,16 @@ LexerTestSet* typeTests(Arena* a) {
                  (Token){ .tp = tokType, .pl1 = strInt + S, .startBt = 2, .lenBts = 3 },
                  (Token){ .tp = tokType, .pl1 = strVoid + S, .startBt = 7, .lenBts = 0 }
          }))},
+         (LexerTest) { .name = s("Struct literal"),
+             .input = s("Foo(:id 15 :name `hw`);"),
+             .expectedOutput = expect(((Token[]) {
+                 (Token){ .tp = tokStmt, .pl2 = 5, .lenBts = 23 },
+                 (Token){ .tp = tokStruct, .pl1 = 0, .pl2 = 4, .startBt = 0, .lenBts = 22 },
+                 (Token){ .tp = tokKey, .pl1 = 1, .pl2 = 0, .startBt = 4, .lenBts = 3 },
+                 (Token){ .tp = tokInt, .pl1 = 0, .pl2 = 15, .startBt = 8, .lenBts = 2 },
+                 (Token){ .tp = tokKey, .pl1 = 2, .pl2 = 0, .startBt = 11, .lenBts = 5 },
+                 (Token){ .tp = tokString, .pl1 = 0, .pl2 = 0, .startBt = 17, .lenBts = 4 }
+         }))},
          (LexerTest) { .name = s("Data allocations"),
              .input = s("[[1 2 3] [-3 4 5]];"),
              .expectedOutput = expect(((Token[]) {
@@ -1221,42 +1262,11 @@ LexerTestSet* typeTests(Arena* a) {
 
 //}}}
 
-
-void runATestSet(LexerTestSet* (*testGenerator)(Arena*), TestContext* ct) {
-    LexerTestSet* testSet = (testGenerator)(ct->a);
-    for (int j = 0; j < testSet->totalTests; j++) {
-        LexerTest test = testSet->tests[j];
-        runLexerTest(test, ct);
-    }
-}
-
-void
-printTestResults(TestContext ct) {
-   if (ct.countTests == 0) {
-      printf("There were no tests to run!\n");
-   } else if (ct.countPassed == ct.countTests) {
-      if (ct.countTests > 1) {
-         printf("Passed all %d tests!\n", ct.countTests);
-      } else {
-         printf("The test was passed.\n");
-      }
-   } else if (ct.singleId > -1) {
-      if (ct.ranSingle) {
-         printf(ct.countPassed == 1 ? "\nThe test was passed.\n" : "\nFailed the test!\n");
-      } else {
-         printf("Wanted to run test %d but encountered only %d tests\n",
-            ct.singleId, ct.countTests
-         );
-      }
-   } else {
-      printf("Failed %d tests out of %d!\n", (ct.countTests - ct.countPassed), ct.countTests);
-   }
-}
-
-int main(int argc, char** argv) {
-   printf("--------------------\n");
-   printf("---  LEXER TEST  ---\n");
-   printf("--------------------\n");
+int
+main(int argc, char** argv) {
+   printf("------------------\n");
+   printf("--- LEXER TEST ---\n");
+   printf("------------------\n");
 
    TestContext ct = (TestContext){.countTests = 0, .countPassed = 0,
        .singleId = -1, .ranSingle = false, .a = createArena() };
