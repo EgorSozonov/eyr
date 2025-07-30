@@ -109,7 +109,7 @@ createTest0(String name, String sourceCode, Arr(Node) nodes, Int countNodes, Arr
       } else if (nodeType == tokString) {
          nd.pl1 += controlRes->stats.standardTextLen;
       } else if (nodeType == nodDataLit
-         || nodeType == nodStruct 
+         || nodeType == nodStruct
          || (nodeType == nodCall && nd.pl3 == callGetElem)
          || (nodeType == nodCall && nd.pl3 == callField && nd.pl1 != tokString)) {
          nd.pl1 = transformTypeId(nd.pl1, &controlRes->stats);
@@ -591,7 +591,7 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 15, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 13 },
-            
+
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 6, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
             (Node){ .tp = nodDataLit, .pl1 = 0, .pl2 = 4, .pl3 = 1 },
@@ -1700,7 +1700,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
            "}}"),
          ((Node[]) {
             (Node){ .tp = nodToplevelFn,         .pl2 = 35, .pl3 = 0 },
-            
+
             (Node){ .tp = nodAssignment,     .pl2 = 9, .pl3 = 2  },
             (Node){ .tp = nodVar,     .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = nodExpr,     .pl1 = 1, .pl2 = 7 },
@@ -1711,7 +1711,7 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = tokInt,            .pl2 = 2 },
             (Node){ .tp = tokInt,            .pl2 = 3 },
             (Node){ .tp = nodVar, .pl1 = 1,  .pl2 = 0 },
-            
+
             (Node){ .tp = nodFor, .pl1 = 4, .pl2 = 24, .pl3 = 19 },
 
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 2, .pl3 = 2 }, // ind = 0
@@ -1725,18 +1725,18 @@ ParserTestSet* forTests(Compiler* protoOvs, Arena* a) {
             (Node){ .tp = nodCall, .pl1 = oper(opLessTh, tokInt), .pl2 = 2 },
 
             (Node){ .tp = nodScope,          .pl2 = 15 },
-            
+
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // elem = coll[ind]
             (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0, .pl3 = assiVarAssignment },
             (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0 },
             (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
             (Node){ .tp = nodCall, .pl1 = 0, .pl2 = 2, .pl3 = callGetElem },
-            
+
             (Node){ .tp = nodExpr, .pl2 = 2 }, // print elem
             (Node){ .tp = nodVar, .pl1 = 3, .pl2 = 0 },
             (Node){ .tp = nodCall, .pl1 = I - 5, .pl2 = 1 },
-            
+
             (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 5, .pl3 = 2 }, // ind++
             (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 },
             (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },

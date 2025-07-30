@@ -112,8 +112,8 @@ typedef struct { // :Token
 #define tokParens      14  // subexpressions and struct/sum type instances
 #define tokType        15  // `Int`, `[Tu Int Str]` or `F[A -> B]`. Atom if pl2 = 0, span otherwise.
                            // If span, then pl1 = nameId of the type
-#define tokStruct      16  // Struct literal `Foo(:id 15 :name name)` 
-#define tokData        17  // Data literals `[]`. If pl1 == 1, it's a list. If pl1 += BIG, it's 
+#define tokStruct      16  // Struct literal `Foo(:id 15 :name name)`
+#define tokData        17  // Data literals `[]`. If pl1 == 1, it's a list. If pl1 += BIG, it's
                            // filled by meta `[@ Int 15]`
 #define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
 #define tokAccessorIn  19  // The internal `[]` block inside an accessor
@@ -470,7 +470,7 @@ private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 
 private Int getBinding(Int id, CM);
 TypeId tResolveGenericFnCall(Function fn, Arr(Int) cont, Int start, Int end, CM);
-TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
+private TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
 void printType(TypeId type, PrintableCompiler prc);
 
 private libeyr_CompilationErrors* getCompilationErrors(CM);
@@ -1648,10 +1648,10 @@ DEFINE_LIST(Function)
 struct Expr { //:Expr State for parsing expressions
    LInt* exp;            // For assignments with complex left sides
    LExprFrame* frames;
-   LNode* scr;           // "Scratch". Draft nodes written to during expression parsing
-   LChInterval* locsScr; // SourceLocs for @scr
-   LInt* reorderKeys;    // (start end) which point into @scr. Used in struct reordering [aTmp]
-   LNode* reorderBuf;    // Reordering buffer for @scr used for struct reordering        [aTmp]
+   LNode scr;           // "Scratch". Draft nodes written to during expression parsing
+   LChInterval locsScr; // SourceLocs for @scr
+   LInt reorderKeys;    // (start end) which point into @scr. Used in struct reordering [aTmp]
+   LNode reorderBuf;    // Reordering buffer for @scr used for struct reordering        [aTmp]
    Bool metAnAllocation; // if we've met an allocation, we need to emit sub-expression nodes
 };
 
@@ -1802,13 +1802,13 @@ private PrintableCompiler //:printableOfCompResult
 printableOfCompResult(CompResult* cr) {
    return (PrintableCompiler){
       .types = cr->types.c, .sourceCode = cr->sourceCode.c, .names = cr->names.c, .a = cr->a
-   }; 
+   };
 }
 //}}}
 //{{{ Errors
 //{{{ Compile errors
 
-#define errMaxId 125 // must be updated. The maximal value of the currently existing errIds below
+#define errMaxId 126 // must be updated. The maximal value of the currently existing errIds below
 #define errNonAscii                     0
 #define errPrematureEndOfInput          1
 #define errUnrecognizedByte             2
@@ -1922,6 +1922,7 @@ printableOfCompResult(CompResult* cr) {
 #define errTypeGenericCallDoesntUnify 107
 #define errTypeGenericWrongArity      123
 #define errTypeFieldNotFound          108
+#define errTypeFieldNotSpecified      126
 // internal errors:
 #define ierrInconsistentSpans         109 // Inconsistent span length / structure of token
                                           // scopes!
@@ -2083,7 +2084,8 @@ compileErrors[] = {
    "The matching function overload for name $0 has the wrong arity, $1. Type $2",
    "Generic function's type has wrong arity $0 but should be $1",
    "Expected a word",
-   "Operator $0 is not overloadable"
+   "Operator $0 is not overloadable",
+   "Not all fields specified for struct $0, for example $1 is missing"
 };
 
 struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
@@ -2866,7 +2868,7 @@ wordNormal(
          lx->i++; // CONSUME the `'`
       } ei (CURR_BT == aCurlyLeft && lenBts == 1 && source[startBt] == aFLower) {// fn body `f{..}`
          openPunctuation(tokFn, slScope, realStartBt, lx);
-         lx->i++; // CONSUME the left curly brace 
+         lx->i++; // CONSUME the left curly brace
          return;
       }
    }
@@ -3720,6 +3722,17 @@ nameErr(Int name) {
    };
 }
 
+private ErrorText //:nameErr2
+nameErr2(Int name, Int name2) {
+   return (ErrorText){
+      .count = 2,
+      .c = {
+         (ErrTextSumType){.tp = errtxtName, .c = name },
+         (ErrTextSumType){.tp = errtxtName, .c = name2 }
+      }
+   };
+}
+
 private ErrorText //:nameAndTypeErr
 nameAndTypeErr(Int name, TypeId t) {
    return (ErrorText){
@@ -3892,31 +3905,31 @@ eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
 }
 
 private void //:eSaveDataLiteralNodes
-eSaveDataLiteralNodes(Int startInd, LNode* scr, LChInterval* locsScr, CM) {
+eSaveDataLiteralNodes(Int startInd, LNode scr, LChInterval locsScr, CM) {
 // Pushes the tail of scratch space (from a specified index onward) into the main AST
-   Int const pushCount = scr->len - startInd;
+   Int const pushCount = scr.len - startInd;
    if (pushCount == 0)
       { return; }
 
    if (cm->ast.len + pushCount + 1 < cm->ast.cap) {
-      memcpy((Node*)(cm->ast.c) + (cm->ast.len), scr->c + startInd,
+      memcpy((Node*)(cm->ast.c) + (cm->ast.len), scr.c + startInd,
              pushCount*sizeof(Node));
       memcpy((SourceLoc*)(cm->sourceLocs->c) + (cm->sourceLocs->len),
-             locsScr->c + startInd,
+             locsScr.c + startInd,
              pushCount*sizeof(SourceLoc));
    } else {
       Int const newCap = 2*(cm->ast.cap) + pushCount;
       Arr(Node) newContent = allocateArray(newCap, Node, cm->a);
       memcpy(newContent, cm->ast.c + startInd, cm->ast.len*sizeof(Node));
       memcpy((Node*)(newContent) + (cm->ast.len),
-            scr->c + startInd,
+            scr.c + startInd,
             pushCount*sizeof(Node));
       cm->ast.cap = newCap;
       cm->ast.c = newContent;
 
       Arr(SourceLoc) newLocs = allocateArray(newCap, SourceLoc, cm->a);
       memcpy(newLocs, cm->sourceLocs->c + startInd, pushCount*sizeof(SourceLoc));
-      memcpy((SourceLoc*)(newLocs) + (cm->sourceLocs->len), locsScr->c + startInd,
+      memcpy((SourceLoc*)(newLocs) + (cm->sourceLocs->len), locsScr.c + startInd,
             pushCount*sizeof(SourceLoc));
       cm->sourceLocs->cap = newCap;
       cm->sourceLocs->c = newLocs;
@@ -4002,6 +4015,7 @@ getBinding(Int id, CM) { return cm->activeBindings[id]; }
 
 private TypeId pTypeDef(TOKENS, CM);
 private Bool tIsList(TypeId t, CM);
+private TypeId typeGetTypeByName(Int t, CM);
 
 internal Int getOper(Int opName, Int operandType, Compiler* cm);
 
@@ -4118,7 +4132,7 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
    );
    TypeId fnType = cm->functions.c[fnId].typeId;
    VALIDATEP(eq(leftType, fnType), pError(errTypeMismatch, typeErr2(leftType, fnType)));
-   
+
    NameId varName = leftNameTk.pl1;
    Int pl3;
    Int varId = createVarWithType(
@@ -4719,7 +4733,7 @@ subexSaveDataLiteral(ExprFrame frame, Expr* e, CM) {
 // nodes and counts elements that are subexpressions. Then copies the nodes from scratch to main,
 // careful to wrap subexpressions in a nodExpr. Finally, replaces the copied nodes in scr with
 // an id linked to the new entity
-   LNode* scr = e->scr;  // ((ind in scr) (count of nodes in subexpr))
+   LNode* scr = &(e->scr);  // ((ind in scr) (count of nodes in subexpr))
 
    const VarId newVarId = cm->vars.len;
    pushInvars(((Var) { .access = accessPrivImm, .fnId = -1 }), cm);
@@ -4751,15 +4765,15 @@ subexSaveDataLiteral(ExprFrame frame, Expr* e, CM) {
    newNode((Node){.tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = assiVarAssignment}, rawLoc, cm);
    Int const astInd = cm->ast.len;
 
-   eSaveDataLiteralNodes(frame.startNode, scr, e->locsScr, cm);
-   
+   eSaveDataLiteralNodes(frame.startNode, *scr, e->locsScr, cm);
+
    TypeId collType = typecheckList(cm->ast.c[astInd], astInd, cm);
-   
+
    cm->vars.c[newVarId].typeId = collType;
    // replace the nodes in @scr with a single var
-   e->scr->c[frame.startNode] = (Node){ .tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = 0 };
+   e->scr.c[frame.startNode] = (Node){ .tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = 0 };
    scr->len = frame.startNode + 1;
-   e->locsScr->len = frame.startNode + 1;
+   e->locsScr.len = frame.startNode + 1;
 }
 
 private void //:eBumpArgCount
@@ -4776,8 +4790,8 @@ eWriteUnaryCalls(Expr* e) {
    ExprFrame* const initFrame = zero + (e->frames->len - 1);
    ExprFrame* frame = initFrame;
    for (; frame >= zero && frame->tp == exfrUnaryCall; frame--) {
-      add(((Node){.tp = nodCall, .pl1 = frame->name, .pl2 = 1, .pl3 = 0}), e->scr);
-      add(frame->chi, e->locsScr);
+      add(((Node){.tp = nodCall, .pl1 = frame->name, .pl2 = 1, .pl3 = 0}), &(e->scr));
+      add(frame->chi, &(e->locsScr));
    }
    if (frame < initFrame)
       { e->frames->len = frame - zero + 1; }
@@ -4787,7 +4801,7 @@ private void //:eWriteCallToScratch
 eWriteCallToScratch(ExprFrame frame, Expr* e) {
 // Writes a call to the nodes scratch space.
 // Precondition: the ExprFrame has already been popped
-   LNode* scr = e->scr;
+   LNode* scr = &(e->scr);
    Node call = {
       .tp = nodCall,
       .pl1 = frame.name,
@@ -4796,7 +4810,18 @@ eWriteCallToScratch(ExprFrame frame, Expr* e) {
    };
 
    add(call, scr);
-   add(frame.chi, e->locsScr);
+   add(frame.chi, &(e->locsScr));
+}
+
+private void //:reorderStructFindUnspecifiedKeys
+reorderStructFindUnspecifiedKeys(
+   Arr(Int) reorderKeys, Int fieldCount, Arr(StructField) fields, Int structName, CM
+) {
+   for (Int j = 0; j < fieldCount; j += 2) {
+      if (reorderKeys[j] == -1) {
+         pError(errTypeFieldNotSpecified, nameErr2(fields[j/2].name, structName));
+      }
+   }
 }
 
 private void //:reorderStructInitBuffers
@@ -4804,41 +4829,88 @@ reorderStructInitBuffers(Int fieldCount, Int nodeCount, Expr* restrict e, Arena*
    Int const lenKeys = 2*fieldCount;
    if (e->reorderKeys.cap < lenKeys) {
       e->reorderKeys.c = allocateArray(lenKeys, Int, aTmp);
-      e->reorderKeys.cap = lenKeys; 
+      e->reorderKeys.cap = lenKeys;
    }
-   e->reorderKeys.len = 0; 
-   
+   e->reorderKeys.len = 0;
+
    Int const nodeCountAfter = nodeCount - fieldCount; // there will be no nodes for the fields
    print("REORDER len keys %d node count after %d", lenKeys, nodeCountAfter);
-   
+
    if (e->reorderBuf.cap < nodeCountAfter) {
       e->reorderBuf.c = allocateArray(nodeCountAfter, Node, aTmp);
-      e->reorderBuf.cap = nodeCountAfter; 
+      e->reorderBuf.cap = nodeCountAfter;
    }
-   e->reorderBuf.len = 0; 
+   e->reorderBuf.len = 0;
+}
+
+private Int //:binarySearchStructField
+binarySearchStructField(Int needle, Arr(StructField) haystack, Int len) {
+   if (len < 1)
+      { return -1; }
+
+   Int j = len - 1;
+   if (haystack[0].name == needle) {
+      return 0;
+   } ei (haystack[j].name == needle) {
+      return j;
+   }
+
+   for (Int i = 0; i < j; ) {
+      if (i == j - 1)
+         { return -1; }
+      Int midInd = (i + j)/2;
+      Int mid = haystack[midInd].name;
+      if (mid > needle) {
+         j = midInd;
+      } ei (mid < needle) {
+         i = midInd;
+      } else {
+         return midInd;
+      }
+   }
+   return -1;
 }
 
 private void //:reorderStructLocateKeys
-reorderStructLocateKeys(Int startNode, Arr(StructField) fields, Expr* restrict e) {
-// Finds where each struct key is located in @e.scr
-   for (Int j = frame.startNode + 1; j < cm->i;) {
-      Node fieldNd = e->scr->c[j];
-      Int fieldInd = binarySearch(fieldNd.pl1, fields, hdr.arity);
-      VALIDATEP(fieldInd > -1, pError(errTypeFieldNotFound, nameErr2()));
-      
-      Int sentinel = calcSentinel(fieldNd, j);
-      e->reorderKeys.c[2*fieldInd] = j + 1;
-      e->reorderKeys.c[2*fieldInd + 1] = sentinel;
-      
+reorderStructLocateKeys(
+   ExprFrame frame, Int sentNode, Arr(StructField) fields, Int fieldCount, CM
+) { // Finds where each struct key is located in @e.scr
+   Int fieldsFound = 0;
+   Arr(Int) reorderKeys = cm->expr->reorderKeys.c;
+   for (Int f = 0; f < fieldCount; f += 2) {
+      reorderKeys[f] = -1;
+   }
+   for (Int j = frame.startNode + 1; j < sentNode;) {
+      Node fieldNd = cm->expr->scr.c[j];
+      Int fieldInd = binarySearchStructField(fieldNd.pl1, fields, fieldCount);
+      VALIDATEP(fieldInd > -1, pError(errTypeFieldNotFound, nameErr2(fieldNd.pl1, frame.name)));
+
+      Int sentinel = calcNodeSentinel(fieldNd, j);
+      reorderKeys[2*fieldInd] = j + 1;
+      reorderKeys[2*fieldInd + 1] = sentinel;
+      fieldsFound++;
       j = sentinel;
+   }
+   if (fieldsFound < fieldCount) {
+      reorderStructFindUnspecifiedKeys(reorderKeys, fieldCount, fields, frame.name, cm);
    }
 }
 
 private void //:reorderStructMoveNodes
-reorderStructMoveNodes(Expr* restrict e) {
+reorderStructMoveNodes(Int startNode, Expr* e) {
 // Actually reorders nodes in @e.scr
 // (:key2 expr2 :key1 expr1) --> (expr1 expr2)
-
+   LInt reorderKeys = e->reorderKeys;
+   Node* tgt = e->reorderBuf.c;
+   for (Int j = 0; j < reorderKeys.len; j += 2) {
+      Int blockLen = reorderKeys.c[j + 1] - reorderKeys.c[j];
+      memcpy(tgt, e->scr.c + reorderKeys.c[j], blockLen * sizeof(Node));
+      tgt += blockLen;
+   }
+   Int const newLen = tgt - e->reorderBuf.c;
+   memcpy(e->scr.c + startNode, e->reorderBuf.c, newLen*sizeof(Node));
+   e->scr.len -= (e->scr.len - startNode - newLen);
+   print("REORD new len %d", e->scr.len);
 }
 
 private void //:reorderStruct
@@ -4846,17 +4918,19 @@ reorderStruct(ExprFrame frame, Expr* restrict e, CM) {
 // Validates that keys in a struct initializer match the type, and replaces the nodes in @exp.
 // (:key value :key value) => (value value) in the order of the struct fields
    Node nd = e->scr.c[frame.startNode];
-   TypeId t = typeGetTypeByName(nd.pl1, CM);
+   TypeId t = typeGetTypeByName(nd.pl1, cm);
    TypeHeader hdr = typeReadHeader(t, cm);
-   
+
    Int nodeCount = e->scr.len - frame.startNode;
-   reorderStructInitBuffers(hdr.arity, nodeCount, e, cm->aTmp);
-   
-   Int startField = t + TYPE_PREFIX + hdr.arity;
-   Arr(StructField) fields = cm->genericFields.c[startField];
-   reorderStructLocateKeys(frame.startNode, fields, e);
-   reorderStructMoveNodes(frame.startNode, fields, e);
-   
+   Int const fieldCount = hdr.arity;
+   reorderStructInitBuffers(fieldCount, nodeCount, e, cm->aTmp);
+
+   Int startField = t.v + TYPE_PREFIX + hdr.arity;
+   Arr(StructField) fields = cm->genericFields.c + startField;
+   reorderStructLocateKeys(frame, cm->i, fields, fieldCount, cm);
+   reorderStructMoveNodes(frame.startNode, e);
+   add(((Node){.tp = nodStruct, .pl1 = frame.name, .pl2 = fieldCount}), &(e->scr));
+   add(frame.chi, &(e->locsScr));
 }
 
 private void //:eClose
@@ -4875,8 +4949,8 @@ eClose(Expr* restrict e, CM) {
          eBumpArgCount(e->frames);
          break;
       case exfrAccessIn:
-         add(((Node){.tp = nodCall, .pl1 = frame.name, .pl2 = 2, .pl3 = callGetElem}), e->scr);
-         add(frame.chi, e->locsScr);
+         add(((Node){.tp = nodCall, .pl1 = frame.name, .pl2 = 2, .pl3 = callGetElem}), &(e->scr));
+         add(frame.chi, &(e->locsScr));
          break;
       case exfrAccessor:
          eWriteUnaryCalls(e);
@@ -4884,10 +4958,10 @@ eClose(Expr* restrict e, CM) {
          break;
       case exfrExWrapper: // a nodExpr inside a nodDataLit
          eWriteUnaryCalls(e);
-         e->scr->c[frame.startNode - 1].pl2 = e->scr->len - frame.startNode;
+         e->scr.c[frame.startNode - 1].pl2 = e->scr.len - frame.startNode;
          break;
       case exfrStructField:
-         e->scr->c[frame.startNode].pl2 = e->scr->len - frame.startNode; break;
+         e->scr.c[frame.startNode].pl2 = e->scr.len - frame.startNode; break;
       case exfrStruct:
          reorderStruct(frame, e, cm); break;
       }
@@ -4898,36 +4972,36 @@ private void //:eSaveNodes
 eSaveNodes(Int startNodeInd, CM) {
 // Copy nodes from scratch into main AST
    Expr* restrict e = cm->expr;
-   LNode* restrict scr = e->scr;
-   LChInterval* restrict chis = e->locsScr;
+   LNode scr = e->scr;
+   LChInterval chis = e->locsScr;
    Int const oldLen = cm->ast.len;
-   Int const addLen = chis->len;
+   Int const addLen = chis.len;
    if (e->metAnAllocation)
       { cm->ast.c[startNodeInd].pl1 = 1; }
-   if (cm->ast.len + scr->len + 1 < cm->ast.cap) {
-      memcpy((Node*)(cm->ast.c) + (cm->ast.len), scr->c, scr->len*sizeof(Node));
+   if (cm->ast.len + scr.len + 1 < cm->ast.cap) {
+      memcpy((Node*)(cm->ast.c) + (cm->ast.len), scr.c, scr.len*sizeof(Node));
       for (Int j = 0; j < addLen; j++) {
-         cm->sourceLocs->c[oldLen + j] = locOf(chis->c[j], cm);
+         cm->sourceLocs->c[oldLen + j] = locOf(chis.c[j], cm);
       }
    } else {
-      Int newCap = 2*(cm->ast.cap) + scr->len;
+      Int newCap = 2*(cm->ast.cap) + scr.len;
       Arr(Node) newContent = allocateArray(newCap, Node, cm->a);
       memcpy(newContent, cm->ast.c, cm->ast.len*sizeof(Node));
-      memcpy((Node*)(newContent) + (cm->ast.len), scr->c, scr->len*sizeof(Node));
+      memcpy((Node*)(newContent) + (cm->ast.len), scr.c, scr.len*sizeof(Node));
       cm->ast.cap = newCap;
       cm->ast.c = newContent;
 
       Arr(SourceLoc) newLocs = allocateArray(newCap, SourceLoc, cm->a);
       memcpy(newLocs, cm->sourceLocs->c, cm->sourceLocs->len*sizeof(SourceLoc));
       for (Int j = 0; j < oldLen; j++) {
-         newLocs[oldLen + j] = locOf(chis->c[j], cm);
+         newLocs[oldLen + j] = locOf(chis.c[j], cm);
       }
 
       cm->sourceLocs->cap = newCap;
       cm->sourceLocs->c = newLocs;
    }
-   cm->ast.len += scr->len;
-   cm->sourceLocs->len += scr->len;
+   cm->ast.len += scr.len;
+   cm->sourceLocs->len += scr.len;
 }
 
 Int //:subexSkipFirstThing
@@ -4994,11 +5068,11 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
       ChInterval callLoc = interOf(callTk);
       if (parent.tp == exfrDataLit) {
          // inside a data allocator, subexprs need to be wrapped in nodExpr for t-checking & codegen
-         add(((Node){ .tp = nodExpr, .pl1 = 1 }), e->scr);
-         add(loc, e->locsScr);
+         add(((Node){ .tp = nodExpr, .pl1 = 1 }), &(e->scr));
+         add(loc, &(e->locsScr));
       }
-      add(((Node){ .tp = nodCall, .pl1 = callTk.pl1, .pl2 = 0 }), e->scr);
-      add(callLoc, e->locsScr);
+      add(((Node){ .tp = nodCall, .pl1 = callTk.pl1, .pl2 = 0 }), &(e->scr));
+      add(callLoc, &(e->locsScr));
 
       eWriteUnaryCalls(e);
       eBumpArgCount(e->frames);
@@ -5008,11 +5082,11 @@ eParens(Token cTk, ExprFrame parent, Expr* e, TOKENS, CM) {
       if (parent.tp == exfrDataLit) {
          // inside a data allocator, subexprs need to be wrapped in nodExpr for t-checking & codegen
          tp = exfrExWrapper;
-         add(((Node){ .tp = nodExpr, .pl1 = 0 }), e->scr);
-         add(loc, e->locsScr);
+         add(((Node){ .tp = nodExpr, .pl1 = 0 }), &(e->scr));
+         add(loc, &(e->locsScr));
       }
       add(((ExprFrame){
-            .tp = tp, .startNode = e->scr->len, .sentinel = parensSentinel,
+            .tp = tp, .startNode = e->scr.len, .sentinel = parensSentinel,
             .argCount = 0, .chi = loc }), e->frames);
       subexProcessFirstTokenIfItsACall(cm->i + 1, parensSentinel, tokens, cm);
    }
@@ -5022,24 +5096,22 @@ private void //:eKey
 eKey(Token cTk, ExprFrame parent, Expr* restrict e, TOKENS, CM) {
    add(((ExprFrame) {
          .tp = exfrStructField, .name = cTk.pl1,
-         .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
-         .chi = interOf(cTk)  }),
+         .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr.len,
+         .chi = interOf(cTk) }),
         e->frames
    );
-   add(((Node){ .tp = nodStruct, .pl1 = cTk.pl1, .pl3 = 1 }), e->scr);
-   add(interOf(cTk), e->locsScr);
+   add(((Node){ .tp = nodStruct, .pl1 = cTk.pl1, .pl3 = 1 }), &(e->scr));
+   add(interOf(cTk), &(e->locsScr));
 }
 
 private void //:eStructLiteral
 eStructLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
    add(((ExprFrame) {
          .tp = exfrStruct, .name = cTk.pl1,
-         .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
+         .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr.len,
          .chi = interOf(cTk)  }),
         e->frames
    );
-   add(((Node){ .tp = nodStruct, .pl1 = cTk.pl1, .pl3 = 0 }), e->scr);
-   add(interOf(cTk), e->locsScr);
 }
 
 private void //:eDataLiteral
@@ -5069,26 +5141,26 @@ eDataLiteral(Token cTk, Expr* restrict e, TOKENS, CM) {
          newDataAlloc.pl3 = arrLitRuntimeLength; // we don't know the length to allocate at compile time
          add(((ExprFrame) {
             .tp = exfrDataLit, .name = nameOfStd(strArr), .sentinel = sentinel,
-            .startNode = e->scr->len, .chi = interOf(cTk)  }),
+            .startNode = e->scr.len, .chi = interOf(cTk)  }),
            e->frames
          );
          cm->i = typeSentinel - 1;
       }
-      add(newDataAlloc, e->scr);
-      add(interOf(cTk), e->locsScr);
+      add(newDataAlloc, &(e->scr));
+      add(interOf(cTk), &(e->locsScr));
    } ei (cTk.pl2 == 0) { // `[]`
-      add(((Node){.tp = nodDataLit, .pl1 = -1, .pl2 = 0, .pl3 = arrLitKnownLength}), e->scr);
-      add(interOf(cTk), e->locsScr);
+      add(((Node){.tp = nodDataLit, .pl1 = -1, .pl2 = 0, .pl3 = arrLitKnownLength}), &(e->scr));
+      add(interOf(cTk), &(e->locsScr));
    } else { //`[...elements...]`
       newDataAlloc.pl3 = arrLitKnownElements; // we don't know the length to allocate at compile time
       add(((ExprFrame) {
             .tp = exfrDataLit, .name = nameOfStd(strArr),
-            .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr->len,
+            .sentinel = calcSentinel(cTk, cm->i), .startNode = e->scr.len,
             .chi = interOf(cTk)  }),
            e->frames
       );
-      add(newDataAlloc, e->scr);
-      add(interOf(cTk), e->locsScr);
+      add(newDataAlloc, &(e->scr));
+      add(interOf(cTk), &(e->locsScr));
    }
 }
 
@@ -5120,10 +5192,10 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       cm->i++; // CONSUME the tokAccessor
       Token varTk = tokens[cm->i];
       VALIDATEP(varTk.tp == tokWord, pError0(errExpressionExpectedWord));
-      
+
       Node node = createNodVarForName(varTk.pl1, cm);
-      add(node, e->scr);
-      add(interOf(varTk), e->locsScr);
+      add(node, &(e->scr));
+      add(interOf(varTk), &(e->locsScr));
       break;
    case tokAccessorIn:
       add(((ExprFrame) {
@@ -5131,10 +5203,10 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
          }),
          e->frames); break;
    case tokFieldAcc:
-      add(((Node){.tp = nodCall, .pl1 = name, .pl3 = callField}), e->scr); break;
+      add(((Node){.tp = nodCall, .pl1 = name, .pl3 = callField}), &(e->scr)); break;
    case tokString:
-      add(((Node){ .tp = cTk.tp, .pl1 = loc.startBt, .pl2 = loc.lenBts }), e->scr);
-      add(loc, e->locsScr);
+      add(((Node){ .tp = cTk.tp, .pl1 = loc.startBt, .pl2 = loc.lenBts }), &(e->scr));
+      add(loc, &(e->locsScr));
       eWriteUnaryCalls(e);
       eBumpArgCount(e->frames);
       break;
@@ -5142,12 +5214,12 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    case tokLong:
    case tokDouble:
    case tokBool:
-      add(((Node){ .tp = cTk.tp, .pl1 = name, .pl2 = cTk.pl2 }), e->scr);
+      add(((Node){ .tp = cTk.tp, .pl1 = name, .pl2 = cTk.pl2 }), &(e->scr));
       //-fallthrough
    case tokWord:
       if (tokTp == tokWord)
-         { add(createNodVarForName(name, cm), e->scr); }
-      add(loc, e->locsScr);
+         { add(createNodVarForName(name, cm), &(e->scr)); }
+      add(loc, &(e->locsScr));
       eWriteUnaryCalls(e);
       eBumpArgCount(e->frames);
       break;
@@ -5165,7 +5237,6 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
       cm->i++; // CONSUME the tokMisc (and the tokWord will be consumed in {eParse})
       break;
    default:
-      print("default %d @%d", tokTp, cm->i);
       throwExcParser(pError0(errExpressionCannotContain));
    }
 }
@@ -5179,8 +5250,8 @@ eParse(Int sentinel, TOKENS, CM) {
 // Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's the whole exp)
    Expr* e = cm->expr;
    e->metAnAllocation = false;
-   LNode* scr = e->scr;
-   LChInterval* locsScr = cm->expr->locsScr;
+   LNode* scr = &(e->scr);
+   LChInterval* locsScr = &(cm->expr->locsScr);
    LExprFrame* frames = cm->expr->frames;
    frames->len = 0;
    scr->len = 0;
@@ -5772,7 +5843,7 @@ buildPreludeTypes(CM) {
    cm->activeBindings[name] = typeIndL;
    cm->stats.listType = typeIndL;
    // no need to merge the types as they are surely unique
-   
+
    cm->stats.voidToVoidType = addConcrFnType(0, (Int[]){ voidType}, cm).v;
 }
 
@@ -6009,10 +6080,10 @@ initializeParser(Compiler* lx, Arena* a) {
    (*stForExprs) = (Expr) {
       .exp = createLInt(16, cm->aTmp),
       .frames = createLExprFrame(16, aTmp),
-      .scr = createLNode(16, aTmp),
-      .locsScr = createLChInterval(16, aTmp),
-      .reorderKeys = createLInt(4, aTmp),
-      .reorderBuf = createLNode(16, aTmp)
+      .scr = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 16},
+      .locsScr = (LChInterval){.c = allocateArray(16, ChInterval, aTmp), .len = 0, .cap = 16},
+      .reorderKeys = (LInt){.c = allocateArray(4, Int, aTmp), .len = 0, .cap = 4},
+      .reorderBuf = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 4}
    };
    cm->expr = stForExprs;
 
@@ -7291,7 +7362,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 
       Int structType = exp->c[exp->len - 1];
       VALIDATEP(structType > topVerbatimType,
-         pError(errTypeFieldNotFound, nameAndTypeErr(name, typeOf(structType)))
+         pError(errTypeFieldNotFound, nameErr2(name, typeReadHeader(typeOf(structType), cm).name))
       );
 
       Int fieldInd;
@@ -7303,6 +7374,22 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
    } else {
       typeCheckFnCall(nd, exp, cm);
    }
+}
+
+private void //:typeCheckStruct
+typeCheckStruct(Node nd, LInt* restrict exp, CM) {
+// Handles struct initializers: resolves it to a concrete type and stores it in the nodStruct
+   Int fieldCount = nd.pl2;
+   Int startInExpr = exp->len - fieldCount;
+   TypeId t = typeGetTypeByName(nd.pl1, cm);
+   TypeHeader hdr = typeReadHeader(t, cm);
+   TypeId structType = hdr.isGeneric
+      ? tGenericTryUnifyFunctionTypes(fn.typeId, genericHdr, concrete, concreteHdr, cm)
+      : t;
+
+   cm->ast.c[cm->j].pl1 = structType;
+   exp->len -= (fieldCount - 1);
+   exp->c[exp->len] = structType.v;
 }
 
 private void //:typeReduceExpr
@@ -7334,6 +7421,8 @@ typeReduceExpr(Int const indExpr, CM) {
          add((Int)nd.tp, exp);
       } ei (nd.tp == nodVar) {
          add(cm->vars.c[nd.pl1].typeId.v, exp);
+      } ei (nd.tp == nodStruct) {
+         typeCheckStruct(nd, exp, cm);
       } else { // overloadId or nodDataLit
          add(nd.pl1, exp); // overloadId
       }
@@ -7397,7 +7486,7 @@ typecheckList(Node nd, Int startInd, CM) {
       VALIDATEP(eq(exprType, typeOf(tokInt)), pError0(errMetaArrSyntax));
       return typeOf(nd.pl1);
    }
-   
+
    // The case where the elements are specified
    TypeId commonEltType = VOID_TYPE;
    for (Int j = startInd + 1; j < cm->ast.len; j++) {
@@ -7431,8 +7520,8 @@ typecheckList(Node nd, Int startInd, CM) {
    return collType;
 }
 
-TypeId //:typeTryGetField
-typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
+private TypeId //:typeTryGetField
+typeTryGetField(NameId fieldName, TypeId t, OUT Int* fieldInd, CM) {
 // Searches for a field within a struct by its name. Returns the index of that field
 // (within the type, so 0-based), and its type.
    TypeHeader hdr = typeReadHeader(t, cm);
@@ -7440,11 +7529,11 @@ typeTryGetField(NameId name, TypeId t, OUT Int* fieldInd, CM) {
    Int const indInGenericFields = libeyr_getStructFieldInd(t, hdr, cm->types.c);
    Int j = indInGenericFields;
    for (; j < indInGenericFields + hdr.arity; j++) {
-      if (cm->genericFields.c[j].name == name)
+      if (cm->genericFields.c[j].name == fieldName)
          { break; }
    }
    VALIDATEP(j < indInGenericFields + hdr.arity,
-      pError(errTypeFieldNotFound, nameAndTypeErr(name, t))
+      pError(errTypeFieldNotFound, nameErr2(fieldName, hdr.name))
    );
    *fieldInd = j - indInGenericFields;
 
