@@ -200,8 +200,10 @@ libeyr_String str(const char* content);
                            // if pl2 > 0 and pl3 == BIG, it's an array with runtime-known
                            // size and no contents;
                            // if pl2 > 0 and pl3 > 0, then it has fully specified contents.
-#define nodStruct      12  // pl1 = name before typecheck, concrete typeId after. pl2 = count of fields.
-                           // Struct initializer
+#define nodStruct      12  // Struct init.
+                           // pl1 = name before typecheck, concrete typeId after. pl2 = field count
+                           // Iff pl3 == 1, it's a field (temporary, during expression parsing) 
+                           // and pl1 = name of field
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
 #define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
                            // pl3 = 1 iff it's a "continue"
@@ -307,8 +309,8 @@ struct Function { //:Function Parsed or built-in function
    Int tokenInd;   // Index into @tokens
    Int nodeInd;    // Index into @ast
    Int genericInd; // index into @monos (get full mono type & code from arg types)
-   Byte access;    // the "access" constants
    Emit emit;
+   Byte access;    // the "access" constants
    Bool needsMangling; // do we need to add "_123" to this function's name when generating code?
 };
 

@@ -586,22 +586,27 @@ ParserTestSet* expressionTests(Compiler* protoOvs, Arena* a) {
       ),
       createTest(
          s("Data literal with an element of unknown type"),
-         s("x = [[] (2 * 7)];"),
+         s("x = [[] [(2 * 7)]];"),
          (((Node[]) {
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 11, .pl3 = 2 },
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 15, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 0, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 9 },
-
-            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 7, .pl3 = 2 },
+            (Node){ .tp = nodExpr, .pl1 = 1, .pl2 = 13 },
+            
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 6, .pl3 = 2 },
             (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0, .pl3 = assiVarAssignment  },
-            (Node){ .tp = nodDataLit, .pl1 = 0, .pl2 = 5, .pl3 = 2 },
-            (Node){ .tp = nodDataLit, .pl1 = 0, .pl2 = 0, .pl3 = 0 },
+            (Node){ .tp = nodDataLit, .pl1 = 0, .pl2 = 4, .pl3 = 1 },
             (Node){ .tp = nodExpr, .pl1 = 0, .pl2 = 3 },
             (Node){ .tp = tokInt, .pl2 = 2 },
             (Node){ .tp = tokInt, .pl2 = 7 },
             (Node){ .tp = nodCall, .pl1 = oper(opTimes, tokInt), .pl2 = 2 },
 
-            (Node){ .tp = nodVar, .pl1 = 1, .pl2 = 0 } // the allocated array
+            (Node){ .tp = nodAssignment, .pl1 = 0, .pl2 = 4, .pl3 = 2 },
+            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0, .pl3 = assiVarAssignment  },
+            (Node){ .tp = nodDataLit, .pl1 = 9, .pl2 = 2, .pl3 = 2 },
+            (Node){ .tp = nodDataLit, .pl1 = 0, .pl2 = 0, .pl3 = 0 },
+            (Node){ .tp = nodVar, .pl1 = 1},
+
+            (Node){ .tp = nodVar, .pl1 = 2, .pl2 = 0 } // the allocated array
          })),
          ((Int[]) {}),
          ((TestEntityImport[]) {})
