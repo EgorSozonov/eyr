@@ -12,6 +12,7 @@
 #include "include/libeyr.h"
 typedef libeyr_String String;
 typedef libeyr_StringBuilder StringBuilder;
+#define UNUSED __attribute__((unused))
 
 jmp_buf excBuf;
 
@@ -469,7 +470,7 @@ private Int calcSentinel(Token tok, Int tokInd);
 private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 
 private Int getBinding(Int id, CM);
-TypeId tResolveGenericFnCall(Function fn, Arr(Int) cont, Int start, Int end, CM);
+TypeId tResolveGenericFnCall(Function fn, Arr(Int) args, Int argCount, CM);
 private TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
 void printType(TypeId type, PrintableCompiler prc);
 
@@ -1659,11 +1660,11 @@ struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
    LInt* exp;           //  TypeId
    LTypeFrame* frames;
    LInt* names;         // Record field names
-   LInt* tParams;       // Unique type params of a type expression. nameId
+   LInt tParams;       // Unique type params of a type expression. nameId
                         // Also used in generic call resolution
    LInt* tmp;           // Used in name uniqueness validation, and generic param substitution
-   LTypeLoc* genericSt; // Type location stack, used for type tree traversal
-   LTypeLoc* concreteSt;
+   LTypeLoc* genericWalk; // Type location stack, used for type tree traversal
+   LTypeLoc* concreteWalk;
 };
 
 typedef struct { //:Assignment
@@ -1719,8 +1720,8 @@ struct Compiler { // :Compiler
    InListInt importNames;
    LParseFrame* parseFrames;   // [aTmp]
    Scopes scopes;              // lists of local variables for keeping track of scopes
-   Expr* expr;                 // [aTmp]
-   TExpr* tExpr;               // [aTmp]
+   Expr expr;                  // all the contents are in [aTmp]
+   TExpr tExpr;                // all the contents are in [aTmp]
    // For vars, index pointing into @vars.
    // For functions, (-ind - 2), ind points into @overloads. For types, index into @types
    Arr(Int) activeBindings;    // [aTmp]
@@ -3875,7 +3876,7 @@ newNode(Node node, ChInterval chi, CM) {
 private void //:eOperatorCall
 eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
 // Pushes a call to the temporary lists during expression parsing
-   Expr* e = cm->expr;
+   Expr* e = &(cm->expr);
    VALIDATEP(e->frames->len > 0, pError0(errExpressionError))
    ExprFrame frame = last(e->frames);
 
@@ -4187,7 +4188,7 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 // Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
 // arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElem
-   LInt* sc = cm->expr->exp;
+   LInt* sc = cm->expr.exp;
    sc->len = 0;
    Int const startBt = firstTok.startBt;
    Int const lastBt = tokens[cm->i - 1].startBt + tokens[cm->i - 1].lenBts;
@@ -4216,7 +4217,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
 // Typechecks a complex left side like `x (Foo Int) = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
 // Precondition: we are looking right past tokAssignment
-   LInt* sc = cm->expr->exp;
+   LInt* sc = cm->expr.exp;
    sc->len = 0;
 
    cm->i++; // CONSUME the var name
@@ -4874,14 +4875,14 @@ binarySearchStructField(Int needle, Arr(StructField) haystack, Int len) {
 private void //:reorderStructLocateKeys
 reorderStructLocateKeys(
    ExprFrame frame, Int sentNode, Arr(StructField) fields, Int fieldCount, CM
-) { // Finds where each struct key is located in @e.scr
+) { // Finds where each struct key is located in @e.scr and validates key completeness
    Int fieldsFound = 0;
-   Arr(Int) reorderKeys = cm->expr->reorderKeys.c;
+   Arr(Int) reorderKeys = cm->expr.reorderKeys.c;
    for (Int f = 0; f < fieldCount; f += 2) {
       reorderKeys[f] = -1;
    }
    for (Int j = frame.startNode + 1; j < sentNode;) {
-      Node fieldNd = cm->expr->scr.c[j];
+      Node fieldNd = cm->expr.scr.c[j];
       Int fieldInd = binarySearchStructField(fieldNd.pl1, fields, fieldCount);
       VALIDATEP(fieldInd > -1, pError(errTypeFieldNotFound, nameErr2(fieldNd.pl1, frame.name)));
 
@@ -4927,8 +4928,10 @@ reorderStruct(ExprFrame frame, Expr* restrict e, CM) {
 
    Int startField = t.v + TYPE_PREFIX + hdr.arity;
    Arr(StructField) fields = cm->genericFields.c + startField;
+   
    reorderStructLocateKeys(frame, cm->i, fields, fieldCount, cm);
    reorderStructMoveNodes(frame.startNode, e);
+   
    add(((Node){.tp = nodStruct, .pl1 = frame.name, .pl2 = fieldCount}), &(e->scr));
    add(frame.chi, &(e->locsScr));
 }
@@ -4971,7 +4974,7 @@ eClose(Expr* restrict e, CM) {
 private void //:eSaveNodes
 eSaveNodes(Int startNodeInd, CM) {
 // Copy nodes from scratch into main AST
-   Expr* restrict e = cm->expr;
+   Expr* restrict e = &(cm->expr);
    LNode scr = e->scr;
    LChInterval chis = e->locsScr;
    Int const oldLen = cm->ast.len;
@@ -5051,7 +5054,7 @@ subexProcessFirstTokenIfItsACall(Int start, Int subSentinel, TOKENS, CM) {
             .argCount = 0, .chi = interOf(theCall),
             .isVarCall = cm->activeBindings[theCall.pl1] > -1
          }),
-         cm->expr->frames
+         cm->expr.frames
       );
       cm->i++; // CONSUME the first token because it's a call and had been processed
    }
@@ -5251,8 +5254,8 @@ eParse(Int sentinel, TOKENS, CM) {
    Expr* e = cm->expr;
    e->metAnAllocation = false;
    LNode* scr = &(e->scr);
-   LChInterval* locsScr = &(cm->expr->locsScr);
-   LExprFrame* frames = cm->expr->frames;
+   LChInterval* locsScr = &(cm->expr.locsScr);
+   LExprFrame* frames = cm->expr.frames;
    frames->len = 0;
    scr->len = 0;
    locsScr->len = 0;
@@ -6076,8 +6079,7 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->sourceLocs = createLSourceLoc(initNodeCap, a);
    cm->functionMonos = createMultiAssocList(a);
 
-   Expr* stForExprs = allocate(Expr, aTmp);
-   (*stForExprs) = (Expr) {
+   cm->expr = (Expr) {
       .exp = createLInt(16, cm->aTmp),
       .frames = createLExprFrame(16, aTmp),
       .scr = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 16},
@@ -6085,7 +6087,6 @@ initializeParser(Compiler* lx, Arena* a) {
       .reorderKeys = (LInt){.c = allocateArray(4, Int, aTmp), .len = 0, .cap = 4},
       .reorderBuf = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 4}
    };
-   cm->expr = stForExprs;
 
    cm->rawOverloads = copyMultiAssocList(PROTO.rawOverloads, cm->aTmp);
    cm->overloads = (InListInt){.len = 0, .c = null};
@@ -6120,15 +6121,14 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->toplevels = createInListInt(8, lx->a);
    cm->monos = createLMonomorphization(16, lx->a);
 
-   cm->tExpr = allocate(TExpr, a);
-   (*cm->tExpr) = (TExpr) {
+   cm->tExpr = (TExpr) {
       .exp = createLInt(16, cm->aTmp),
       .frames = createLTypeFrame(16, cm->aTmp),
       .names = createLInt(16, cm->aTmp),
-      .tParams = createLInt(16, cm->aTmp),
+      .tParams = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
       .tmp = createLInt(16, cm->aTmp),
-      .genericSt = createLTypeLoc(16, cm->aTmp),
-      .concreteSt = createLTypeLoc(16, cm->aTmp),
+      .genericWalk = createLTypeLoc(16, cm->aTmp),
+      .concreteWalk = createLTypeLoc(16, cm->aTmp),
    };
    cm->entrypoint = -1;
 
@@ -6798,7 +6798,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    LInt* exp = te->exp;
    exp->len = 0;
    LTypeFrame* frames = te->frames;
-   te->tParams->len = 0;
+   te->tParams.len = 0;
    teOpenTypeCall(tokens[cm->i].pl1, sentinel, te, cm);
    cm->i++; // CONSUME the outer TypeCall
    while (cm->i < sentinel) {
@@ -6833,7 +6833,7 @@ private TypeId //:tParse
 tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 // Parse a type expression like `(L Double)`. Produces a linear, RPN sequence. Consumes all tokens,
 // populates @te.exp.
-// Precondition: we are looking at the first type token (e.g. `(L`).
+// Precondition: we are looking at the first type token (e.g. `[L ...]`).
    Token firstTypeTk = tokens[cm->i];
    VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar,
       pError0(errTypeDefError)
@@ -6851,7 +6851,6 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    }
    return tParseComplexType(te, sentinel, OUT isGeneric, tokens, cm);
 }
-
 
 private Int //:tSubexValidateNamesUnique
 tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
@@ -7106,7 +7105,7 @@ pTypeDef(TOKENS, CM) {
 // Data format: see "Type expression data format"
 // Precondition: we are 1 past the tokAssignmentRight token
    VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, pError0(errAssignmentLeftSide))
-   cm->tExpr->frames->len = 0;
+   cm->tExpr.frames->len = 0;
 
    Int sentinel = cm->i + tokens[cm->i - 1].pl2; // we get the length from the tokAssignmentRight
    Token nameTk = tokens[cm->i];
@@ -7120,6 +7119,140 @@ pTypeDef(TOKENS, CM) {
    cm->types.c[newType.v + 1] = name;
    return newType;
 }
+
+void //:tGenericTryUnifyTreeNodes
+tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
+      LTypeLoc* genericWalk, LTypeLoc* concreteWalk, CM
+) {
+// Unification of a single node pair in the type trees. Possibly pushes TypeLocs to the stacks,
+// or sets param values in @tExpr.params
+
+   if (eq(gener, concr))
+      { return; }
+   if (gener.v < -1) {
+      LInt* tParams = &(cm->tExpr.tParams);
+      NameId nameParam = -gener.v - 1;
+      for (Int j = 0; j < tParams->len; j += 2) {
+         if (tParams->c[j] == nameParam) {
+            VALIDATEP(tParams->c[j + 1] == concr.v,
+               pError(errTypeGenericCallDoesntUnify, typeErr2(typeOf(tParams->c[j + 1]), concr))
+            )
+            return;
+         }
+      }
+      add(nameParam, tParams);
+      add(concr.v, tParams);
+      return;
+   }
+   TypeHeader generHdr = typeReadHeader(gener, cm);
+   TypeHeader concrHdr = typeReadHeader(concr, cm);
+   VALIDATEP(generHdr.name == concrHdr.name,
+      pError(errTypeGenericCallDoesntUnify, typeErr2(gener, concr))
+   )
+   VALIDATEP(generHdr.arity == concrHdr.arity,
+      pError(errTypeOverloadWrongArity, numberErr2(generHdr.arity, concrHdr.arity))
+   )
+   add(tGetBody(gener, generHdr, cm), genericWalk);
+   add(tGetBody(concr, concrHdr, cm), concreteWalk);
+}
+
+TypeId //:tGlueReturnTypeOntoFn
+tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
+// `F Int Double -> String`, `Foo` -> `F Int Double String -> Foo`. Used for generic resolutions.
+   Int const sizeArgs = cm->types.c[args.v];
+   Int const tentativeType = cm->types.len;
+   ensureCapacityTypes(sizeArgs + 2, cm); // +2 for the size (in front) and return type (in back)
+
+   cm->types.c[tentativeType] = sizeArgs + 1;
+   TypeHeader argsHdr = typeReadHeader(args, cm);
+   TypeHeader fullHdr = argsHdr;
+   cm->types.len++;
+   fullHdr.arity++; // for the return type
+   typeAddHeader(fullHdr, cm);
+
+   memcpy(
+      cm->types.c + tentativeType + TYPE_PREFIX,
+      cm->types.c + args.v + TYPE_PREFIX,
+      4*sizeArgs - sizeof(TypeHeader)
+   );
+   cm->types.c[tentativeType + sizeArgs + 1] = returnType.v;
+   cm->types.len += (sizeArgs - sizeof(TypeHeader)/4 + 1); // +1 for the size
+
+   return mergeType(typeOf(tentativeType), cm);
+}
+
+private LInt //:tGenericUnify
+tGenericUnify(TypeLoc generic, TypeLoc concrete, CM) {
+// Returns: @te.tParams with type parameters fully resolved: [(name type)]
+// Precondition: for both "generic" and "concrete", sentinel - currPos must be same length
+// Throws if not types not unifiable
+   TExpr* restrict te = cm->tExpr;
+   te->genericWalk->len = 0;
+   te->concreteWalk->len = 0;
+   te->tParams.len = 0;
+
+   add(generic, te->genericWalk);
+   add(concrete, te->concreteWalk);
+   for (; te->genericWalk->len > 0 && te->concreteWalk->len > 0; ) {
+      TypeLoc* genericLoc = &last(te->genericWalk);
+      TypeLoc* concreteLoc = &last(te->concreteWalk);
+      TypeId g = { .v = cm->types.c[genericLoc->currPos] };
+      TypeId c = { .v = cm->types.c[concreteLoc->currPos] };
+
+      // next step in the tree-walk
+      genericLoc->currPos++;
+      concreteLoc->currPos++;
+      if (genericLoc->currPos == genericLoc->sentinel) {
+         te->genericWalk->len--;
+         te->concreteWalk->len--;
+      }
+
+      tGenericTryUnifyTreeNodes(g, c, te->genericWalk, te->concreteWalk, cm);
+   }
+   return te->tParams;
+}
+
+//~TypeId //:tGenericTryUnifyFunctionTypes
+//~tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
+//~      TypeId concrete, TypeHeader concreteHdr, CM) {
+//~// Type tree walkin' to determine and validate type parameters' values.
+//~// Since we're unifying a generic function with its arguments, we have only the arg types,
+//~// so don't have anything to unify for the return type.
+//~// Returns: the concrete return type of a resolved generic function call.
+//~   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1,
+//~      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, concreteHdr.arity + 1))
+//~   )
+//~   Int arity = genericHdr.arity;
+//~   Int genericSent = generic.v + TYPE_PREFIX + arity - 1; //-1 to exclude fn return type
+//~   Int concreteSent = concrete.v + TYPE_PREFIX + arity; // already not a full fn type => no -1
+//~   TExpr* restrict te = cm->tExpr;
+//~   te->genericWalk->len = 0;
+//~   te->concreteWalk->len = 0;
+//~   te->tParams->len = 0;
+//~
+//~   add(((TypeLoc){.currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent}),
+//~      te->genericWalk);
+//~   add(((TypeLoc){.currPos = tGetBodyStart(concrete, concreteHdr), .sentinel = concreteSent}),
+//~      te->concreteWalk);
+//~   for (; te->genericWalk->len > 0 && te->concreteWalk->len > 0; ) {
+//~      TypeLoc* genericLoc = &last(te->genericWalk);
+//~      TypeLoc* concreteLoc = &last(te->concreteWalk);
+//~      TypeId g = { .v = cm->types.c[genericLoc->currPos] };
+//~      TypeId c = { .v = cm->types.c[concreteLoc->currPos] };
+//~
+//~      // next step in the tree-walk
+//~      genericLoc->currPos++;
+//~      concreteLoc->currPos++;
+//~      if (genericLoc->currPos == genericLoc->sentinel) {
+//~         te->genericWalk->len--;
+//~         te->concreteWalk->len--;
+//~      }
+//~
+//~      tGenericTryUnifyTreeNodes(g, c, te->genericWalk, te->concreteWalk, cm);
+//~   }
+//~   return tGenericSubstituteParams(tFunctionReturnType(generic, cm), cm);
+//~}
+
 
 //}}}
 //{{{ Overloads, type check & resolve
@@ -7206,7 +7339,7 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
       print("Overload not found: indOverl %d name %d tpFirstArg %d j %d",
          indOverl, name, tpFstArg.v, cm->j)
       print("exp:");
-      printLInt(cm->expr->exp);
+      printLInt(cm->expr.exp);
       print("name:")
       printName(name, cm);
    }
@@ -7236,7 +7369,7 @@ getOper(Int opName, Int operandType, Compiler* cm) {
 // Try to find convert test value to operator entityId
    Int ovInd = -getBinding(opName, cm) - 2;
    Int fnId;
-   Bool foundOv __attribute__((unused)) = tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
+   Bool foundOv UNUSED = tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
 
    tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
    VALIDATEI(foundOv, ierrParsedFunctionNotInScope);
@@ -7245,9 +7378,11 @@ getOper(Int opName, Int operandType, Compiler* cm) {
 
 private void //:typeCheckFnGenericCall
 typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
+// Resolves a generic function's concrete type and adds it to the list of monomorphizations
+// if it wasn't already there
    Function fn = cm->functions.c[fnId];
 
-   TypeId concreteType = tResolveGenericFnCall(fn, exp->c, exp->len - argCount, exp->len, cm);
+   TypeId concreteType = tResolveGenericFnCall(fn, exp->c + exp->len - argCount, argCount, cm);
 
    Int concreteFn = searchMultiAssocList(concreteType.v, fn.genericInd, cm->functionMonos);
 
@@ -7376,17 +7511,51 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
    }
 }
 
+private void //:typeCheckGenericStruct
+typeCheckGenericStruct(TypeId generic, TypeHeader genericHdr, Arr(Int) args, CM) {
+   Int const fieldCount = genericHdr.arity;
+   TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = fieldCount,
+      .name = -1, .isGeneric = false, .size = 0 };
+   TYPE_CREATE_START(concreteHdr);
+   memcpy(cm->types.c + cm->types.len, args, fieldCount*4);
+   cm->types.len += fieldCount;
+   TYPE_CREATE_END;
+   
+   TypeId concrete = mergeType(tentativeType, cm);
+   Int concreteSent = concrete.v + TYPE_PREFIX + fieldCount;
+   TypeLoc concreteLoc = (TypeLoc){
+      .currPos = tGetBodyStart(concrete, concreteHdr), .sentinel = concreteSent
+   };
+   
+   TypeLoc genericLoc = (TypeLoc){
+      .currPos = tGetBodyStart(generic, genericHdr), 
+      .sentinel = generic.v + TYPE_PREFIX + fieldCount
+   };
+   
+   LInt resolvedParams UNUSED = tGenericUnify(genericLoc, concreteLoc, cm);
+}
+
 private void //:typeCheckStruct
 typeCheckStruct(Node nd, LInt* restrict exp, CM) {
 // Handles struct initializers: resolves it to a concrete type and stores it in the nodStruct
-   Int fieldCount = nd.pl2;
-   Int startInExpr = exp->len - fieldCount;
-   TypeId t = typeGetTypeByName(nd.pl1, cm);
-   TypeHeader hdr = typeReadHeader(t, cm);
-   TypeId structType = hdr.isGeneric
-      ? tGenericTryUnifyFunctionTypes(fn.typeId, genericHdr, concrete, concreteHdr, cm)
-      : t;
-
+   Int const fieldCount = nd.pl2;
+   Arr(Int) args = exp->c + exp->len - fieldCount;
+   TypeId structType = typeGetTypeByName(nd.pl1, cm);
+   TypeHeader structHdr = typeReadHeader(t, cm);
+   
+   // Note that we do NOT need to check for arity or that @exp.len is sufficient
+   // because it has been done in {reorderStructLocateKeys}
+   if (structHdr.isGeneric) {
+      typeCheckGenericStruct(structType, structHdr, exp->c + startInExpr, cm);
+   } else {
+      for (Int k = 0, l = structType.v + TYPE_PREFIX; k < fieldCount; k++, l++) {
+         VALIDATEP(eq(typeOf(args[k]), cm->types.c[l]),
+            pError(errTypeMismatch, typeErr2(cm->types.c[l], typeOf(args[k]));
+                     
+         )
+      }
+   }
+   
    cm->ast.c[cm->j].pl1 = structType;
    exp->len -= (fieldCount - 1);
    exp->c[exp->len] = structType.v;
@@ -7403,7 +7572,7 @@ typeReduceExpr(Int const indExpr, CM) {
    Node exprNd = cm->ast.c[indExpr];
    // pl2 > 0 case is for subexpressions inside data allocs, the other one is for normal exprs
    Int const sentinelNode = exprNd.pl2 > 0 ? calcNodeSentinel(exprNd, indExpr) : cm->ast.len;
-   LInt* exp = cm->expr->exp;
+   LInt* exp = cm->expr.exp;
    exp->len = 0;
 
    // Skip internal assignments, if any
@@ -7435,7 +7604,7 @@ typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
 // the fact that this expr may contain sub-assignments for data allocation.
 // "indExpr" is the index of nodExpr or nodAssignmentRight
 // CONSUMES the whole expression
-   LInt* exp = cm->expr->exp;
+   LInt* exp = cm->expr.exp;
    typeReduceExpr(indExpr, cm);
    if (exp->len == 1) {
       return typeOf(exp->c[0]); // the last remaining stack elt is the type of the whole expression
@@ -7544,8 +7713,9 @@ typeTryGetField(NameId fieldName, TypeId t, OUT Int* fieldInd, CM) {
 //{{{ Generic types
 
 TypeId //:tGenericSubstituteParams
-tGenericSubstituteParams(TypeId t, CM) {
-// Performs the substitutions of type params into generic types according to @tExpr.params
+tGenericSubstituteParams(TypeId t, LInt resolvedParams, CM) {
+// Performs the substitutions of type params into generic types according to @resolvedParams
+// "resolvedParams" = [(name type)] of type parameters
    if (t.v <= topVerbatimType)
       { return t; }
    TypeHeader hdr = typeReadHeader(t, cm);
@@ -7557,17 +7727,16 @@ tGenericSubstituteParams(TypeId t, CM) {
    Int arity = hdr.arity;
    Int genericSent = t.v + TYPE_PREFIX + arity + 1;
 
-   // @temp is populated by types minus the lengths (so [header][content])
    add(((TypeLoc){.currPos = t.v + TYPE_PREFIX, .sentinel = genericSent}),
-      te->genericSt);
-   for (; te->genericSt->len > 0; ) {
-      TypeLoc* genericLoc = &last(te->genericSt);
+      te->genericWalk);
+   for (; te->genericWalk->len > 0; ) {
+      TypeLoc* genericLoc = &last(te->genericWalk);
       TypeId currNode = { .v = cm->types.c[genericLoc->currPos] };
 
       genericLoc->currPos++;
       if (genericLoc->currPos == genericLoc->sentinel) {
          Int startOfSubExp = removeLast(te->tmp);
-         te->genericSt->len--;
+         te->genericWalk->len--;
 
          Int countOfNewElts = te->exp->len - startOfSubExp;
          TypeId newType = typeOf(cm->types.len);
@@ -7577,7 +7746,15 @@ tGenericSubstituteParams(TypeId t, CM) {
          add(mergeType(newType, cm).v, te->tmp);
       }
 
-      if (currNode.v <= topVerbatimType) {
+      if (currNode.v < -1) {
+         Int nameParam = -currNode.v - 1;
+         for (Int j = 0; j < resolvedParams.len; j += 2) {
+            if (resolvedParams.c[j] == nameParam) {
+               add(resolvedParams.c[j + 1], te->tmp);
+               break;
+            }
+         }
+      } ei (currNode.v <= topVerbatimType) {
          add(currNode.v, te->tmp);
       } else {
          TypeHeader currHdr = typeReadHeader(currNode, cm);
@@ -7589,153 +7766,54 @@ tGenericSubstituteParams(TypeId t, CM) {
             te
          );
 
-         add(tGetBody(currNode, currHdr, cm), te->genericSt);
+         add(tGetBody(currNode, currHdr, cm), te->genericWalk);
       }
    }
    VALIDATEI(te->exp->len == 1, ierrInconsistentTypeExpr)
    return typeOf(te->exp->c[0]);
 }
 
-void //:tGenericTryUnifyTreeNodes
-tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
-      LTypeLoc* genericSt, LTypeLoc* concreteSt, CM
-) {
-// Unification of a single node pair in the type trees. Possibly pushes TypeLocs to the stacks,
-// or sets param values in @tExpr->params
-
-   if (eq(gener, concr))
-      { return; }
-   if (gener.v < -1) {
-      LInt* params = cm->tExpr->tParams;
-      NameId nameParam = -gener.v - 1;
-      for (Int j = 0; j < params->len; j += 2) {
-         if (params->c[j] == nameParam) {
-            VALIDATEP(params->c[j + 1] == concr.v,
-               pError(errTypeGenericCallDoesntUnify, typeErr2(typeOf(params->c[j + 1]), concr))
-            )
-            return;
-         }
-      }
-      add(nameParam, params);
-      add(concr.v, params);
-      return;
-   }
-   TypeHeader generHdr = typeReadHeader(gener, cm);
-   TypeHeader concrHdr = typeReadHeader(concr, cm);
-   VALIDATEP(generHdr.name == concrHdr.name,
-      pError(errTypeGenericCallDoesntUnify, typeErr2(gener, concr))
-   )
-   VALIDATEP(generHdr.arity == concrHdr.arity,
-      pError(errTypeOverloadWrongArity, numberErr2(generHdr.arity, concrHdr.arity))
-   )
-   add(tGetBody(gener, generHdr, cm), genericSt);
-   add(tGetBody(concr, concrHdr, cm), concreteSt);
-}
-
-TypeId //:tGenericTryUnifyFunctionTypes
-tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
-      TypeId concrete, TypeHeader concreteHdr, CM) {
-// Type tree walkin' to determine and validate type parameters' values.
-// Since we're unifying a generic function with its arguments, we have only the arg types,
-// so don't have anything to unify for the return type.
-// Returns: the concrete return type of a resolved generic function call.
-   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1,
-      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, concreteHdr.arity + 1))
-   )
-   Int arity = genericHdr.arity;
-   Int genericSent = generic.v + TYPE_PREFIX + arity - 1; //-1 to exclude fn return type
-   Int concreteSent = concrete.v + TYPE_PREFIX + arity; // already not a full fn type => no -1
-   TExpr* restrict te = cm->tExpr;
-   te->genericSt->len = 0;
-   te->concreteSt->len = 0;
-   te->tParams->len = 0;
-
-   add(((TypeLoc){.currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent}),
-      te->genericSt);
-   add(((TypeLoc){.currPos = tGetBodyStart(concrete, concreteHdr), .sentinel = concreteSent}),
-      te->concreteSt);
-   for (; te->genericSt->len > 0 && te->concreteSt->len > 0; ) {
-      TypeLoc* genericLoc = &last(te->genericSt);
-      TypeLoc* concreteLoc = &last(te->concreteSt);
-      TypeId g = { .v = cm->types.c[genericLoc->currPos] };
-      TypeId c = { .v = cm->types.c[concreteLoc->currPos] };
-
-      // next step in the tree-walk
-      genericLoc->currPos++;
-      concreteLoc->currPos++;
-      if (genericLoc->currPos == genericLoc->sentinel) {
-         te->genericSt->len--;
-         te->concreteSt->len--;
-      }
-
-      tGenericTryUnifyTreeNodes(g, c, te->genericSt, te->concreteSt, cm);
-   }
-   return tGenericSubstituteParams(tFunctionReturnType(generic, cm), cm);
-}
-
-TypeId //:tGenericTryUnifyTypes
-tGenericTryUnifyTypes(Function fn, TypeId concrete, CM) {
-// Resolves type params in a generic type. For example:
-// `[A $E]` with `[A Int]`, `F[Int [A $E] -> $E]` with `F[Int [A Str] -> Str]`
-// Returns: for a generic function call, its concrete return type (`Str` in the second example).
-// Otherwise, -1.
-   TypeHeader genericHdr = typeReadHeader(fn.typeId, cm);
-   TypeHeader concreteHdr = typeReadHeader(concrete, cm);
-
-   cm->tExpr->tParams->len = 0;
-
-   if (genericHdr.name == nameOfStd(strF)) {
-      return tGenericTryUnifyFunctionTypes(fn.typeId, genericHdr, concrete, concreteHdr, cm);
-   } else  {
-      return ZERO_ARITY_TYPE;
-   }
-}
-
-TypeId //:tGlueReturnTypeOntoFn
-tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
-// `F Int Double -> String`, `Foo` -> `F Int Double String -> Foo`. Used for generic resolutions.
-   Int const sizeArgs = cm->types.c[args.v];
-   Int const tentativeType = cm->types.len;
-   ensureCapacityTypes(sizeArgs + 2, cm); // +2 for the size (in front) and return type (in back)
-
-   cm->types.c[tentativeType] = sizeArgs + 1;
-   TypeHeader argsHdr = typeReadHeader(args, cm);
-   TypeHeader fullHdr = argsHdr;
-   cm->types.len++;
-   fullHdr.arity++; // for the return type
-   typeAddHeader(fullHdr, cm);
-
-   memcpy(
-      cm->types.c + tentativeType + TYPE_PREFIX,
-      cm->types.c + args.v + TYPE_PREFIX,
-      4*sizeArgs - sizeof(TypeHeader)
-   );
-   cm->types.c[tentativeType + sizeArgs + 1] = returnType.v;
-   cm->types.len += (sizeArgs - sizeof(TypeHeader)/4 + 1); // +1 for the size
-
-   return mergeType(typeOf(tentativeType), cm);
-}
 
 TypeId //:tResolveGenericFnCall
-tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int start, Int end, CM) {
+tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int argCount, CM) {
 // Finds or creates a concrete type for a generic function call.
-// 1. Copies the param types into @types to build an actual type
+// Example: `F[Int [A $E] -> $E]` with `F[Int [A Str] -> Str]`
+// 1. Copies the argument types into @types to build an actual type
 // 2. Walks two trees in depth-first fashion, left-to-right
 // 3. Two corresponding nodes must be either equal, or one of them is a type param
 // The result is either the function's full concrete type or a type exception (iff this generic
 // function type is not unifiable with the arg types).
-   Int arity = end - start;
-   ensureCapacityTypes(arity + TYPE_PREFIX + 1, cm);
 
+   ensureCapacityTypes(argCount + TYPE_PREFIX + 1, cm);
+
+   // Define a type just for the args
    // For `F Int Str -> Double` this will look like `F Int -> Str`, i.e. the return type is missing
-   TYPE_CREATE_START(((TypeHeader){ .sort = sorDeclare, .arity = arity,
-      .name = nameOfStd(strF), .isGeneric = false, .size = 8 }));
-   memcpy(cm->types.c + cm->types.len, argTypes + start, arity*4);
+   TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = argCount,
+      .name = nameOfStd(strF), .isGeneric = false, .size = 8 };
+   TYPE_CREATE_START(concreteHdr);
+   memcpy(cm->types.c + cm->types.len, argTypes, arity*4);
    cm->types.len += arity;
    TYPE_CREATE_END;
+   
    TypeId args = mergeType(tentativeType, cm);
-   TypeId returnType = tGenericTryUnifyTypes(fn, args, cm);
-
+   Int concreteSent = args.v + TYPE_PREFIX + arity; // already not a full fn type => no -1
+   TypeLoc concreteLoc = (TypeLoc){
+      .currPos = tGetBodyStart(args, concreteHdr), .sentinel = concreteSent
+   };
+   
+   // Now for the generic fn type
+   TypeHeader genericHdr = typeReadHeader(fn.typeId, cm);
+   VALIDATEP(genericHdr.arity == arity + 1,
+      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, arity + 1))
+   )
+   Int genericSent = generic.v + TYPE_PREFIX + arity - 1; //-1 to exclude fn return type
+   TypeLoc genericLoc = (TypeLoc){
+      .currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent
+   };
+   
+   LInt resolvedParams = tGenericUnify(genericLoc, concreteLoc, cm);
+   TypeId genericReturnType = tFunctionReturnType(generic, cm);
+   TypeId returnType = tGenericSubstituteParams(genericReturnType, resolvedParams, cm);
    return tGlueReturnTypeOntoFn(args, returnType, cm);
 }
 
@@ -8031,7 +8109,7 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
 
 void //:dbgExprFrames
 dbgExprFrames(CM) {
-   LExprFrame* st = cm->expr->frames;
+   LExprFrame* st = cm->expr.frames;
    print("Expr frames<<<");
    for (Int j = 0; j < st->len; j++) {
       ExprFrame fr = st->c[j];
