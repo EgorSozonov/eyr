@@ -5251,7 +5251,7 @@ eParse(Int sentinel, TOKENS, CM) {
 // Reverse Polish Notation. Handles data allocations, too. But not single-item exprs.
 // Consumes the whole expression
 // Pre-condition: we are 1 past the nodExpr, if any (but NOT past nodData if it's the whole exp)
-   Expr* e = cm->expr;
+   Expr* e = &(cm->expr);
    e->metAnAllocation = false;
    LNode* scr = &(e->scr);
    LChInterval* locsScr = &(cm->expr.locsScr);
@@ -6838,7 +6838,7 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar,
       pError0(errTypeDefError)
    )
-   TExpr* te = cm->tExpr;
+   TExpr* te = &(cm->tExpr);
    if (cm->i + 1 == sentinel) { // single-name type
       if (firstTypeTk.tp == tokType)  {
          TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
@@ -7186,7 +7186,7 @@ tGenericUnify(TypeLoc generic, TypeLoc concrete, CM) {
 // Returns: @te.tParams with type parameters fully resolved: [(name type)]
 // Precondition: for both "generic" and "concrete", sentinel - currPos must be same length
 // Throws if not types not unifiable
-   TExpr* restrict te = cm->tExpr;
+   TExpr* restrict te = &(cm->tExpr);
    te->genericWalk->len = 0;
    te->concreteWalk->len = 0;
    te->tParams.len = 0;
@@ -7253,6 +7253,11 @@ tGenericUnify(TypeLoc generic, TypeLoc concrete, CM) {
 //~   return tGenericSubstituteParams(tFunctionReturnType(generic, cm), cm);
 //~}
 
+private TypeId
+monomorphizeStruct(TypeId generic, LInt resolvedParams, CM) {
+// Creates a sorTypeCall type
+   
+}
 
 //}}}
 //{{{ Overloads, type check & resolve
@@ -7511,7 +7516,7 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
    }
 }
 
-private void //:typeCheckGenericStruct
+private TypeId //:typeCheckGenericStruct
 typeCheckGenericStruct(TypeId generic, TypeHeader genericHdr, Arr(Int) args, CM) {
    Int const fieldCount = genericHdr.arity;
    TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = fieldCount,
@@ -7532,7 +7537,8 @@ typeCheckGenericStruct(TypeId generic, TypeHeader genericHdr, Arr(Int) args, CM)
       .sentinel = generic.v + TYPE_PREFIX + fieldCount
    };
    
-   LInt resolvedParams UNUSED = tGenericUnify(genericLoc, concreteLoc, cm);
+   LInt resolvedParams = tGenericUnify(genericLoc, concreteLoc, cm);
+   return monomorphizeStruct(generic, resolvedParams, cm);
 }
 
 private void //:typeCheckStruct
@@ -7541,12 +7547,12 @@ typeCheckStruct(Node nd, LInt* restrict exp, CM) {
    Int const fieldCount = nd.pl2;
    Arr(Int) args = exp->c + exp->len - fieldCount;
    TypeId structType = typeGetTypeByName(nd.pl1, cm);
-   TypeHeader structHdr = typeReadHeader(t, cm);
+   TypeHeader structHdr = typeReadHeader(structType, cm);
    
    // Note that we do NOT need to check for arity or that @exp.len is sufficient
    // because it has been done in {reorderStructLocateKeys}
    if (structHdr.isGeneric) {
-      typeCheckGenericStruct(structType, structHdr, exp->c + startInExpr, cm);
+      structType = typeCheckGenericStruct(structType, structHdr, exp->c + startInExpr, cm);
    } else {
       for (Int k = 0, l = structType.v + TYPE_PREFIX; k < fieldCount; k++, l++) {
          VALIDATEP(eq(typeOf(args[k]), cm->types.c[l]),
