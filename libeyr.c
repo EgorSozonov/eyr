@@ -1880,7 +1880,7 @@ printableOfCompResult(CompResult* cr) {
 #define errTypeDefCannotContain        65
 #define errTypeExpr                    66
 #define errTypeDefError                67
-#define errTypeDefParamsError          68
+#define errTypeParamsResolve           68
 #define errOperatorWrongArity          69
 #define errUnknownBinding              70
 #define errUnknownFunction             71
@@ -2021,7 +2021,7 @@ compileErrors[] = {
       " type params (like A), type constructors (like List) and parentheses!",
    "Cannot parse type expression!",
    "Cannot parse type declaration!",
-   "Error parsing type params. Should look like this: [T U/2]",
+   "Error resolving type params. Param $0 has an unknown value",
    "Wrong number of arguments for operator!",
    "Unknown binding $0", // 70
    "Unknown function!",
@@ -7254,9 +7254,43 @@ tGenericUnify(TypeLoc generic, TypeLoc concrete, CM) {
 //~}
 
 private TypeId
-monomorphizeStruct(TypeId generic, LInt resolvedParams, CM) {
+monomorphizeStruct(
+   TypeId generic, TypeHeader genericHdr, LInt fieldTypes, LInt resolvedParams, CM
+) {
 // Creates a sorTypeCall type
+   Int const fieldCount = genericHdr.arity;
+   ensureCapacityTypes(fieldCount + TYPE_PREFIX + 1 + resolvedParams.len, cm);
    
+   Int genericFieldInd = libeyr_getStructFieldInd(generic, genericHdr, cm->types.c);
+   
+   TypeHeader monoHdr = (TypeHeader){ .sort = sorTypeCall, .arity = fieldCount,
+      .name = genericHdr.name, .isGeneric = false, .size = 0 };
+   TYPE_CREATE_START(monoHdr);
+   memcpy(cm->types.c + cm->types.len, fieldTypes.c, fieldCount*4);
+   cm->types.len += fieldCount;
+   cm->types.c[cm->types.len] = genericFieldInd;
+   cm->types.len++;
+   
+   Int sentinel = generic.v + cm->types.c[generic.v] + 1;
+   paramLoop:
+   for (Int j = tGetBodyStart(generic, genericHdr), k = cm->types.len; j < sentinel; j++, k++) {
+      Int paramName = - cm->types.c[k] - 1;
+      for (Int p = 0; p < resolvedParams.len; p += 2) {
+         if (resolvedParams.c[p] == paramName) {
+            cm->types.c[k] = resolvedParams.c[p + 1];
+            cm->types.len++;
+            continue paramLoop;
+         }
+      }
+      // should never happen: all the type params should be already resolved in {tGenericUnify}
+      throwExcParser0(pError(errTypeParamsResolve, nameErr(paramName)), __LINE__, cm);
+      
+   }
+   TYPE_CREATE_END;
+   
+   TypeId concrete = mergeType(tentativeType, cm);
+   dbgType(concrete);
+   return concrete;
 }
 
 //}}}
@@ -7519,6 +7553,8 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
 private TypeId //:typeCheckGenericStruct
 typeCheckGenericStruct(TypeId generic, TypeHeader genericHdr, Arr(Int) args, CM) {
    Int const fieldCount = genericHdr.arity;
+   ensureCapacityTypes(fieldCount + TYPE_PREFIX + 1, cm);
+   
    TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = fieldCount,
       .name = -1, .isGeneric = false, .size = 0 };
    TYPE_CREATE_START(concreteHdr);
@@ -7538,7 +7574,9 @@ typeCheckGenericStruct(TypeId generic, TypeHeader genericHdr, Arr(Int) args, CM)
    };
    
    LInt resolvedParams = tGenericUnify(genericLoc, concreteLoc, cm);
-   return monomorphizeStruct(generic, resolvedParams, cm);
+   return monomorphizeStruct(
+      generic, genericHdr, ((LInt){.c = args, .len = fieldCount}), resolvedParams, cm
+   );
 }
 
 private void //:typeCheckStruct
@@ -7552,17 +7590,16 @@ typeCheckStruct(Node nd, LInt* restrict exp, CM) {
    // Note that we do NOT need to check for arity or that @exp.len is sufficient
    // because it has been done in {reorderStructLocateKeys}
    if (structHdr.isGeneric) {
-      structType = typeCheckGenericStruct(structType, structHdr, exp->c + startInExpr, cm);
+      structType = typeCheckGenericStruct(structType, structHdr, args, cm);
    } else {
       for (Int k = 0, l = structType.v + TYPE_PREFIX; k < fieldCount; k++, l++) {
-         VALIDATEP(eq(typeOf(args[k]), cm->types.c[l]),
-            pError(errTypeMismatch, typeErr2(cm->types.c[l], typeOf(args[k]));
-                     
+         VALIDATEP(args[k] == cm->types.c[l],
+            pError(errTypeMismatch, typeErr2(typeOf(cm->types.c[l]), typeOf(args[k])))
          )
       }
    }
    
-   cm->ast.c[cm->j].pl1 = structType;
+   cm->ast.c[cm->j].pl1 = structType.v;
    exp->len -= (fieldCount - 1);
    exp->c[exp->len] = structType.v;
 }
@@ -7727,7 +7764,7 @@ tGenericSubstituteParams(TypeId t, LInt resolvedParams, CM) {
    TypeHeader hdr = typeReadHeader(t, cm);
    if (!hdr.isGeneric)
       { return t; }
-   TExpr* te = cm->tExpr;
+   TExpr* te = &(cm->tExpr);
    te->tmp->len = 0;  // used to store start inds of type subexpressions
 
    Int arity = hdr.arity;
@@ -7797,22 +7834,22 @@ tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int argCount, CM) {
    TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = argCount,
       .name = nameOfStd(strF), .isGeneric = false, .size = 8 };
    TYPE_CREATE_START(concreteHdr);
-   memcpy(cm->types.c + cm->types.len, argTypes, arity*4);
-   cm->types.len += arity;
+   memcpy(cm->types.c + cm->types.len, argTypes, argCount*4);
+   cm->types.len += argCount;
    TYPE_CREATE_END;
    
    TypeId args = mergeType(tentativeType, cm);
-   Int concreteSent = args.v + TYPE_PREFIX + arity; // already not a full fn type => no -1
+   Int concreteSent = args.v + TYPE_PREFIX + argCount; // already not a full fn type => no -1
    TypeLoc concreteLoc = (TypeLoc){
       .currPos = tGetBodyStart(args, concreteHdr), .sentinel = concreteSent
    };
    
    // Now for the generic fn type
    TypeHeader genericHdr = typeReadHeader(fn.typeId, cm);
-   VALIDATEP(genericHdr.arity == arity + 1,
-      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, arity + 1))
+   VALIDATEP(genericHdr.arity == argCount + 1,
+      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, argCount + 1))
    )
-   Int genericSent = generic.v + TYPE_PREFIX + arity - 1; //-1 to exclude fn return type
+   Int genericSent = fn.typeId.v + TYPE_PREFIX + argCount - 1; //-1 to exclude fn return type
    TypeLoc genericLoc = (TypeLoc){
       .currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent
    };
