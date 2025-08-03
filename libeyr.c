@@ -102,7 +102,8 @@ typedef struct { // :Token
                            // After {reorderFor}, it's placed right between body and stepping code.
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
 #define tokTypeVar      7  // pl1 same as tokWord. `$A`
-#define tokKey          8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
+#define tokKey          8  // pl1 pl2 = same as tokWord.
+                           // `:argName` or `:``structField` or `:dictKey`
 #define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`
 #define tokFieldAcc    10  // pl1 = nameId. `.field`
 
@@ -1659,9 +1660,10 @@ struct Expr { //:Expr State for parsing expressions
 struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
    LInt* exp;           //  TypeId
    LTypeFrame* frames;
-   LInt* names;         // Record field names
-   LInt tParams;       // Unique type params of a type expression. nameId
-                        // Also used in generic call resolution
+   LInt names;         // Record field names
+   LInt paramNames;    // Unique type param names
+   LInt tParams;       // Unique type params of a type expression. [(nameId typeId)]
+                       // Used in generic call resolution
    LInt* tmp;           // Used in name uniqueness validation, and generic param substitution
    LTypeLoc* genericWalk; // Type location stack, used for type tree traversal
    LTypeLoc* concreteWalk;
@@ -1809,7 +1811,7 @@ printableOfCompResult(CompResult* cr) {
 //{{{ Errors
 //{{{ Compile errors
 
-#define errMaxId 126 // must be updated. The maximal value of the currently existing errIds below
+#define errMaxId 127 // must be updated. The maximal value of the currently existing errIds below
 #define errNonAscii                     0
 #define errPrematureEndOfInput          1
 #define errUnrecognizedByte             2
@@ -1924,6 +1926,7 @@ printableOfCompResult(CompResult* cr) {
 #define errTypeGenericWrongArity      123
 #define errTypeFieldNotFound          108
 #define errTypeFieldNotSpecified      126
+#define errTypeStructDefinition       127
 // internal errors:
 #define ierrInconsistentSpans         109 // Inconsistent span length / structure of token
                                           // scopes!
@@ -2086,7 +2089,8 @@ compileErrors[] = {
    "Generic function's type has wrong arity $0 but should be $1",
    "Expected a word",
    "Operator $0 is not overloadable",
-   "Not all fields specified for struct $0, for example $1 is missing"
+   "Not all fields specified for struct $0, for example $1 is missing",
+   "Incorrect struct definition, should look like `Foo = struct :id Int :name Str;`"
 };
 
 struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
@@ -6123,7 +6127,8 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->tExpr = (TExpr) {
       .exp = createLInt(16, cm->aTmp),
       .frames = createLTypeFrame(16, cm->aTmp),
-      .names = createLInt(16, cm->aTmp),
+      .names = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
+      .paramNames = (LInt){.c = allocateArray(4, Int, cm->aTmp), .len = 0, .cap = 4},
       .tParams = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
       .tmp = createLInt(16, cm->aTmp),
       .genericWalk = createLTypeLoc(16, cm->aTmp),
@@ -6749,6 +6754,11 @@ printType(TypeId typeId, PrintableCompiler prc) {
    }
 }
 
+private Int //:calcSizeOfStruct
+calcSizeOfStruct(TypeId t, CM) {
+   return 8;
+}
+
 //}}}
 //{{{ Parsing type names
 
@@ -6798,7 +6808,6 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    LInt* exp = te->exp;
    exp->len = 0;
    LTypeFrame* frames = te->frames;
-   te->tParams.len = 0;
    teOpenTypeCall(tokens[cm->i].pl1, sentinel, te, cm);
    cm->i++; // CONSUME the outer TypeCall
    while (cm->i < sentinel) {
@@ -6816,8 +6825,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
             teOpenTypeCall(cTk.pl1, typeCallSent, te, cm);
          }
       } ei (cTk.tp == tokTypeVar) {
-         NameId name = cTk.pl1;
-         teMergeParam(name, te, cm);
+         teMergeParam(cTk.pl1, te, cm);
       } else {
          throwExcParser(pError0(errTypeExpr));
       }
@@ -6832,7 +6840,7 @@ tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 private TypeId //:tParse
 tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 // Parse a type expression like `(L Double)`. Produces a linear, RPN sequence. Consumes all tokens,
-// populates @te.exp.
+// populates @te.exp and @te.paramNames.
 // Precondition: we are looking at the first type token (e.g. `[L ...]`).
    Token firstTypeTk = tokens[cm->i];
    VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar,
@@ -6856,19 +6864,19 @@ private Int //:tSubexValidateNamesUnique
 tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
 // Validates that the names in a record are unique.
 // Returns function/record's arity
-   Int const end = te->names->len;
+   Int const end = te->names.len;
    if (end == 0)
       { return 0; }
-   LInt* names = te->names;
+   LInt names = te->names;
    LInt* tmp = te->tmp;
    // copy from names to tmp
-   if (tmp->cap < names->len) {
-      Arr(Int) arr = allocateArray(names->len, Int, cm->aTmp);
+   if (tmp->cap < names.len) {
+      Arr(Int) arr = allocateArray(names.len, Int, cm->aTmp);
       tmp->c = arr;
-      tmp->cap = names->len;
+      tmp->cap = names.len;
    }
-   memcpy(tmp->c, names->c, names->len);
-   tmp->len = names->len;
+   memcpy(tmp->c, names.c, names->len);
+   tmp->len = names.len;
 
    sortLInts(tmp);
    NameId prev = tmp->c[0];
@@ -6876,8 +6884,8 @@ tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
       if (tmp->c[j] == prev)
          { throwExcParser(pError0(errFnDuplicateParams)); }
    }
-   Int const countNames = names->len;
-   names->len = 0;
+   Int const countNames = names.len;
+   te->names.len = 0;
    return countNames;
 }
 
@@ -6956,10 +6964,15 @@ tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
 
 private Int //:teMergeParam
 teMergeParam(NameId name, TExpr* restrict te, CM) {
-   for (Int j = 0; j < te->frames->len; j++) {
+   for (Int j = te->frames->len; j > -1 && !te->frames->c[j].isGeneric; j--) {
       te->frames->c[j].isGeneric = true;
    }
    add(-name - 1, te->exp);
+   for (Int j = 0; j < te->paramNames.len; j++) {
+      if (te->paramNames.c[j] == name)
+         { return -name - 1; }
+   }
+   add(name, te->tParams);
    return -name - 1;
 }
 
@@ -7092,21 +7105,62 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 //~   return teParse(sentinel, tokens, cm);
 //~}
 
-private TypeId
-pTypeStructDef(TOKENS, CM) {
-print("struct def")
-   return VOID_TYPE;
-//~   Bool isGeneric;
-//~   
-//~   
-//~   TYPE_CREATE_START(
-//~      ((TypeHeader){ .sort = sorTypeCall, .arity = fieldCount,
-//~         .name = genericHdr.name, .isGeneric = false, .size = 0 })
-//~   );
-//~   
-//~   TYPE_CREATE_END;
-//~   TypeId new = mergeType(tentativeType, cm);
+
+
+private TypeId //:pStructDef
+pStructDef(Int name, Int sentinel, TOKENS, CM) {
+// Precondition: pointing at the first tokKey of the struct definition
+// Populates genericFields and types
+//
+
+   print("struct def")
+   printName(name, cm);
+   TExpr* te = &(cm->tExpr);
    
+   TypeHeader hdr = (TypeHeader){ .sort = sorDeclare, .arity = 0, // will fill in at end of function
+         .name = name, .isGeneric = false, .size = 0 };
+   TYPE_CREATE_START(hdr);
+   
+   Int initFieldLen = cm->genericFields.len;
+   te->paramNames.len = 0; // clear param names before parsing a struct definition
+   Bool isGeneric = false;
+   for (Int j = cm->i; j < sentinel;) {
+      Token tk = tokens[j];
+      VALIDATEP(tk.tp == tokKey, pError0(errTypeStructDefinition))
+      Int keyName = tk.pl1;
+      pushIngenericFields(((StructField){
+            .name = keyName, .access = tk.pl2 > 0 ? accessPubMut : accessPubImm
+         }),
+         cm
+      );
+      j++;
+      
+      Int fieldSentinel = calcSentinel(tokens[j], j);
+      TypeId fieldType = tParse(fieldSentinel, &isGeneric, tokens, cm);
+      pushIntypes(fieldType);
+      
+      j = fieldSentinel;
+   }
+   pushIntypes(initFieldLen); // index of the first field in @genericFields
+   hdr.isGeneric = isGeneric;
+   for (Int j = 0; j < te->paramNames.len; j++) {
+      pushIntypes(te->paramNames.c[j]); // unique param names go to the end of the type
+   }
+   TYPE_CREATE_END;
+   
+   Int fieldCount = cm->genericFields.len - initFieldLen;
+   
+   hdr.arity = fieldCount;
+   hdr.size = calcSizeOfStruct(tentativeType, cm);
+   cm->types.c[cm->types.len + 1] = 
+      ((Int)((Unt)((Unt)hdr.sort << 16) + ((Unt)hdr.arity << 8)));
+      
+   cm->types.c[cm->types.len + 3] = hdr.size;
+   TypeId newStruct = mergeType(tentativeType, cm);
+   
+   print("resulting type:")
+   dbgType(newStruct);
+   return newStruct;
 }
 
 private TypeId //:pTypeDef
@@ -7125,6 +7179,7 @@ pTypeDef(Int sentinel, TOKENS, CM) {
    cm->tExpr.frames->len = 0;
 
    Token nameTk = tokens[cm->i];
+   Int name = nameTk.pl1;
    cm->i += 2; // CONSUME the type name and the tokAssignmentRight
 
    VALIDATEP(cm->i < sentinel, pError0(errTypeDefError))
@@ -7133,22 +7188,10 @@ pTypeDef(Int sentinel, TOKENS, CM) {
    
    TypeId newType = VOID_TYPE;
    if (taggingTk.pl1 == nameOfStd(strStruct)) {
-      newType = pTypeStructDef(tokens, cm);
+      newType = pStructDef(name, sentinel, tokens, cm);
    }
-   
+   cm->activeBindings[name] = newType.v;
    cm->i = sentinel; // CONSUME the whole definition
-   
-   cm->activeBindings[nameTk.pl1] = newType.v;
-   return newType;
-   
-   
-   
-   
-   
-   
-   
-   NameId name = nameTk.pl1;
-   cm->types.c[newType.v + 1] = name;
    return newType;
 }
 
