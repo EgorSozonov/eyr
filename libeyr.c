@@ -118,7 +118,7 @@ typedef struct { // :Token
                            // filled by meta `[@ Int 15]`
 #define tokAccessor    18  // The umbrella around an accessor subexpression like `x[i][j][k]`
 #define tokAccessorIn  19  // The internal `[]` block inside an accessor
-#define tokAssignment  20
+#define tokAssignment  20  // iff type definition, pl1 = assiTypeDefinition
 #define tokAssignRight 21  // Right-hand side of assignment
 #define tokMeta        22  // @meta(...)
 #define tokAlias       23
@@ -207,7 +207,7 @@ standardText[] = "!.!0!=##$%&&.'*:+:-:/:/\\<<.<=><0===0>=<>>.>0?:@^.||."
                 "ifimplimportmatchpubreturntraittruetrynot"
 
                 // reserved words end here; what follows may have arbitrary order
-                "skipstepbalkIntLongDoubleBoolStrVoidFLADRecEnumTulencapf1f2print"
+                "skipstepbalkIntLongDoubleBoolStrVoidFLADstructEnumTulencapf1f2print"
                 "printErrmath:pimath:eTUlengthaddmaincont"
 #ifdef DEBUG
                 "foobarinner"
@@ -232,7 +232,7 @@ standardStringLens[] = {
     4, 4, 4,       // balk
     3, 4, 6, 4, 3, // Str(ing)
     4, 1, 1, 1, 1, // D(ict)
-    3, 4, 2, 3,    // len
+    6, 4, 2, 3,    // len
     3, 2, 2, 5, 8, // printErr
     7, 6, 1, 1, 6, // length
     3, 4, 4,       // cont
@@ -2904,8 +2904,8 @@ wordReserved(Unt wordType, Int wordId, Int startBt, Int realStartBt, SRC, LX) {
    }
 }
 
-private void
-wordInternal(Unt wordType, SRC, LX) { //:wordInternal
+private void //:wordInternal
+wordInternal(Unt wordType, SRC, LX) {
 // Lexes a word (both reserved and identifier) according to Eyr's rules.
 // Precondition: we are pointing at the first letter character of the word (i.e. past the possible
 // "." or ":")
@@ -3021,15 +3021,13 @@ lConvertToAssignment(Int const opType, LX) {
    VALIDATEL(currSpan.tp == tokStmt, lexError(errOperatorAssignmentPunct));
    Int const assignmentStartInd = currSpan.tokenInd;
    Token* tok = (lx->tokens.c + assignmentStartInd);
-   if (currSpan.tp == tokStmt) {
-      tok->tp = tokAssignment;
-      lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokAssignment;
-   } else {
-      VALIDATEL(opType == -1, lexError(errOperatorMutationInDef))
-      if (lx->tokens.c[assignmentStartInd + 1].tp == tokType){
-         // type definition
-         tok->pl1 = assiTypeDefinition;
-      }
+   
+   tok->tp = tokAssignment;
+   lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokAssignment;
+   print("here @%d", assignmentStartInd + 1)
+   if (lx->tokens.c[assignmentStartInd + 1].tp == tokType){
+      // type definition
+      tok->pl1 = assiTypeDefinition;
    }
 
    openPunctuation(tokAssignRight, slStmt, lx->i, lx);
@@ -3130,6 +3128,7 @@ lexEqual(SRC, LX) {
    if (nextBt == aEqual || nextBt == aDigit0) {
       lexOperator(source, lx); // == or =0
    } else {
+   print("equal")
       lCreateAssignment(-1, lx);
       lx->i++; // CONSUME the =
    }
@@ -4014,7 +4013,7 @@ getBinding(Int id, CM) { return cm->activeBindings[id]; }
 //}}}
 //{{{ Forward decls
 
-private TypeId pTypeDef(TOKENS, CM);
+private TypeId pTypeDef(Int sentinel, TOKENS, CM);
 private Bool tIsList(TypeId t, CM);
 private TypeId typeGetTypeByName(Int t, CM);
 
@@ -4356,7 +4355,7 @@ private void //:pAssignment
 pAssignment(Token tok, Int sentinel, TOKENS, CM) {
 // Parses both assignments and compile-time defs
    if (tok.pl1 == assiTypeDefinition) {
-      pTypeDef(tokens, cm);
+      pTypeDef(sentinel, tokens, cm);
    } else {
       Assignment assi = pPreparseAssignment(cm->i, sentinel, tokens, cm);
       pAssignmentWorker(tok, assi, tokens, cm);
@@ -6260,8 +6259,9 @@ pToplevelTypes(CM) {
    while (cm->i < len) {
       Token tok = toks[cm->i];
       if (tok.tp == tokAssignment && tok.pl1 == assiTypeDefinition) {
+         Int sentinel = calcSentinel(tok, cm->i);
          cm->i++; // CONSUME the def token
-         pTypeDef(toks, cm);
+         pTypeDef(sentinel, toks, cm);
       } else {
          cm->i += (tok.pl2 + 1);
       }
@@ -7092,11 +7092,28 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 //~   return teParse(sentinel, tokens, cm);
 //~}
 
+private TypeId
+pTypeStructDef(TOKENS, CM) {
+print("struct def")
+   return VOID_TYPE;
+//~   Bool isGeneric;
+//~   
+//~   
+//~   TYPE_CREATE_START(
+//~      ((TypeHeader){ .sort = sorTypeCall, .arity = fieldCount,
+//~         .name = genericHdr.name, .isGeneric = false, .size = 0 })
+//~   );
+//~   
+//~   TYPE_CREATE_END;
+//~   TypeId new = mergeType(tentativeType, cm);
+   
+}
+
 private TypeId //:pTypeDef
-pTypeDef(TOKENS, CM) {
+pTypeDef(Int sentinel, TOKENS, CM) {
 // Builds a type expression from a type definition or a function signature.
-// Example 1: `Foo = (Rec id Int; name String;)`
-// Example 2: `(F a Double; b Bool; String;)`
+// Example 1: `Foo = struct :id Int :name String;`
+// Example 2: `Bar = F[Double Bool -> String];`
 //
 // Accepts a name or -1 for nameless type exprs (like function signatures).
 // Uses cm->exp to build a "type expression" and cm->params for the type parameters
@@ -7107,15 +7124,30 @@ pTypeDef(TOKENS, CM) {
    VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, pError0(errAssignmentLeftSide))
    cm->tExpr.frames->len = 0;
 
-   Int sentinel = cm->i + tokens[cm->i - 1].pl2; // we get the length from the tokAssignmentRight
    Token nameTk = tokens[cm->i];
    cm->i += 2; // CONSUME the type name and the tokAssignmentRight
 
    VALIDATEP(cm->i < sentinel, pError0(errTypeDefError))
-   Bool isGeneric;
-   TypeId newType = tParse(sentinel, OUT &isGeneric, tokens, cm);
+   Token taggingTk = tokens[cm->i];
+   cm->i++; // skip the tag of the type 
+   
+   TypeId newType = VOID_TYPE;
+   if (taggingTk.pl1 == nameOfStd(strStruct)) {
+      newType = pTypeStructDef(tokens, cm);
+   }
+   
+   cm->i = sentinel; // CONSUME the whole definition
+   
+   cm->activeBindings[nameTk.pl1] = newType.v;
+   return newType;
+   
+   
+   
+   
+   
+   
+   
    NameId name = nameTk.pl1;
-   cm->activeBindings[name] = newType.v;
    cm->types.c[newType.v + 1] = name;
    return newType;
 }
@@ -7851,11 +7883,11 @@ tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int argCount, CM) {
    )
    Int genericSent = fn.typeId.v + TYPE_PREFIX + argCount - 1; //-1 to exclude fn return type
    TypeLoc genericLoc = (TypeLoc){
-      .currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent
+      .currPos = tGetBodyStart(fn.typeId, genericHdr), .sentinel = genericSent
    };
    
    LInt resolvedParams = tGenericUnify(genericLoc, concreteLoc, cm);
-   TypeId genericReturnType = tFunctionReturnType(generic, cm);
+   TypeId genericReturnType = tFunctionReturnType(fn.typeId, cm);
    TypeId returnType = tGenericSubstituteParams(genericReturnType, resolvedParams, cm);
    return tGlueReturnTypeOntoFn(args, returnType, cm);
 }

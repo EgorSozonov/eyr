@@ -319,7 +319,7 @@ struct StructField { //:StructField Struct field names + access are in a separat
    Byte access;      // single generic struct)
 };
 
-// nodVar.pl3 == 0 for uses of ordinary vars
+// nodVar.pl3. It's 0 for uses of ordinary var usage, and one of the following for other uses
 #define assiVarAssignment  1 // definition of a var
 #define assiTypeDefinition 2 // definition of a type
 #define assiFnParam        3 // introduction of a function parameter
@@ -441,7 +441,7 @@ typedef struct { //:TypeHeader
 #define strL        31 // L(ist)
 #define strArr      32
 #define strD        33 // D(ictionary)
-#define strRec      34 // Record
+#define strStruct   34
 #define strEnum     35 // Enum
 #define strTu       36 // Tu(ple)
 #define strLen      37

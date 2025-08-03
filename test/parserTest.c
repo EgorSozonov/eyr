@@ -178,6 +178,7 @@ void runTest(ParserTest test, TestContext* ct) {
       else
          { return; }
    }
+   print("runnin test")
    CompResult* testRes = getCompResult(test.test);
    CompResult* controlRes = getCompResult(test.control);
    Int testId = ct->countTests - 1;
@@ -1758,7 +1759,7 @@ typeTests(Compiler* protoOvs, Arena* a) {
    return createTestSet(s("Types test set"), a, ((ParserTest[]){
       createTest(
          s("Simple struct definition"),
-         s("Foo = struct(:id Int);\n"
+         s("Foo = struct :id Int;\n"
            "fn main f{\n"
            "   var = Foo(:id 281);\n"
            "   print var.id;\n"
