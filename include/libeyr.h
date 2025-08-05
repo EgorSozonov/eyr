@@ -37,26 +37,27 @@ typedef bool Bool;
 #define LEXER_INIT_SIZE 1000
 #define ei else if
 #define defstruct(T) typedef struct T T
-#define print(...) \
+
+#define d(...) \
   printf(__VA_ARGS__);\
   printf("\n");
 
-#define dg(...) \
-  printf(__VA_ARGS__);\
-  printf("\n");
+//{{{Arena
 
 typedef struct Arena Arena;
 Arena* createArena();
 void deleteArena(Arena* ar);
+void* allocateOnArena(size_t, Arena*);
+#define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
+#define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
+
+//}}}
+//
+#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 
 typedef struct Compiler Compiler;
 
 #define s(lit) str(lit)
-
-void* allocateOnArena(size_t, Arena*);
-#define allocate(T, a) (T*)allocateOnArena(sizeof(T), a)
-#define allocateArray(cap, T, a) (T*)allocateOnArena(cap*sizeof(T), a)
-#define containerOf(ptr, Type, member) ((Type *)((char *)(ptr) - offsetof(Type, member)))
 #define LX Compiler* restrict lx // Compiler for lexer functions
 #define CM Compiler* restrict cm // compiler during parsing
 
@@ -71,7 +72,7 @@ defstruct(StructField);
 
 //{{{ List
 
-#define DEFINE_LIST_HEADER(T) \
+#define DECLARE_LIST(T) \
    typedef struct {\
       T* c;\
       Int len;\
@@ -112,13 +113,13 @@ defstruct(StructField);
 
 #define last(lst) lst->c[lst->len - 1]
 
-DEFINE_LIST_HEADER(Int)
-DEFINE_LIST_HEADER(Unt)
-DEFINE_LIST_HEADER(Ulong)
-DEFINE_LIST_HEADER(SourceLoc)
-DEFINE_LIST_HEADER(Node)
-DEFINE_LIST_HEADER(Var)
-DEFINE_LIST_HEADER(Function)
+DECLARE_LIST(Int)
+DECLARE_LIST(Unt)
+DECLARE_LIST(Ulong)
+DECLARE_LIST(SourceLoc)
+DECLARE_LIST(Node)
+DECLARE_LIST(Var)
+DECLARE_LIST(Function)
 
 //}}}
 //{{{ Slice
@@ -504,7 +505,8 @@ typedef struct { //:CompResult
    SliFunction functions;
    SliInt types;
    SliUnt names;
-   SliStructField genericFields;
+   SliStructField genericFields; // "name" field is an index into @names
+   SliUnt concreteFields; // indices into @types
 
    SliInt publicFns; // indices into @functions
    SliInt publicConsts; // indices into @vars

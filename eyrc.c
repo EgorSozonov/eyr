@@ -49,8 +49,8 @@ typedef Fn* FnPtr;
 
 typedef libeyr_CompResult CompResult;
 
-DEFINE_LIST_HEADER(FnParamPtr)
-DEFINE_LIST_HEADER(FieldPtr)
+DECLARE_LIST(FnParamPtr)
+DECLARE_LIST(FieldPtr)
 
 #define add(A, X) _Generic((X),\
    LInt*: addInt,\
@@ -122,7 +122,7 @@ typedef struct { //:Name
 Name //:nameWoSuffix
 nameWoSuffix(NameId nameId) { return (Name){.nameId = nameId, .suffix = -1}; }
 
-DEFINE_LIST_HEADER(FutureBlock)
+DECLARE_LIST(FutureBlock)
 DEFINE_LIST(FutureBlock)
 
 typedef CodeBlock* CodeBlockPtr;
@@ -141,11 +141,11 @@ typedef struct { //:TypeInfo
    Int fieldInd; // index into @concreteFields. null for function types
 } TypeInfo;
 
-DEFINE_LIST_HEADER(CodeBlockPtr)
-DEFINE_LIST_HEADER(FnPtr)
-DEFINE_LIST_HEADER(RValuePtr)
-DEFINE_LIST_HEADER(CgTypePtr)
-DEFINE_LIST_HEADER(BtLoop)
+DECLARE_LIST(CodeBlockPtr)
+DECLARE_LIST(FnPtr)
+DECLARE_LIST(RValuePtr)
+DECLARE_LIST(CgTypePtr)
+DECLARE_LIST(BtLoop)
 DEFINE_LIST(CodeBlockPtr)
 DEFINE_LIST(FnPtr)
 DEFINE_LIST(RValuePtr)
@@ -692,7 +692,7 @@ private TypeInfo //:cgType
 cgType(TypeId tp, CG) {
    Int ind = binarySearch(tp.v, 0, cg->countConcreteTypes, cg->typeRefs);
    if (ind == -1) {
-      print("couldn't find type %d", tp.v)
+      d("couldn't find type %d", tp.v)
    }
    VALIDATEI(ind > -1, iErrorEyrTypeNotFound);
    TypeInfo res = cg->types[ind];
@@ -1728,7 +1728,7 @@ writeToplevelFn(FunctionId toplevelId, CR, CG) {
       }
 
       if (nd.tp < nodScope) {
-         print("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
+         d("LOOP erroneous tp %d @%d", nd.tp - nodScope, cg->i)
       }
       cg->i++; // CONSUME the span node
       (CODEGEN_TABLE[nd.tp - nodScope])(nd, sentinel, cr->ast.c, cg);
@@ -1766,7 +1766,7 @@ generateCode(CR) {
       generateMainCode(cg);
    } else {
 #ifndef TEST
-      print("Codegen Exception!");
+      d("Codegen Exception!");
       cg->wasError = true;
 #endif
    }
@@ -1809,7 +1809,7 @@ dbgFutureBlocks(CG) {
       }
    }
    closing:
-   print("]");
+   d("]");
 }
 
 #endif
@@ -1819,7 +1819,7 @@ dbgFutureBlocks(CG) {
 
 private void //:printHelp
 printHelp() {
-   print("Eyr compiler. Usage:\n\n> eyrc source.eyr -o program\n\nOther options:\n"
+   d("Eyr compiler. Usage:\n\n> eyrc source.eyr -o program\n\nOther options:\n"
          "-v    print version\n"
          "-h    print this help\n"
    );
@@ -1827,7 +1827,7 @@ printHelp() {
 
 private void //:printVersion
 printVersion() {
-   print("Eyr compiler version: 0.2");
+   d("Eyr compiler version: 0.2");
 }
 
 
@@ -1921,7 +1921,7 @@ main(int argc, char** argv) {
 
    TaskDescription task = getCommandParams(argc, argv, a);
    if (task.errMsg.len > 0) {
-      print("Erroneous task description!");
+      d("Erroneous task description!");
       printString(task.errMsg);
       return 0;
    } ei (task.whatToDo == whatToDoPrintHelp) {
@@ -1942,11 +1942,11 @@ main(int argc, char** argv) {
    if (setjmp(excBuf) == 0) {
       cg = generateCode(compResult);
    } else {
-      print("Codegen exception!");
+      d("Codegen exception!");
    }
 
    if (cg->wasError) {
-      print("Code generation error");
+      d("Code generation error");
       return 1;
    }
 

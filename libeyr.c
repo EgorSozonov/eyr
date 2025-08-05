@@ -412,16 +412,16 @@ PARSE_TABLE[countSyntaxForms] = {
 //{{{ Forward decls & generics
 
 #define BIG 70000000
-DEFINE_LIST_HEADER(Token)
-DEFINE_LIST_HEADER(BtToken)
-DEFINE_LIST_HEADER(ParseFrame)
-DEFINE_LIST_HEADER(ExprFrame)
-DEFINE_LIST_HEADER(TypeFrame)
-DEFINE_LIST_HEADER(Monomorphization)
-DEFINE_LIST_HEADER(TypeLoc)
-DEFINE_LIST_HEADER(ChInterval)
+DECLARE_LIST(Token)
+DECLARE_LIST(BtToken)
+DECLARE_LIST(ParseFrame)
+DECLARE_LIST(ExprFrame)
+DECLARE_LIST(TypeFrame)
+DECLARE_LIST(Monomorphization)
+DECLARE_LIST(TypeLoc)
+DECLARE_LIST(ChInterval)
 defstruct(CompileError);
-DEFINE_LIST_HEADER(CompileError)
+DECLARE_LIST(CompileError)
 
 typedef libeyr_CompResult CompResult;
 #define SRC Arr(char const) restrict source // Source text
@@ -601,7 +601,7 @@ allocateOnArena(size_t allocSize, Arena* a) { //:allocateOnArena
    if ((size_t)a->currInd + allocSize >= a->currChunk->size) {
       if (a->currChunk->next != null && a->currChunk->next->size < allocSize) {
          // the next chunk is big enough, so we skip the rest of this chunk and move on
-         print("reusing cleared memory from the arena!")
+         d("reusing cleared memory from the arena!")
          a->currChunk = a->currChunk->next;
          a->currInd = 0;
       } else { // we need to allocate new chunk
@@ -997,7 +997,7 @@ createIntMap(int initSize, Arena* a) { //:createIntMap
       d[i] = null;
    }
    result->dictSize = realInitSize;
-   print("in create int map %d", realInitSize);
+   d("in create int map %d", realInitSize);
    result->dict = dict;
 
    return result;
@@ -1721,7 +1721,7 @@ struct Compiler { // :Compiler
    Int entrypoint;             // index into @functions
    InListInt importNames;
    LParseFrame* parseFrames;   // [aTmp]
-   Scopes scopes;              // lists of local variables for keeping track of scopes
+   Scopes scopes;              // lists of local variables for keeping track of lexical scopes
    Expr expr;                  // all the contents are in [aTmp]
    TExpr tExpr;                // all the contents are in [aTmp]
    // For vars, index pointing into @vars.
@@ -1742,6 +1742,7 @@ struct Compiler { // :Compiler
                                     // type instantiations have their own lists of types of fields
                                     // but not their names - the names are defined once per generic
                                     // type and kept here.
+   SliUnt concreteFields; 
    LMonomorphization* monos; // Addresses of monomorphizations of generic functions
 
    // GENERAL STATE
@@ -2137,7 +2138,7 @@ struct CompileError { //:CompileError
 DEFINE_LIST(CompileError) //:createLCompileError
 
 void libeyr_printError(Int errId) {
-   print("%s", compileErrors[errId]);
+   d("%s", compileErrors[errId]);
 }
 
 Int
@@ -2161,7 +2162,7 @@ private void //:printTextualError
 printTextualError(Int errId, ErrorText e, CompResult* cr) {
    char const* text = compileErrors[errId];
    if (e.count == 0) {
-      print("%s", text);
+      d("%s", text);
       return;
    }
 
@@ -2190,7 +2191,7 @@ printTextualError(Int errId, ErrorText e, CompResult* cr) {
             break;
          }
          case errtxtNumber: {
-            print("printing number");
+            d("printing number");
             printf("%d", printable.c);
             break;
          }
@@ -2216,7 +2217,7 @@ printError(CompileError err, CompResult* cr) {
    printTextualError(err.id, err.textual, cr);
 
 #ifdef DEBUG
-   print("Code line: %d", err.codeLine);
+   d("Code line: %d", err.codeLine);
 #endif
 }
 
@@ -2372,7 +2373,7 @@ throwExcInternal0(Int errId, Int lineNumber, CM) {
 #ifdef DEBUG
    printf("Internal error %d at line %d\n", errId, lineNumber);
 #endif
-   print("%s", compileErrors[errId]);
+   d("%s", compileErrors[errId]);
    longjmp(excBuf, 1);
 }
 
@@ -3028,7 +3029,6 @@ lConvertToAssignment(Int const opType, LX) {
    
    tok->tp = tokAssignment;
    lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokAssignment;
-   print("here @%d", assignmentStartInd + 1)
    if (lx->tokens.c[assignmentStartInd + 1].tp == tokType){
       // type definition
       tok->pl1 = assiTypeDefinition;
@@ -3132,7 +3132,6 @@ lexEqual(SRC, LX) {
    if (nextBt == aEqual || nextBt == aDigit0) {
       lexOperator(source, lx); // == or =0
    } else {
-   print("equal")
       lCreateAssignment(-1, lx);
       lx->i++; // CONSUME the =
    }
@@ -3770,7 +3769,6 @@ numberErr(Int n) {
 
 private ErrorText //:numberErr2
 numberErr2(Int n, Int n2) {
-print("craeting num err %d %d", n, n2);
    return (ErrorText){
       .count = 1,
       .c = {(ErrTextSumType){.tp = errtxtNumber, .c = n },
@@ -4838,7 +4836,7 @@ reorderStructInitBuffers(Int fieldCount, Int nodeCount, Expr* restrict e, Arena*
    e->reorderKeys.len = 0;
 
    Int const nodeCountAfter = nodeCount - fieldCount; // there will be no nodes for the fields
-   print("REORDER len keys %d node count after %d", lenKeys, nodeCountAfter);
+   d("REORDER len keys %d node count after %d", lenKeys, nodeCountAfter);
 
    if (e->reorderBuf.cap < nodeCountAfter) {
       e->reorderBuf.c = allocateArray(nodeCountAfter, Node, aTmp);
@@ -4914,7 +4912,7 @@ reorderStructMoveNodes(Int startNode, Expr* e) {
    Int const newLen = tgt - e->reorderBuf.c;
    memcpy(e->scr.c + startNode, e->reorderBuf.c, newLen*sizeof(Node));
    e->scr.len -= (e->scr.len - startNode - newLen);
-   print("REORD new len %d", e->scr.len);
+   d("REORD new len %d", e->scr.len);
 }
 
 private void //:reorderStruct
@@ -5371,7 +5369,7 @@ closeParseFrames(CM) {
          { return; }
 #ifdef DEBUG //{{{
       if (cm->i > frame.sentinel) {
-         print("Span inconsistency i %d  frame.level %d frame.sentinelToken %d startInd %d",
+         d("Span inconsistency i %d  frame.level %d frame.sentinelToken %d startInd %d",
             cm->i, frame.sentinel, frame.level, frame.startNodeInd);
       }
       VALIDATEI(cm->i == frame.sentinel, ierrInconsistentSpans)
@@ -5522,7 +5520,7 @@ importVars(Arr(Var) impts, Int const countVars, CM) {
       Var const ent = impts[j];
 
       if (cm->activeBindings[ent.name] != -1) {
-         print("already active @ %d bind %d", ent.name, cm->activeBindings[ent.name]);
+         d("already active @ %d bind %d", ent.name, cm->activeBindings[ent.name]);
 #ifdef DEBUG
          printName(ent.name, cm);
 #endif
@@ -6155,7 +6153,7 @@ validateNameOverloads(Int listId, Int countOverloads, NameId name, CM) {
    for (Int prevOuter = ov[start]; o < outerSentinel; prevOuter = ov[o], o++) {
 #if defined(VERBOSE) && defined(DEBUG) //{{{
       if (ov[o] == prevOuter) {
-         print("Overload intersection for name %d ov[k] %d prevOuter %d @o = %d countOvers %d",
+         d("Overload intersection for name %d ov[k] %d prevOuter %d @o = %d countOvers %d",
             name, ov[o], prevOuter, o, countOverloads);
          printf("Name: ");
          printName(name, cm);
@@ -6517,7 +6515,7 @@ parseMain(CM, Arena* a) {
       //dbgAllTypes(cm);
    } else {
 #ifndef DEBUG
-      print("Exception!");
+      d("Exception!");
 #endif
    }
 }
@@ -6647,7 +6645,7 @@ tGetIndexOfFnFirstParam(TypeId fnType, CM) {
 #ifdef DEBUG //{{{
    NameId name = typeReadHeader(fnType, cm).name;
    if (name != nameOfStd(strF))
-      { print("A function is not a function! TypeId = %d", fnType); }
+      { d("A function is not a function! TypeId = %d", fnType); }
    VALIDATEI(name == nameOfStd(strF), ierrNotAFunction);
 #endif //}}}
    return typeOf(fnType.v + TYPE_PREFIX);
@@ -6875,7 +6873,7 @@ tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
       tmp->c = arr;
       tmp->cap = names.len;
    }
-   memcpy(tmp->c, names.c, names->len);
+   memcpy(tmp->c, names.c, names.len);
    tmp->len = names.len;
 
    sortLInts(tmp);
@@ -6972,7 +6970,7 @@ teMergeParam(NameId name, TExpr* restrict te, CM) {
       if (te->paramNames.c[j] == name)
          { return -name - 1; }
    }
-   add(name, te->tParams);
+   add(name, &(te->tParams));
    return -name - 1;
 }
 
@@ -7113,7 +7111,7 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
 // Populates genericFields and types
 //
 
-   print("struct def")
+   d("struct def")
    printName(name, cm);
    TExpr* te = &(cm->tExpr);
    
@@ -7137,14 +7135,14 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
       
       Int fieldSentinel = calcSentinel(tokens[j], j);
       TypeId fieldType = tParse(fieldSentinel, &isGeneric, tokens, cm);
-      pushIntypes(fieldType);
+      pushIntypes(fieldType.v, cm);
       
       j = fieldSentinel;
    }
-   pushIntypes(initFieldLen); // index of the first field in @genericFields
+   pushIntypes(initFieldLen, cm); // index of the first field in @genericFields
    hdr.isGeneric = isGeneric;
    for (Int j = 0; j < te->paramNames.len; j++) {
-      pushIntypes(te->paramNames.c[j]); // unique param names go to the end of the type
+      pushIntypes(te->paramNames.c[j], cm); // unique param names go to the end of the type
    }
    TYPE_CREATE_END;
    
@@ -7158,7 +7156,7 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
    cm->types.c[cm->types.len + 3] = hdr.size;
    TypeId newStruct = mergeType(tentativeType, cm);
    
-   print("resulting type:")
+   d("resulting type:")
    dbgType(newStruct);
    return newStruct;
 }
@@ -7450,11 +7448,11 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
    Bool ovFound = tFindOverload(tpFstArg, indOverl, cm, OUT &fnId);
 #if defined(DEBUG) //{{{
    if (!ovFound) {
-      print("Overload not found: indOverl %d name %d tpFirstArg %d j %d",
+      d("Overload not found: indOverl %d name %d tpFirstArg %d j %d",
          indOverl, name, tpFstArg.v, cm->j)
-      print("exp:");
+      d("exp:");
       printLInt(cm->expr.exp);
-      print("name:")
+      d("name:")
       printName(name, cm);
    }
 #endif //}}}
@@ -7471,7 +7469,7 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
       tpFstArg = typeOf(exp->c[exp->len - argCount]);
       if (tpFstArg.v == -1) { //{{{
          Int a = exp->c[exp->len - argCount];
-         print("can't get first type of type %d name %d cmj %d", a, name, cm->j);
+         d("can't get first type of type %d name %d cmj %d", a, name, cm->j);
       } //}}}
       VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name)))
    }
@@ -7555,7 +7553,7 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
 
 #ifdef VERBOSE //{{{
    if (typeReadHeader(typeOfFunc, cm).arity != argCount + 1) {
-      print("arity error %d type %d argc %d", typeReadHeader(typeOfFunc, cm).arity, typeOfFunc.v,
+      d("arity error %d type %d argc %d", typeReadHeader(typeOfFunc, cm).arity, typeOfFunc.v,
          (argCount == 0 ? 1 : argCount) + 1);
    }
 #endif //}}}
@@ -8105,7 +8103,7 @@ void
 printLexer(LX) { //:printLexer
    if (lx->errors->len > 0) {
       printf("Error: ");
-      print("%s", compileErrors[lx->errors->c[0].id]);
+      d("%s", compileErrors[lx->errors->c[0].id]);
    }
    Int indent = 0;
    Arena* a = lx->a;
@@ -8168,7 +8166,7 @@ void //:printParser
 printParser(CM) {
    if (cm->errors->len > 0) {
       printf("Error: ");
-      print("%s", compileErrors[cm->errors->c[0].id]);
+      d("%s", compileErrors[cm->errors->c[0].id]);
    }
    Arena* a = cm->a;
    Int indent = 0;
@@ -8217,7 +8215,7 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
    for (Int j = 0; j < len; j++) {
       printf("%d: %d ", ml->c[listInd + 2 + 2*j], ml->c[listInd + 2*j + 3]);
    }
-   print("]");
+   d("]");
    printf("types: ");
    for (Int j = 0; j < len; j++) {
       dbgType(typeOf(ml->c[listInd + 2 + 2*j]));
@@ -8228,7 +8226,7 @@ dbgRawOverload(Int listInd, Compiler* cm) { //:dbgRawOverload
 void //:dbgExprFrames
 dbgExprFrames(CM) {
    LExprFrame* st = cm->expr.frames;
-   print("Expr frames<<<");
+   d("Expr frames<<<");
    for (Int j = 0; j < st->len; j++) {
       ExprFrame fr = st->c[j];
       if (fr.tp == exfrCall) {
@@ -8248,7 +8246,7 @@ dbgExprFrames(CM) {
       }
       printf(" arg %d start %d sent %d; ", fr.argCount, fr.startNode, fr.sentinel);
       if (j % 6 == 0) {
-          print("\n");
+          d("\n");
       }
    }
    printf("\n>>>\n\n");
@@ -8280,7 +8278,7 @@ setLoc(ChInterval loc, Int j, CM) { cm->sourceLocs->c[j] = locOf(loc, cm); }
 void //:dbgScopes
 dbgScopes(CM) {
    Scopes* s = &(cm->scopes);
-   print("Scope Stack<<<");
+   d("Scope Stack<<<");
    if (!(s->currChunk->prev) && s->curr - s->currChunk->c <= 1)
       { goto closing; }
    ScopeChunk* ch = s->currChunk;
@@ -8297,7 +8295,7 @@ dbgScopes(CM) {
    }
    for (; p >= ch->c || ch->prev; p--) {
       if (currScopeLen == 0) {
-         print("]");
+         d("]");
          currScopeLen = *p;
          if ((p - 1) > ch->c || ch->prev) {
             printf("Scope with %d bindings: [", currScopeLen);
@@ -8311,7 +8309,7 @@ dbgScopes(CM) {
          p = ch->c + SCOPE_CHUNK_SZ;
       }
    }
-   print("]");
+   d("]");
 closing:
    printf(">>>\n\n");
 }
@@ -8322,13 +8320,13 @@ dbgPrintScope(Int** p, Int* scopeLen, ScopeChunk* scChunk, Scopes* sc) {
    if (hasBindings) {
       printf("   %d bindings: [", *scopeLen);
    } else {
-      print("   no bindings");
+      d("   no bindings");
    }
    Bool stillSameScope = true;
    for (; ((*p) >= scChunk->c || scChunk->prev) && stillSameScope; (*p)--) {
       if (*scopeLen == 0) {
          if (hasBindings)
-            { print("]"); }
+            { d("]"); }
          *scopeLen = **p;
          hasBindings = *scopeLen > 0;
          stillSameScope = false;
@@ -8356,9 +8354,9 @@ dbgParseFrames(CM) {
       p = scChunk->c + SCOPE_CHUNK_SZ;
    }
    printIntArrayOff(0, 7, scChunk->c);
-   print("p init %d", p - scChunk->c);
+   d("p init %d", p - scChunk->c);
 
-   print("Parse frames (%d scopes) <<<", sc->countScopes);
+   d("Parse frames (%d scopes) <<<", sc->countScopes);
    for (Int indFrame = cm->parseFrames->len - 1;
         indFrame > -1;
         indFrame--
@@ -8370,14 +8368,14 @@ dbgParseFrames(CM) {
       case pfrFn: printf("Fn "); break;
       default: printf("Scopeless frame "); break;
       }
-      print("sent %d", fr.sentinel);
+      d("sent %d", fr.sentinel);
 
       if (fr.level > 0) {
          dbgPrintScope(&p, &scopeLen, scChunk, sc);
       }
    }
 
-   print(">>>\n");
+   d(">>>\n");
 }
 
 //}}}
@@ -8387,7 +8385,7 @@ dbgParseFrames(CM) {
 void
 dbgTypeFrames(TExpr* te) { //:dbgTypeFrames
    LTypeFrame* frames = te->frames;
-   print(">>> Type frames cnt %d", frames->len);
+   d(">>> Type frames cnt %d", frames->len);
    for (Int j = 0; j < frames->len; j++) {
       TypeFrame fr = frames->c[j];
       if (fr.tp == tfrFunction) {
@@ -8407,7 +8405,7 @@ void
 dbgOverloads(Int nameId, CM) { //:dbgOverloads
    Int listId = -cm->activeBindings[nameId] - 2;
    if (listId < 0) {
-      print("Overloads for name %d not found", nameId)
+      d("Overloads for name %d not found", nameId)
       return;
    }
    Arr(Int) overs = cm->overloads.c;
@@ -8655,7 +8653,7 @@ libeyr_compile(String sourceCode) {
    Compiler* cm = lexicallyAnalyze(sourceCode, a);
    if (cm->errors->len > 0) {
 #if defined(DEBUG)
-      print("%s", compileErrors[cm->errors->c[0].id]);
+      d("%s", compileErrors[cm->errors->c[0].id]);
 #endif
 
       cr->wasLexerError = true;
@@ -8668,7 +8666,7 @@ libeyr_compile(String sourceCode) {
    if (cm->errors->len > 0) {
 
 #if defined(DEBUG)
-   print("%s", compileErrors[cm->errors->c[0].id]);
+   d("%s", compileErrors[cm->errors->c[0].id]);
 #endif
       cr->wasParserError = true;
       cr->errors = getCompilationErrors(cm);
