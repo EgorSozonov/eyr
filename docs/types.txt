@@ -1,3 +1,27 @@
+TOTAL OVERHAUL OF TYPES!
+
+Store all types as full expressions with type parameters changed into De Bruijn indices, and in
+forward Polish Notation!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 sorDeclare = original declarations of types, including concrete generic ones
 sorTypeCall = instantiations of sorDeclares. May be generic
 sorGenericParam = generic params. These are auxiliary types and are non-instantiable

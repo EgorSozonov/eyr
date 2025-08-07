@@ -315,10 +315,12 @@ struct Function { //:Function Parsed or built-in function
    Bool needsMangling; // do we need to add "_123" to this function's name when generating code?
 };
 
-struct StructField { //:StructField Struct field names + access are in a separate table,
-   NameId name;      // while their types are in @types (to support various instantiations of a
-   Byte access;      // single generic struct)
+struct FieldName { //:FieldName Struct field names + access are in a separate table,
+   NameId name;    // while their types are in @types (to support various instantiations of a
+   Byte access;    // single generic struct). Also used for functions with > 3 params, for 
+                   // param names
 };
+
 
 // nodVar.pl3. It's 0 for uses of ordinary var usage, and one of the following for other uses
 #define assiVarAssignment  1 // definition of a var
@@ -392,13 +394,10 @@ struct StructField { //:StructField Struct field names + access are in a separat
                              // not all generic params are filled in)
 #define sorMaxType         sorTypeCall
 
-typedef struct { //:TypeHeader
-   Byte sort;    // "sor" constants above
-   Byte arity;   // for function types, equals arity + 1. For structs, number of fields
-   Bool isGeneric;
-   NameLoc name;
-   Int size;     // sizeof
-} TypeHeader;
+typedef struct { //:ConcrType All primitive types, concrete structs and monomorphic function types
+   NameId name;
+   TypeId t;
+} ConcrType;
 
 #define TYPE_PREFIX 4 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 

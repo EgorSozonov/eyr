@@ -430,7 +430,7 @@ typedef libeyr_CompResult CompResult;
 private void closeStatement(LX);
 
 defstruct(Expr);
-defstruct(TExpr);
+defstruct(TParse);
 
 defstruct(Scopes);
 void printLexer(LX);
@@ -451,10 +451,10 @@ private TypeId typecheckList(Node nd, Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(NameId outerName, TypeId param, CM);
 private TypeId tFunctionReturnType(TypeId t, CM);
-private TypeId tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM);
-private TypeId tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM);
-private void teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM);
-private Int teMergeParam(NameId name, TExpr* restrict te, CM);
+private TypeId tCreateFnTypeCall(TParse* te, Int startInd, TypeFrame frame, CM);
+private TypeId tCreateTypeCall(TParse* te, Byte sort, Int startInd, TypeFrame frame, CM);
+private void teOpenTypeCall(NameId typeName, Int sentinel, TParse* te, CM);
+private Int teMergeParam(NameId name, TParse* restrict te, CM);
 
 private TypeId tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
@@ -464,8 +464,8 @@ defstruct(PrintableCompiler);
 void printNameNoLnCr(NameId nameId, PrintableCompiler prc);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
-private void tFreshState(TExpr* st);
-//~private TypeId teClause(TExpr* st, Int sentinel, TOKENS, CM);
+private void tFreshState(TParse* st);
+//~private TypeId teClause(TParse* st, Int sentinel, TOKENS, CM);
 private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
 private Int calcSentinel(Token tok, Int tokInd);
 private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
@@ -520,7 +520,7 @@ void printAssocList(Int listInd, MultiAssocList* ml);
 void printParser(Compiler* cm);
 private void dbgExprFrames(CM);
 private void printLInt(LInt* st);
-void dbgTypeFrames(TExpr* st);
+void dbgTypeFrames(TParse* st);
 void dbgOverloads(Int nameId, CM);
 void dbgScopes(CM);
 void dbgParseFrames(CM);
@@ -652,7 +652,7 @@ clearArena(Arena* a) { //:clearArena
 //}}}
 //{{{ Internal lists
 
-#define DEFINE_INTERNAL_LIST_HEADER(T)\
+#define DECLARE_INTERNAL_LIST(T)\
 typedef struct {\
    Arr(T) c;\
    Int len;\
@@ -664,7 +664,7 @@ private InList##T createInList##T(Int initCap, Arena* a) { \
       .len = 0, .cap = initCap };\
 }
 
-#define DEFINE_INTERNAL_LIST(fieldName, T, aName)         \
+#define DEFINE_INTERNAL_LIST(fieldName, T, aName)           \
    private void pushIn##fieldName(T newItem, Compiler* cm) {\
       if (cm->fieldName.len < cm->fieldName.cap) {\
          memcpy((T*)(cm->fieldName.c) + (cm->fieldName.len), &newItem, sizeof(T));\
@@ -848,9 +848,8 @@ copyMultiAssocList(MultiAssocList* ml, Arena* a) {
 //}}}
 //{{{ Datatypes a la carte
 
-DEFINE_INTERNAL_LIST_HEADER(Int)
-
-DEFINE_INTERNAL_LIST_HEADER(Ulong)
+DECLARE_INTERNAL_LIST(Int)
+DECLARE_INTERNAL_LIST(Ulong)
 
 //}}}
 //{{{ Strings
@@ -1657,7 +1656,15 @@ struct Expr { //:Expr State for parsing expressions
    Bool metAnAllocation; // if we've met an allocation, we need to emit sub-expression nodes
 };
 
-struct TExpr { // :TExpr State for parsing type expressions. Lives in [aTmp]
+typedef struct { //:TypeHeader
+   Unt start;     // index into @types
+   Unt arity : 8; // count of immediate children (struct fields, or function params + return types)
+   Unt len : 24;  // number of nodes in types (not integers, but nodes! type calls are >1 nodes)
+   Unt tyrity : 8;   // count of type parameters
+   Unt concrId : 24; // All 1111's unless tyrity = 0
+} TypeHeader;
+
+struct TParse { // :TParse State for parsing type expressions. Lives in [aTmp]
    LInt* exp;           //  TypeId
    LTypeFrame* frames;
    LInt names;         // Record field names
@@ -1685,13 +1692,12 @@ typedef struct { //:GenericCall
    Int tokenInd;
 } GenericCall;
 
-DEFINE_INTERNAL_LIST_HEADER(Assignment)
-DEFINE_INTERNAL_LIST_HEADER(Var)
-DEFINE_INTERNAL_LIST_HEADER(Function)
-DEFINE_INTERNAL_LIST_HEADER(Token) //:InListToken
-DEFINE_INTERNAL_LIST_HEADER(Node)
-DEFINE_INTERNAL_LIST_HEADER(StructField)
-
+DECLARE_INTERNAL_LIST(Assignment)
+DECLARE_INTERNAL_LIST(Var)
+DECLARE_INTERNAL_LIST(Function)
+DECLARE_INTERNAL_LIST(Token) //:InListToken
+DECLARE_INTERNAL_LIST(Node)
+DECLARE_INTERNAL_LIST(FieldName)
 
 struct Monomorphization { //:Monomorphization
    Int tokenInd;     // points into @tokens - the (generic) tokens. -1 => no codegen
@@ -1701,17 +1707,17 @@ struct Monomorphization { //:Monomorphization
 
 DEFINE_LIST(Monomorphization)
 
-struct Compiler { // :Compiler
+struct Compiler { // :Compiler Private type holding all lexing and parsing state and results
    // LEXING
    String sourceCode;
    InListToken tokens;
    InListToken metas; // TODO - metas with links back into parent span tokens
    InListInt newlines;
    LSourceLoc* sourceLocs;
-   InListInt numeric;          // [aTmp]
+   InListInt numeric;      // [aTmp]
    LBtToken* lexBtrack;    // [aTmp]
    LUnt* names; // Operators, then standard strings, then imported ones, then
-                               // parsed. Contains NameLoc pointing into @sourceCode
+                           // parsed. Contains NameLoc pointing into @sourceCode
 
    LToken* reorderBuf;  // Buffer for reordering tokens for mutation assignments
    StringDict* stringDict;
@@ -1723,7 +1729,7 @@ struct Compiler { // :Compiler
    LParseFrame* parseFrames;   // [aTmp]
    Scopes scopes;              // lists of local variables for keeping track of lexical scopes
    Expr expr;                  // all the contents are in [aTmp]
-   TExpr tExpr;                // all the contents are in [aTmp]
+   TParse tParse;              // all the contents are in [aTmp]
    // For vars, index pointing into @vars.
    // For functions, (-ind - 2), ind points into @overloads. For types, index into @types
    Arr(Int) activeBindings;    // [aTmp]
@@ -1736,9 +1742,11 @@ struct Compiler { // :Compiler
    InListInt publicConsts;       // indices into @vars
    MultiAssocList* rawOverloads; // [aTmp] (NameId => TypeId FunctionId)
    InListInt overloads;
-   InListInt types;
-   StringDict* typesDict;
-   InListStructField genericFields; // fields of sorDeclare types (i.e. not type instantiations)
+   InListInt types;              // sea of nodes, see docs/types.txt
+   InListInt fieldTypes;         // (len)[types of fields/fn params/return types]
+   InListTypeHeader typeHeaders;
+   StringDict* typesDict;    
+   InListFieldName fieldNames; // fields of sorDeclare types (i.e. not type instantiations)
                                     // type instantiations have their own lists of types of fields
                                     // but not their names - the names are defined once per generic
                                     // type and kept here.
@@ -1764,7 +1772,7 @@ DEFINE_INTERNAL_LIST(toplevels, Int, a) //:pushIntoplevels
 DEFINE_INTERNAL_LIST(vars, Var, a) //:pushInentities
 DEFINE_INTERNAL_LIST(functions, Function, a) //:pushInfunctions
 DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
-DEFINE_INTERNAL_LIST(genericFields, StructField, a) //:pushIngenericFields
+DEFINE_INTERNAL_LIST(fieldNames, FieldName, a) //:pushInfieldNames
 
 // the following constants for TypeFrame must not clash with the "sor" constants
 // Type expression data format: First element is the tag (one of the following
@@ -4817,7 +4825,7 @@ eWriteCallToScratch(ExprFrame frame, Expr* e) {
 
 private void //:reorderStructFindUnspecifiedKeys
 reorderStructFindUnspecifiedKeys(
-   Arr(Int) reorderKeys, Int fieldCount, Arr(StructField) fields, Int structName, CM
+   Arr(Int) reorderKeys, Int fieldCount, Arr(FieldName) fields, Int structName, CM
 ) {
    for (Int j = 0; j < fieldCount; j += 2) {
       if (reorderKeys[j] == -1) {
@@ -4845,8 +4853,8 @@ reorderStructInitBuffers(Int fieldCount, Int nodeCount, Expr* restrict e, Arena*
    e->reorderBuf.len = 0;
 }
 
-private Int //:binarySearchStructField
-binarySearchStructField(Int needle, Arr(StructField) haystack, Int len) {
+private Int //:binarySearchFieldName
+binarySearchFieldName(Int needle, Arr(FieldName) haystack, Int len) {
    if (len < 1)
       { return -1; }
 
@@ -4875,7 +4883,7 @@ binarySearchStructField(Int needle, Arr(StructField) haystack, Int len) {
 
 private void //:reorderStructLocateKeys
 reorderStructLocateKeys(
-   ExprFrame frame, Int sentNode, Arr(StructField) fields, Int fieldCount, CM
+   ExprFrame frame, Int sentNode, Arr(FieldName) fields, Int fieldCount, CM
 ) { // Finds where each struct key is located in @e.scr and validates key completeness
    Int fieldsFound = 0;
    Arr(Int) reorderKeys = cm->expr.reorderKeys.c;
@@ -4884,7 +4892,7 @@ reorderStructLocateKeys(
    }
    for (Int j = frame.startNode + 1; j < sentNode;) {
       Node fieldNd = cm->expr.scr.c[j];
-      Int fieldInd = binarySearchStructField(fieldNd.pl1, fields, fieldCount);
+      Int fieldInd = binarySearchFieldName(fieldNd.pl1, fields, fieldCount);
       VALIDATEP(fieldInd > -1, pError(errTypeFieldNotFound, nameErr2(fieldNd.pl1, frame.name)));
 
       Int sentinel = calcNodeSentinel(fieldNd, j);
@@ -4928,7 +4936,7 @@ reorderStruct(ExprFrame frame, Expr* restrict e, CM) {
    reorderStructInitBuffers(fieldCount, nodeCount, e, cm->aTmp);
 
    Int startField = t.v + TYPE_PREFIX + hdr.arity;
-   Arr(StructField) fields = cm->genericFields.c + startField;
+   Arr(FieldName) fields = cm->genericFields.c + startField;
    
    reorderStructLocateKeys(frame, cm->i, fields, fieldCount, cm);
    reorderStructMoveNodes(frame.startNode, e);
@@ -5822,8 +5830,8 @@ buildPreludeTypes(CM) {
    pushIntypes(tokInt, cm);
    pushIntypes(cm->genericFields.len, cm);
    pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
-   pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
-   pushIngenericFields(((StructField){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
+   pushInfieldNames(((FieldName){.name = -1, .access = accessPrivImm}), cm);
+   pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
 
    cm->activeBindings[name] = typeIndA;
    cm->stats.arrayType = typeIndA;
@@ -5841,9 +5849,9 @@ buildPreludeTypes(CM) {
    pushIntypes(tokInt, cm);
    pushIntypes(cm->genericFields.len, cm);
    pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
-   pushIngenericFields(((StructField){.name = -1, .access = accessPrivImm}), cm);
-   pushIngenericFields(((StructField){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
-   pushIngenericFields(((StructField){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
+   pushInfieldNames(((FieldName){.name = -1, .access = accessPrivImm}), cm);
+   pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
+   pushIngenericFields(((FieldName){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
    cm->activeBindings[name] = typeIndL;
    cm->stats.listType = typeIndL;
    // no need to merge the types as they are surely unique
@@ -6112,9 +6120,13 @@ initializeParser(Compiler* lx, Arena* a) {
    memcpy(cm->types.c, PROTO.types.c, PROTO.types.len*4);
    cm->types.len = PROTO.types.len;
 
-   cm->genericFields = createInListStructField(PROTO.genericFields.len, a);
-   memcpy(cm->genericFields.c, PROTO.genericFields.c, PROTO.genericFields.len*sizeof(StructField));
-   cm->genericFields.len = PROTO.genericFields.len;
+   cm->fieldNames = createInListFieldName(PROTO.fieldNames.len, a);
+   memcpy(cm->fieldNames.c, PROTO.fieldNames.c, PROTO.fieldNames.len*sizeof(FieldName));
+   cm->fieldNames.len = PROTO.fieldNames.len;
+   
+   cm->fieldTypes = createInListInt(PROTO.fieldTypes.len, a);
+   memcpy(cm->fieldTypes.c, PROTO.fieldTypes.c, PROTO.fieldTypes.len*4);
+   cm->fieldTypes.len = PROTO.fieldTypes.len;
 
    cm->typesDict = copyStringDict(PROTO.typesDict, a);
 
@@ -6122,7 +6134,7 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->toplevels = createInListInt(8, lx->a);
    cm->monos = createLMonomorphization(16, lx->a);
 
-   cm->tExpr = (TExpr) {
+   cm->tParse = (TParse) {
       .exp = createLInt(16, cm->aTmp),
       .frames = createLTypeFrame(16, cm->aTmp),
       .names = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
@@ -6552,7 +6564,7 @@ typeAddHeader(TypeHeader hdr, CM) {
 }
 
 private void //:typeExpAddHeader
-typeExpAddHeader(TypeHeader hdr, TExpr* te) {
+typeExpAddHeader(TypeHeader hdr, TParse* te) {
 // Writes the bytes for the type header to the tail of the cm->types table.
 // Adds one 4-byte element
    add((Int)((Unt)((Unt)hdr.sort << 16) + ((Unt)hdr.arity << 8)), te->exp);
@@ -6598,8 +6610,8 @@ libeyr_sizeOfType(TypeId t, Arr(Int) types) {
 
 }
 
-Int //:libeyr_getStructFieldInd
-libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types) {
+Int //:libeyr_getFieldNameInd
+libeyr_getFieldNameInd(TypeId t, TypeHeader hdr, Arr(Int) types) {
    return types[t.v + TYPE_PREFIX + hdr.arity];
 }
 
@@ -6771,13 +6783,13 @@ typeGetTypeByName(Int t, CM) {
 //{{{ Type expressions
 
 private void //:tFreshState
-tFreshState(TExpr* te) {
+tFreshState(TParse* te) {
    te->frames->len = 0;
    te->exp->len = 0;
 }
 
 private void //:teClose
-teClose(TExpr* te, CM) {
+teClose(TParse* te, CM) {
 // Flushes the finished subexpr frames from the top of the type stack.
    LInt* exp = te->exp;
    LTypeFrame* frames = te->frames;
@@ -6800,7 +6812,7 @@ teClose(TExpr* te, CM) {
 }
 
 private TypeId //:tParseComplexType
-tParseComplexType(TExpr* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
+tParseComplexType(TParse* te, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 // Precondition: we are looking at the first tokType (`L` in this example),
 // while the first one has been added as a type call.
    LInt* exp = te->exp;
@@ -6844,7 +6856,7 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar,
       pError0(errTypeDefError)
    )
-   TExpr* te = &(cm->tExpr);
+   TParse* te = &(cm->tParse);
    if (cm->i + 1 == sentinel) { // single-name type
       if (firstTypeTk.tp == tokType)  {
          TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
@@ -6859,7 +6871,7 @@ tParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 }
 
 private Int //:tSubexValidateNamesUnique
-tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
+tSubexValidateNamesUnique(TParse* te, Int start, CM) {
 // Validates that the names in a record are unique.
 // Returns function/record's arity
    Int const end = te->names.len;
@@ -6889,7 +6901,7 @@ tSubexValidateNamesUnique(TExpr* te, Int start, CM) {
 
 /*
 private TypeId //:typeCreateRecord
-typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
+typeCreateRecord(TParse* st, Int startInd, Unt nameAndLen, CM) {
 // Creates/merges a new record type from a sequence of pairs in @exp and a list of type params
 // in @params. The sequence must be flat, i.e. not include any nested structs, and be in the
 // final position of @exp. "nameAndLen" may be -1 if it's an anonymous record.
@@ -6929,7 +6941,7 @@ typeCreateRecord(TExpr* st, Int startInd, Unt nameAndLen, CM) {
 */
 
 private TypeId //:tCreateTypeCall
-tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
+tCreateTypeCall(TParse* te, Byte sort, Int startInd, TypeFrame frame, CM) {
 // Creates/merges a new type call from a sequence of types in @exp
 // Handles ordinary type calls like `[L Int]`, NOT function types. Returns the new type's id
    TypeId genericId = frame.id;
@@ -6961,7 +6973,7 @@ tCreateTypeCall(TExpr* te, Byte sort, Int startInd, TypeFrame frame, CM) {
 
 
 private Int //:teMergeParam
-teMergeParam(NameId name, TExpr* restrict te, CM) {
+teMergeParam(NameId name, TParse* restrict te, CM) {
    for (Int j = te->frames->len; j > -1 && !te->frames->c[j].isGeneric; j--) {
       te->frames->c[j].isGeneric = true;
    }
@@ -6975,7 +6987,7 @@ teMergeParam(NameId name, TExpr* restrict te, CM) {
 }
 
 private TypeId //:tCreateFnTypeCall
-tCreateFnTypeCall(TExpr* te, Int startInd, TypeFrame frame, CM) {
+tCreateFnTypeCall(TParse* te, Int startInd, TypeFrame frame, CM) {
 // Creates an `F[A B -> C]` type
    TYPE_DEFINE_EXP;
 
@@ -7022,7 +7034,7 @@ tCreateSingleParamTypeCall(NameId nameOfOuter, TypeId typeArg, CM) {
 #define maxTypeParams 254
 
 private void //:teOpenTypeCall
-teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
+teOpenTypeCall(NameId typeName, Int sentinel, TParse* te, CM) {
 // Adds a new type call to @exp during type expression parsing
    if (typeName == nameOfStd(strF)) { // F ...
       add(((TypeFrame){
@@ -7043,7 +7055,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 }
 
 //~private TypeId //:teClauseComplexType
-//~teClauseComplexType(TExpr* te, Int sentinel, TOKENS, CM) {
+//~teClauseComplexType(TParse* te, Int sentinel, TOKENS, CM) {
 // For a clause like `lst L Double`, parses the `L Double` part.
 // Precondition: we are looking JUST PAST the first type token (`Double` in this example),
 // while the first one has been added as a type call.
@@ -7091,7 +7103,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, TExpr* te, CM) {
 //~}
 //~
 //~private TypeId //:teClause
-//~teClause(TExpr* te, Int sentinel, TOKENS, CM) {
+//~teClause(TParse* te, Int sentinel, TOKENS, CM) {
 // Parses `lst S Double`.
 // Precondition: we are looking at the name token (e.g. `lst`).
 // @te.frames, @te.exp etc must be empty. Produces a linear, RPN sequence.
@@ -7113,7 +7125,7 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
 
    d("struct def")
    printName(name, cm);
-   TExpr* te = &(cm->tExpr);
+   TParse* te = &(cm->tParse);
    
    TypeHeader hdr = (TypeHeader){ .sort = sorDeclare, .arity = 0, // will fill in at end of function
          .name = name, .isGeneric = false, .size = 0 };
@@ -7126,7 +7138,7 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
       Token tk = tokens[j];
       VALIDATEP(tk.tp == tokKey, pError0(errTypeStructDefinition))
       Int keyName = tk.pl1;
-      pushIngenericFields(((StructField){
+      pushIngenericFields(((FieldName){
             .name = keyName, .access = tk.pl2 > 0 ? accessPubMut : accessPubImm
          }),
          cm
@@ -7174,7 +7186,7 @@ pTypeDef(Int sentinel, TOKENS, CM) {
 // Data format: see "Type expression data format"
 // Precondition: we are 1 past the tokAssignmentRight token
    VALIDATEP(tokens[cm->i + 1].tp == tokAssignRight, pError0(errAssignmentLeftSide))
-   cm->tExpr.frames->len = 0;
+   cm->tParse.frames->len = 0;
 
    Token nameTk = tokens[cm->i];
    Int name = nameTk.pl1;
@@ -7198,12 +7210,12 @@ tGenericTryUnifyTreeNodes(TypeId gener, TypeId concr,
       LTypeLoc* genericWalk, LTypeLoc* concreteWalk, CM
 ) {
 // Unification of a single node pair in the type trees. Possibly pushes TypeLocs to the stacks,
-// or sets param values in @tExpr.params
+// or sets param values in @tParse.params
 
    if (eq(gener, concr))
       { return; }
    if (gener.v < -1) {
-      LInt* tParams = &(cm->tExpr.tParams);
+      LInt* tParams = &(cm->tParse.tParams);
       NameId nameParam = -gener.v - 1;
       for (Int j = 0; j < tParams->len; j += 2) {
          if (tParams->c[j] == nameParam) {
@@ -7259,7 +7271,7 @@ tGenericUnify(TypeLoc generic, TypeLoc concrete, CM) {
 // Returns: @te.tParams with type parameters fully resolved: [(name type)]
 // Precondition: for both "generic" and "concrete", sentinel - currPos must be same length
 // Throws if not types not unifiable
-   TExpr* restrict te = &(cm->tExpr);
+   TParse* restrict te = &(cm->tParse);
    te->genericWalk->len = 0;
    te->concreteWalk->len = 0;
    te->tParams.len = 0;
@@ -7285,48 +7297,7 @@ tGenericUnify(TypeLoc generic, TypeLoc concrete, CM) {
    return te->tParams;
 }
 
-//~TypeId //:tGenericTryUnifyFunctionTypes
-//~tGenericTryUnifyFunctionTypes(TypeId generic, TypeHeader genericHdr,
-//~      TypeId concrete, TypeHeader concreteHdr, CM) {
-//~// Type tree walkin' to determine and validate type parameters' values.
-//~// Since we're unifying a generic function with its arguments, we have only the arg types,
-//~// so don't have anything to unify for the return type.
-//~// Returns: the concrete return type of a resolved generic function call.
-//~   VALIDATEP(genericHdr.arity == concreteHdr.arity + 1,
-//~      pError(errTypeGenericCallDoesntUnify, numberErr2(genericHdr.arity, concreteHdr.arity + 1))
-//~   )
-//~   Int arity = genericHdr.arity;
-//~   Int genericSent = generic.v + TYPE_PREFIX + arity - 1; //-1 to exclude fn return type
-//~   Int concreteSent = concrete.v + TYPE_PREFIX + arity; // already not a full fn type => no -1
-//~   TExpr* restrict te = cm->tExpr;
-//~   te->genericWalk->len = 0;
-//~   te->concreteWalk->len = 0;
-//~   te->tParams->len = 0;
-//~
-//~   add(((TypeLoc){.currPos = tGetBodyStart(generic, genericHdr), .sentinel = genericSent}),
-//~      te->genericWalk);
-//~   add(((TypeLoc){.currPos = tGetBodyStart(concrete, concreteHdr), .sentinel = concreteSent}),
-//~      te->concreteWalk);
-//~   for (; te->genericWalk->len > 0 && te->concreteWalk->len > 0; ) {
-//~      TypeLoc* genericLoc = &last(te->genericWalk);
-//~      TypeLoc* concreteLoc = &last(te->concreteWalk);
-//~      TypeId g = { .v = cm->types.c[genericLoc->currPos] };
-//~      TypeId c = { .v = cm->types.c[concreteLoc->currPos] };
-//~
-//~      // next step in the tree-walk
-//~      genericLoc->currPos++;
-//~      concreteLoc->currPos++;
-//~      if (genericLoc->currPos == genericLoc->sentinel) {
-//~         te->genericWalk->len--;
-//~         te->concreteWalk->len--;
-//~      }
-//~
-//~      tGenericTryUnifyTreeNodes(g, c, te->genericWalk, te->concreteWalk, cm);
-//~   }
-//~   return tGenericSubstituteParams(tFunctionReturnType(generic, cm), cm);
-//~}
-
-private TypeId
+private TypeId //:monomorphizeStruct
 monomorphizeStruct(
    TypeId generic, TypeHeader genericHdr, LInt fieldTypes, LInt resolvedParams, CM
 ) {
@@ -7334,7 +7305,7 @@ monomorphizeStruct(
    Int const fieldCount = genericHdr.arity;
    ensureCapacityTypes(fieldCount + TYPE_PREFIX + 1 + resolvedParams.len, cm);
    
-   Int genericFieldInd = libeyr_getStructFieldInd(generic, genericHdr, cm->types.c);
+   Int genericFieldInd = libeyr_getFieldNameInd(generic, genericHdr, cm->types.c);
    
    TypeHeader monoHdr = (TypeHeader){ .sort = sorTypeCall, .arity = fieldCount,
       .name = genericHdr.name, .isGeneric = false, .size = 0 };
@@ -7811,7 +7782,7 @@ typeTryGetField(NameId fieldName, TypeId t, OUT Int* fieldInd, CM) {
 // (within the type, so 0-based), and its type.
    TypeHeader hdr = typeReadHeader(t, cm);
 
-   Int const indInGenericFields = libeyr_getStructFieldInd(t, hdr, cm->types.c);
+   Int const indInGenericFields = libeyr_getFieldNameInd(t, hdr, cm->types.c);
    Int j = indInGenericFields;
    for (; j < indInGenericFields + hdr.arity; j++) {
       if (cm->genericFields.c[j].name == fieldName)
@@ -7837,7 +7808,7 @@ tGenericSubstituteParams(TypeId t, LInt resolvedParams, CM) {
    TypeHeader hdr = typeReadHeader(t, cm);
    if (!hdr.isGeneric)
       { return t; }
-   TExpr* te = &(cm->tExpr);
+   TParse* te = &(cm->tParse);
    te->tmp->len = 0;  // used to store start inds of type subexpressions
 
    Int arity = hdr.arity;
@@ -8383,7 +8354,7 @@ dbgParseFrames(CM) {
 
 
 void
-dbgTypeFrames(TExpr* te) { //:dbgTypeFrames
+dbgTypeFrames(TParse* te) { //:dbgTypeFrames
    LTypeFrame* frames = te->frames;
    d(">>> Type frames cnt %d", frames->len);
    for (Int j = 0; j < frames->len; j++) {
@@ -8595,7 +8566,8 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
       .names = createLUnt(16, a), .stringDict = createStringDict(128, a),
       .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
       .rawOverloads = createMultiAssocList(a),
-      .genericFields = createInListStructField(16, a),
+      .fieldNames = createInListFieldName(16, a),
+      .fieldTypes = createInListInt(16, a),
       .stats = (CompStats) {
          .standardTextLen = sizeof(standardText) - 1,
          .firstParsedName = (strSentinel + countOperators),

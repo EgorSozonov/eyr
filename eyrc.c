@@ -828,7 +828,6 @@ registerCompositeTypes(CG) {
    LCgTypePtr* buffer = createLCgTypePtr(16, cg->a);
    CompResult* cr = &(cg->compResult);
    for (Int j = outerTypeForTypeParam + 1; j < cr->types.len; j += (cr->types.c[j] + 1)) {
-
       TypeHeader hdr = libeyr_readTypeHeader(typeOf(j), cr->types.c);
       if (hdr.isGeneric)
          { continue; }
