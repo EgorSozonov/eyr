@@ -247,9 +247,30 @@ struct Node { // :Node
    Int pl2;
 };
 
-typedef struct { //:TypeId
+typedef struct { //:TypeId Index into @typeHeaders
     Int v;
 } TypeId;
+
+
+typedef struct { //:TypeHeader
+   Unt start;     // index into @types
+   Unt arity : 8; // count of immediate children (struct fields, or function params + return types)
+   Unt len : 24;  // number of nodes in types (not integers, but nodes! type calls are >1 nodes)
+   Unt tyrity : 8;   // count of type parameters
+   Unt concrId : 24; // All 1111's unless tyrity = 0
+} TypeHeader;
+
+#define sorFn      1
+#define sorStruct  2
+#define sorSumType 3
+
+typedef struct { //:ConcrType All primitive types, concrete structs and monomorphic function types
+   NameId name;     // Struct/sum type name, or "F" for functions
+   Byte sort;       // "sor" constants above
+   TypeId typeExpr; // points to a type like `[Foo Int Str]` where `Foo` is a generic struct
+   TypeId body;     // points to the list of types comprising the body (i.e. fields for a struct,
+                    // or params and return for a function, variant types for a sum type)
+} ConcrType;
 
 #define accessPrivImm   1 // private, which for abstract classes means "protected"
 #define accessPrivMut   2
@@ -259,7 +280,7 @@ typedef struct { //:TypeId
 
 struct Var { //:Var Local variable inside function
    TypeId typeId;
-   NameId name;  // if negative, then it's a nameless local & refers to @cg.local via (-x - 1)
+   NameId name;  // if negative, then it's a nameless local
    Byte access;  // the "access" constants above
    Int fnId;     // only for aliases to functions, otherwise -1
 };
@@ -309,7 +330,7 @@ struct Function { //:Function Parsed or built-in function
    NameId name;
    Int tokenInd;   // Index into @tokens
    Int nodeInd;    // Index into @ast
-   Int genericInd; // index into @monos (get full mono type & code from arg types)
+   Int genericInd; // index into @functionMonos (get full mono type & code from arg types)
    Emit emit;
    Byte access;    // the "access" constants
    Bool needsMangling; // do we need to add "_123" to this function's name when generating code?
@@ -388,18 +409,6 @@ struct FieldName { //:FieldName Struct field names + access are in a separate ta
 #define countOperators     36 // sentinel
 
 //}}}
-
-#define sorDeclare         1 // Used for definitions of records and sum types, both generic and not
-#define sorTypeCall        2 // A reference to a generic type. May be generic itself (when
-                             // not all generic params are filled in)
-#define sorMaxType         sorTypeCall
-
-typedef struct { //:ConcrType All primitive types, concrete structs and monomorphic function types
-   NameId name;
-   TypeId t;
-} ConcrType;
-
-#define TYPE_PREFIX 4 // ceil((sizeof TypeHeader)/4) + 1. Length (in ints) of the prefix in type repr
 
 #define typeOf(x) (TypeId){.v = x}
 
