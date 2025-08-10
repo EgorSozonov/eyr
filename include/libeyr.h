@@ -203,7 +203,7 @@ libeyr_String str(const char* content);
                            // if pl2 > 0 and pl3 > 0, then it has fully specified contents.
 #define nodStruct      12  // Struct init.
                            // pl1 = name before typecheck, concrete typeId after. pl2 = field count
-                           // Iff pl3 == 1, it's a field (temporary, during expression parsing) 
+                           // Iff pl3 == 1, it's a field (temporary, during expression parsing)
                            // and pl1 = name of field
 #define nodAssert      13  // pl1 = 1 iff it's a debug assert
 #define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
@@ -258,6 +258,7 @@ typedef struct { //:TypeHeader
    Unt len : 24;  // number of nodes in types (not integers, but nodes! type calls are >1 nodes)
    Unt tyrity : 8;   // count of type parameters
    Unt concrId : 24; // All 1111's unless tyrity = 0
+   Int nameId; // set only for type declarations, -1 for type calls like `[Foo Int]`
 } TypeHeader;
 
 #define sorFn      1
@@ -338,7 +339,7 @@ struct Function { //:Function Parsed or built-in function
 
 struct FieldName { //:FieldName Struct field names + access are in a separate table,
    NameId name;    // while their types are in @types (to support various instantiations of a
-   Byte access;    // single generic struct). Also used for functions with > 3 params, for 
+   Byte access;    // single generic struct). Also used for functions with > 3 params, for
                    // param names
 };
 

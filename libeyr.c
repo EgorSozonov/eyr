@@ -411,7 +411,7 @@ PARSE_TABLE[countSyntaxForms] = {
 //}}}
 //{{{ Forward decls & generics
 
-#define BIG 70000000
+#define BIG 67'108'864 // 2^26
 DECLARE_LIST(Token)
 DECLARE_LIST(BtToken)
 DECLARE_LIST(ParseFrame)
@@ -1558,6 +1558,7 @@ DEFINE_LIST(ParseFrame) //:createLParseFrame
 struct TypeFrame {   // :TypeFrame
    Byte tp;          // "tfr" constants
    Bool isGeneric;   // Have we encountered any type params here?
+   Int typeStart;    // Starting index in @ts.exp
    Int sentinel;     // token id sentinel
    Int countArgs;    // accumulated number of type arguments
    TypeId id;        // For types, TypeId. For type params, their id within the params list
@@ -1623,6 +1624,8 @@ struct ScopeChunk { //:ScopeChunk
    Int c[SCOPE_CHUNK_SZ];
 };
 
+#define nameF (strF + countOperators)
+
 // A scope contains: an int index (searchable in the Scopes data structure) followed by a list of
 // names of bindings introduced in this scope. All of that is packed in a linked list of integer
 // arrays in the [aTmp] arena
@@ -1647,10 +1650,10 @@ DEFINE_LIST(Function)
 struct Expr { //:Expr State for parsing expressions
    LInt* exp;            // For assignments with complex left sides
    LExprFrame* frames;
-   LNode scr;           // "Scratch". Draft nodes written to during expression parsing
-   LChInterval locsScr; // SourceLocs for @scr
-   LInt reorderKeys;    // (start end) which point into @scr. Used in struct reordering [aTmp]
-   LNode reorderBuf;    // Reordering buffer for @scr used for struct reordering        [aTmp]
+   LNode scr;            // "Scratch". Draft nodes written to during expression parsing
+   LChInterval locsScr;  // SourceLocs for @scr
+   LInt reorderKeys;     // (start end) which point into @scr. Used in struct reordering [aTmp]
+   LNode reorderBuf;     // Reordering buffer for @scr used for struct reordering        [aTmp]
    Bool metAnAllocation; // if we've met an allocation, we need to emit sub-expression nodes
 };
 
@@ -1658,12 +1661,10 @@ struct TStuff { // :TStuff State for parsing types & type expressions. Lives in 
    LInt* exp;          //  TypeId
    LTypeFrame* frames;
    LInt names;         // Record field names
-   LInt paramNames;    // Unique type param names
-   LInt tParams;       // Unique type params of a type expression. [(nameId typeId)]
-                       // Used in generic call resolution
-   LInt* tmp;           // Used in name uniqueness validation, and generic param substitution
-   LTypeLoc* genericWalk; // Type location stack, used for type tree traversal
-   LTypeLoc* concreteWalk;
+   LInt params;        // Unique type param names
+   LInt* tmp;          // Used in name uniqueness validation, and generic param substitution
+   LTypeLoc* genericWalk;  // Type location stack within a generic type, used for unification
+   LTypeLoc* concreteWalk; // Type location stack within a concrete type, used for unification
 };
 
 typedef struct { //:Assignment
@@ -1732,14 +1733,14 @@ struct Compiler { // :Compiler Private type holding all lexing and parsing state
    InListInt publicConsts;       // indices into @vars
    MultiAssocList* rawOverloads; // [aTmp] (NameId => TypeId FunctionId)
    InListInt overloads;
-   InListInt types;              // sea of nodes, see docs/types.txt
+   InListUnt types;              // sea of nodes, see docs/types.txt
    InListTypeHeader typeHeaders;
-   StringDict* typesDict;    
+   StringDict* typesDict;
    InListFieldName fieldNames; // fields of sorDeclare types (i.e. not type instantiations)
                                // type instantiations have their own lists of types of fields
                                // but not their names - the names are defined once per generic
                                // type and kept here.
-   SliUnt concreteFields; 
+   SliUnt concreteFields;
    LInt* monos; // Ids in @functions of monomorphizations of generic functions
 
    // GENERAL STATE
@@ -2820,7 +2821,7 @@ wordNormal(
          .startBt = realStartBt, .lenBts = lenBts };
    if (wordType == tokWord && wasCapitalized) { // a type name
       if (lenBts == 1 && lx->i < lx->stats.inpLength && CURR_BT == aBracketLeft // `F[...]`
-         && uniqueStringId == nameOfStd(strF)
+         && uniqueStringId == nameF
       ) {
          add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}),
                lx->lexBtrack
@@ -3008,7 +3009,7 @@ lConvertToAssignment(Int const opType, LX) {
    VALIDATEL(currSpan.tp == tokStmt, lexError(errOperatorAssignmentPunct));
    Int const assignmentStartInd = currSpan.tokenInd;
    Token* tok = (lx->tokens.c + assignmentStartInd);
-   
+
    tok->tp = tokAssignment;
    lx->lexBtrack->c[lx->lexBtrack->len - 1].tp = tokAssignment;
    if (lx->tokens.c[assignmentStartInd + 1].tp == tokType){
@@ -3279,7 +3280,7 @@ lexParenLeft(SRC, LX) { //:lexParenLeft
 
 private Bool //:lexIsFnType
 lexIsFnType(BtToken bt, LX) {
-   return lx->tokens.c[bt.tokenInd].pl1 == nameOfStd(strF);
+   return lx->tokens.c[bt.tokenInd].pl1 == nameF;
 }
 
 private void //:lexParenRight
@@ -3448,7 +3449,7 @@ lMaybeOpenFnType(SRC, LX) {
       { return false; }
 
    add(((BtToken){ .tp = tokType, .tokenInd = lx->tokens.len, .spanLevel = slFnTp}), lx->lexBtrack);
-   pushIntokens((Token){ .tp = tokType, .pl1 = nameOfStd(strF), .startBt = lx->i }, lx);
+   pushIntokens((Token){ .tp = tokType, .pl1 = nameF, .startBt = lx->i }, lx);
    return true;
 }
 
@@ -4211,7 +4212,7 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
    TypeId leftType = tParse(sentinel, OUT &isGeneric, tokens, cm);
    VALIDATEP(!isGeneric, pError(errTypePolymorphicAssignment, typeErr(leftType)))
 
-   if (nextTk.pl1 == nameOfStd(strF)) {
+   if (nextTk.pl1 == nameF) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
       *isAFnVar = true;
       cm->i = assignment.sentinel; // CONSUME the whole assignment
@@ -4911,10 +4912,10 @@ reorderStruct(ExprFrame frame, Expr* restrict e, CM) {
 
    Int startField = t.v + TYPE_PREFIX + hdr.arity;
    Arr(FieldName) fields = cm->genericFields.c + startField;
-   
+
    reorderStructLocateKeys(frame, cm->i, fields, fieldCount, cm);
    reorderStructMoveNodes(frame.startNode, e);
-   
+
    add(((Node){.tp = nodStruct, .pl1 = frame.name, .pl2 = fieldCount}), &(e->scr));
    add(frame.chi, &(e->locsScr));
 }
@@ -5488,10 +5489,10 @@ pReturn(Token tok, Int sentinel, TOKENS, CM) {
 
    Token rTk = tokens[cm->i];
    ChInterval loc = {.startBt = rTk.startBt, .lenBts = tok.lenBts - rTk.startBt + tok.startBt};
-   
+
    TypeId const exprTy = exprHeadless(sentinel, loc, tokens, cm);
    VALIDATEP(exprTy.v > -1, pError0(errReturn))
-   
+
    TypeId const returnType = tFunctionReturnType(fnTy, cm);
    VALIDATEP(eq(returnType, exprTy),
       pError(errTypeWrongReturnType, typeErr2(returnType, exprTy))
@@ -5711,7 +5712,7 @@ addConcrFnType(Int arity, Arr(Int) paramsAndReturn, CM) {
    pushIntypes(TYPE_PREFIX + arity, cm);
    typeAddHeader(
       (TypeHeader){ .sort = sorDeclare, .arity = arity + 1,
-         .name = nameOfStd(strF), .isGeneric = false, .size = 8 },
+         .name = nameF, .isGeneric = false, .size = 8 },
       cm
    );
    for (Int k = 0; k <= arity; k++) { // <= because there are (arity + 1) elts - the return type!
@@ -5735,7 +5736,7 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    TypeId tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .arity = 2, .name = nameOfStd(strF),
+      ((TypeHeader){ .sort = sorTypeCall, .arity = 2, .name = nameF,
          .isGeneric = true, .size = 8 }),
       cm
    );
@@ -5748,7 +5749,7 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 1, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .arity = 2, .name = nameOfStd(strF),
+      ((TypeHeader){ .sort = sorTypeCall, .arity = 2, .name = nameF,
          .isGeneric = true, .size = 8 }),
          cm
    );
@@ -5760,7 +5761,7 @@ importGenericTypesForLists(OUT TypeId* arrayLength, OUT TypeId* listLength, OUT 
    tentativeType = typeOf(cm->types.len);
    pushIntypes(TYPE_PREFIX + 2, cm);
    typeAddHeader(
-      ((TypeHeader){ .sort = sorTypeCall, .arity = 3, .name = nameOfStd(strF),
+      ((TypeHeader){ .sort = sorTypeCall, .arity = 3, .name = nameF,
          .isGeneric = true, .size = 8 }),
          cm
    );
@@ -6092,14 +6093,14 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->functions.cap = PROTO.functions.cap;
 
    cm->types.cap = PROTO.types.cap*2;
-   cm->types.c = allocateArray(cm->types.cap, Int, a);
+   cm->types.c = allocateArray(cm->types.cap, Unt, a);
    memcpy(cm->types.c, PROTO.types.c, PROTO.types.len*4);
    cm->types.len = PROTO.types.len;
 
    cm->fieldNames = createInListFieldName(PROTO.fieldNames.len, a);
    memcpy(cm->fieldNames.c, PROTO.fieldNames.c, PROTO.fieldNames.len*sizeof(FieldName));
    cm->fieldNames.len = PROTO.fieldNames.len;
-   
+
    cm->fieldTypes = createInListInt(PROTO.fieldTypes.len, a);
    memcpy(cm->fieldTypes.c, PROTO.fieldTypes.c, PROTO.fieldTypes.len*4);
    cm->fieldTypes.len = PROTO.fieldTypes.len;
@@ -6580,7 +6581,7 @@ libeyr_getFieldNameInd(TypeId t, TypeHeader hdr, Arr(Int) types) {
 TypeId //:libeyr_typeGetGenericArg
 libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int indArg, Arr(Int) types) {
 // (S Foo) => Foo. (F A -> B) => A
-   if (hdr.name == nameOfStd(strF)) {
+   if (hdr.name == nameF) {
       if (hdr.arity == 1) {
          return typeOf(tokMisc); // void type
       } else {
@@ -6605,7 +6606,7 @@ typeGetOuter(TypeId t, CM) {
    if (t.v <= topVerbatimType)
       { return t; }
    TypeHeader hdr = typeReadHeader(t, cm);
-   if (hdr.name == nameOfStd(strF) || hdr.sort == sorDeclare)
+   if (hdr.name == nameF || hdr.sort == sorDeclare)
       { return t; }
    else { // sorTypeCall which is a struct or union
       // need to skip the prefix, field types, and the index in @genericFields
@@ -6618,9 +6619,9 @@ private TypeId //:tGetIndexOfFnFirstParam
 tGetIndexOfFnFirstParam(TypeId fnType, CM) {
 #ifdef DEBUG //{{{
    NameId name = typeReadHeader(fnType, cm).name;
-   if (name != nameOfStd(strF))
+   if (name != nameF)
       { d("A function is not a function! TypeId = %d", fnType); }
-   VALIDATEI(name == nameOfStd(strF), ierrNotAFunction);
+   VALIDATEI(name == nameF, ierrNotAFunction);
 #endif //}}}
    return typeOf(fnType.v + TYPE_PREFIX);
 }
@@ -6631,7 +6632,7 @@ tIsFunction(TypeId t, CM) {
    if (t.v < topVerbatimType)
       { return -1; }
    TypeHeader hdr = typeReadHeader(t, cm);
-   return (hdr.name == nameOfStd(strF)) ? (hdr.arity - 1) : -1;
+   return (hdr.name == nameF) ? (hdr.arity - 1) : -1;
 }
 
 private Bool //:tIsList
@@ -6642,7 +6643,7 @@ tIsList(TypeId t, CM) {
 
 private Int //:tGetBodyStart
 tGetBodyStart(TypeId t, TypeHeader hdr) {
-   if (hdr.name == nameOfStd(strF)) {
+   if (hdr.name == nameF) {
       return t.v + TYPE_PREFIX; // even in struct defs, fields are the body
    } else { // structs or struct type calls, need to skip the fields and field ind
       return t.v + TYPE_PREFIX + hdr.arity + 1 + (hdr.sort == sorTypeCall ? 1 : 0);
@@ -6683,7 +6684,7 @@ printType(TypeId typeId, PrintableCompiler prc) {
             top->currPos = tGetBodyStart(typeOf(top->currPos), currHdr);
             atHeader = false;
 
-            if (currHdr.name == nameOfStd(strF)) {
+            if (currHdr.name == nameF) {
                printf("F[");
             } else {
                printf("[");
@@ -6760,9 +6761,16 @@ teClose(TStuff* ts, CM) {
       Int startInd = exp->len - frame.countArgs;
       TypeId newType = ZERO_ARITY_TYPE;
 
+      Int typeLen = exp->len - frame.typeStart;
+      exp->c[frame.typeStart + 1] += typeLen;
+
       if (frame.tp == tfrFunction)  {
          newType = tCreateFnTypeCall(ts, startInd, frame, cm);
+         exp->c[frame.typeStart + 1]
       } ei (frame.tp == tfrTypeCall) {
+         // need to validate tyrity
+         //
+
          newType = tCreateTypeCall(ts, sorTypeCall, startInd, frame, cm);
       } else { // tyeParamCall, a call of a type which is a parameter
          // TODO higher-kinded types
@@ -6775,8 +6783,8 @@ teClose(TStuff* ts, CM) {
 
 private TypeId //:tParseComplexType
 tParseComplexType(TStuff* ts, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
-// Precondition: we are looking at the first tokType (`L` in this example),
-// while the first one has been added as a type call.
+// Parses complete type expressions like `[L [D Str $E]]`
+// Precondition: we are looking at the first tokType (`L` in this example)
    LInt* exp = ts->exp;
    exp->len = 0;
    LTypeFrame* frames = ts->frames;
@@ -6813,21 +6821,15 @@ private TypeId //:tParse
 tParse(Int sentinel, TOKENS, CM, OUT TypeHeader* hdr) {
 // Walks over the whole type expression, keeping stack of type calls, writing to @types, counting
 // the type parameters. At the end, converts the type param names in @types to de Bruijn indices.
-
    Token firstTypeTk = tokens[cm->i];
-   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar,
-      pError0(errTypeDefError)
-   )
+   VALIDATEP(firstTypeTk.tp == tokType || firstTypeTk.tp == tokTypeVar, pError0(errTypeDefError))
    TStuff* ts = &(cm->ts);
    if (cm->i + 1 == sentinel) { // single-name type
-      if (firstTypeTk.tp == tokType) {
-         TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
-         *isGeneric = typeReadHeader(simpleType, cm).isGeneric;
-         add(simpleType.v, ts->exp);
-         return simpleType;
-      } else { // tokTypeParam
-         return typeOf(teMergeParam(firstTypeTk.pl1, ts, cm));
-      }
+      VALIDATEP(firstTypeTk.tp == tokType, pError0(errExpectedType))
+      TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
+      *hdr = cm->typeHeaders.c[simpleType.v];
+      add(simpleType.v, ts->exp);
+      return simpleType;
    }
    return tParseComplexType(te, sentinel, OUT isGeneric, tokens, cm);
 
@@ -6889,6 +6891,7 @@ private TypeId //:tCreateTypeCall
 tCreateTypeCall(TStuff* ts, Byte sort, Int startInd, TypeFrame frame, CM) {
 // Creates/merges a new type call from a sequence of types in @exp
 // Handles ordinary type calls like `[L Int]`, NOT function types. Returns the new type's id
+// AAA
    TypeId genericId = frame.id;
    TypeHeader genericHdr = typeReadHeader(genericId, cm);
    TYPE_DEFINE_EXP;
@@ -6933,13 +6936,13 @@ teMergeParam(NameId name, TStuff* restrict ts, CM) {
 
 private TypeId //:tCreateFnTypeCall
 tCreateFnTypeCall(TStuff* ts, Int startInd, TypeFrame frame, CM) {
-// Creates an `F[A B -> C]` type
+// Creates an `F[A B -> C]` type. AAA
    TYPE_DEFINE_EXP;
 
    Int const depth = exp->len - startInd; // this isn't function arity, it's type arity
    Int const sentinel = exp->len;
    TYPE_CREATE_START(
-      ((TypeHeader){ .sort = sorDeclare, .arity = depth, .name = nameOfStd(strF),
+      ((TypeHeader){ .sort = sorDeclare, .arity = depth, .name = nameF,
                .isGeneric = frame.isGeneric, .size = 8 })
    );
    for (Int j = startInd; j < sentinel; j++) {
@@ -6977,25 +6980,36 @@ tCreateSingleParamTypeCall(NameId nameOfOuter, TypeId typeArg, CM) {
 
 
 #define maxTypeParams 254
+// see "docs/types.txt"
+#define sorTypeCall (1 << 29)
+#define sorFnCall (2 << 29)
+#define sorPointer (3 << 29)
+#define sorNullable (4 << 29)
+#define sorTypeCall (5 << 29)
 
 private void //:teOpenTypeCall
 teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM) {
 // Adds a new type call to @exp during type expression parsing
-   if (typeName == nameOfStd(strF)) { // F ...
+   Int typeStart = cm->types.len;
+   if (typeName == nameF) { // F ...
       add(((TypeFrame){
-            .tp = tfrFunction, .sentinel = sentinel,
+            .tp = tfrFunction, .typeStart = typeStart, .sentinel = sentinel,
          }),
          ts->frames
       );
+      add(sorFnCall, ts->exp);
+      add(0, ts->exp); // to be filled by (tyrity (type node length)) at end of this type call
    } else { // ordinary type call
-      TypeId const typeId = typeOf(cm->activeBindings[typeName]);
-      VALIDATEP(typeId.v > -1, pError(errUnknownTypeConstructor, nameErr(typeName))
-      )
+      TypeId const typeId =  typeGetTypeByName(cm->activeBindings[typeName], cm);
+      VALIDATEP(typeId.v > -1, pError(errUnknownTypeConstructor, nameErr(typeName)))
       add(((TypeFrame){
-            .tp = tfrTypeCall, .id = typeId, .sentinel = sentinel
+            .tp = tfrTypeCall, .id = typeId, .typeStart = typeStart, .sentinel = sentinel
          }),
          ts->frames
       );
+      add(sorTypeCall + typeId.v, ts->exp);
+      // lowest 24 bits to be filled by (type node length) at end of this type call
+      add((cm->typeHeaders[typeId.v].tyrity << 24), ts->exp);
    }
 }
 
@@ -7007,11 +7021,11 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
    d("struct def")
    printName(name, cm);
    TStuff* ts = &(cm->ts);
-   
+
    TypeHeader hdr = (TypeHeader){ .sort = sorDeclare, .arity = 0, // will fill in at end of function
          .name = name, .isGeneric = false, .size = 0 };
    TYPE_CREATE_START(hdr);
-   
+
    Int initFieldLen = cm->genericFields.len;
    ts->paramNames.len = 0; // clear param names before parsing a struct definition
    Bool isGeneric = false;
@@ -7025,11 +7039,11 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
          cm
       );
       j++;
-      
+
       Int fieldSentinel = calcSentinel(tokens[j], j);
       TypeId fieldType = tParse(fieldSentinel, &isGeneric, tokens, cm);
       pushIntypes(fieldType.v, cm);
-      
+
       j = fieldSentinel;
    }
    pushIntypes(initFieldLen, cm); // index of the first field in @genericFields
@@ -7038,17 +7052,17 @@ pStructDef(Int name, Int sentinel, TOKENS, CM) {
       pushIntypes(te->paramNames.c[j], cm); // unique param names go to the end of the type
    }
    TYPE_CREATE_END;
-   
+
    Int fieldCount = cm->genericFields.len - initFieldLen;
-   
+
    hdr.arity = fieldCount;
    hdr.size = calcSizeOfStruct(tentativeType, cm);
-   cm->types.c[cm->types.len + 1] = 
+   cm->types.c[cm->types.len + 1] =
       ((Int)((Unt)((Unt)hdr.sort << 16) + ((Unt)hdr.arity << 8)));
-      
+
    cm->types.c[cm->types.len + 3] = hdr.size;
    TypeId newStruct = mergeType(tentativeType, cm);
-   
+
    d("resulting type:")
    dbgType(newStruct);
    return newStruct;
@@ -7075,8 +7089,8 @@ pTypeDef(Int sentinel, TOKENS, CM) {
 
    VALIDATEP(cm->i < sentinel, pError0(errTypeDefError))
    Token taggingTk = tokens[cm->i];
-   cm->i++; // skip the tag of the type 
-   
+   cm->i++; // skip the tag of the type
+
    TypeId newType = VOID_TYPE;
    if (taggingTk.pl1 == nameOfStd(strStruct)) {
       newType = pStructDef(name, sentinel, tokens, cm);
@@ -7185,9 +7199,9 @@ monomorphizeStruct(
 // Creates a sorTypeCall type
    Int const fieldCount = genericHdr.arity;
    ensureCapacityTypes(fieldCount + TYPE_PREFIX + 1 + resolvedParams.len, cm);
-   
+
    Int genericFieldInd = libeyr_getFieldNameInd(generic, genericHdr, cm->types.c);
-   
+
    TypeHeader monoHdr = (TypeHeader){ .sort = sorTypeCall, .arity = fieldCount,
       .name = genericHdr.name, .isGeneric = false, .size = 0 };
    TYPE_CREATE_START(monoHdr);
@@ -7195,7 +7209,7 @@ monomorphizeStruct(
    cm->types.len += fieldCount;
    cm->types.c[cm->types.len] = genericFieldInd;
    cm->types.len++;
-   
+
    Int sentinel = generic.v + cm->types.c[generic.v] + 1;
    paramLoop:
    for (Int j = tGetBodyStart(generic, genericHdr), k = cm->types.len; j < sentinel; j++, k++) {
@@ -7209,10 +7223,10 @@ monomorphizeStruct(
       }
       // should never happen: all the type params should be already resolved in {tGenericUnify}
       throwExcParser0(pError(errTypeParamsResolve, nameErr(paramName)), __LINE__, cm);
-      
+
    }
    TYPE_CREATE_END;
-   
+
    TypeId concrete = mergeType(tentativeType, cm);
    dbgType(concrete);
    return concrete;
@@ -7227,7 +7241,7 @@ getFirstParamType(TypeId t, CM) {
    TypeHeader hdr = typeReadHeader(t, cm);
    if (hdr.arity == 0)
       { return ZERO_ARITY_TYPE; }
-   ei (hdr.arity == 1 && hdr.name == nameOfStd(strF))
+   ei (hdr.arity == 1 && hdr.name == nameF)
       { return VOID_TYPE; }
    else
       { return typeOf(cm->types.c[t.v + TYPE_PREFIX]); }
@@ -7479,25 +7493,25 @@ private TypeId //:typeCheckGenericStruct
 typeCheckGenericStruct(TypeId generic, TypeHeader genericHdr, Arr(Int) args, CM) {
    Int const fieldCount = genericHdr.arity;
    ensureCapacityTypes(fieldCount + TYPE_PREFIX + 1, cm);
-   
+
    TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = fieldCount,
       .name = -1, .isGeneric = false, .size = 0 };
    TYPE_CREATE_START(concreteHdr);
    memcpy(cm->types.c + cm->types.len, args, fieldCount*4);
    cm->types.len += fieldCount;
    TYPE_CREATE_END;
-   
+
    TypeId concrete = mergeType(tentativeType, cm);
    Int concreteSent = concrete.v + TYPE_PREFIX + fieldCount;
    TypeLoc concreteLoc = (TypeLoc){
       .currPos = tGetBodyStart(concrete, concreteHdr), .sentinel = concreteSent
    };
-   
+
    TypeLoc genericLoc = (TypeLoc){
-      .currPos = tGetBodyStart(generic, genericHdr), 
+      .currPos = tGetBodyStart(generic, genericHdr),
       .sentinel = generic.v + TYPE_PREFIX + fieldCount
    };
-   
+
    LInt resolvedParams = tGenericUnify(genericLoc, concreteLoc, cm);
    return monomorphizeStruct(
       generic, genericHdr, ((LInt){.c = args, .len = fieldCount}), resolvedParams, cm
@@ -7511,7 +7525,7 @@ typeCheckStruct(Node nd, LInt* restrict exp, CM) {
    Arr(Int) args = exp->c + exp->len - fieldCount;
    TypeId structType = typeGetTypeByName(nd.pl1, cm);
    TypeHeader structHdr = typeReadHeader(structType, cm);
-   
+
    // Note that we do NOT need to check for arity or that @exp.len is sufficient
    // because it has been done in {reorderStructLocateKeys}
    if (structHdr.isGeneric) {
@@ -7523,7 +7537,7 @@ typeCheckStruct(Node nd, LInt* restrict exp, CM) {
          )
       }
    }
-   
+
    cm->ast.c[cm->j].pl1 = structType.v;
    exp->len -= (fieldCount - 1);
    exp->c[exp->len] = structType.v;
@@ -7757,18 +7771,18 @@ tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int argCount, CM) {
    // Define a type just for the args
    // For `F Int Str -> Double` this will look like `F Int -> Str`, i.e. the return type is missing
    TypeHeader concreteHdr = (TypeHeader){ .sort = sorDeclare, .arity = argCount,
-      .name = nameOfStd(strF), .isGeneric = false, .size = 8 };
+      .name = nameF, .isGeneric = false, .size = 8 };
    TYPE_CREATE_START(concreteHdr);
    memcpy(cm->types.c + cm->types.len, argTypes, argCount*4);
    cm->types.len += argCount;
    TYPE_CREATE_END;
-   
+
    TypeId args = mergeType(tentativeType, cm);
    Int concreteSent = args.v + TYPE_PREFIX + argCount; // already not a full fn type => no -1
    TypeLoc concreteLoc = (TypeLoc){
       .currPos = tGetBodyStart(args, concreteHdr), .sentinel = concreteSent
    };
-   
+
    // Now for the generic fn type
    TypeHeader genericHdr = typeReadHeader(fn.typeId, cm);
    VALIDATEP(genericHdr.arity == argCount + 1,
@@ -7778,7 +7792,7 @@ tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int argCount, CM) {
    TypeLoc genericLoc = (TypeLoc){
       .currPos = tGetBodyStart(fn.typeId, genericHdr), .sentinel = genericSent
    };
-   
+
    LInt resolvedParams = tGenericUnify(genericLoc, concreteLoc, cm);
    TypeId genericReturnType = tFunctionReturnType(fn.typeId, cm);
    TypeId returnType = tGenericSubstituteParams(genericReturnType, resolvedParams, cm);
@@ -8322,7 +8336,7 @@ importTestTypes(Arr(Int) types, Int countTypes, CM, Arena* aTmp) {
       pushIntypes(importLen + TYPE_PREFIX - 1, cm);
 
       typeAddHeader((TypeHeader){
-         .sort = sorDeclare, .arity = importLen, .name = nameOfStd(strF), .size = 8 },
+         .sort = sorDeclare, .arity = importLen, .name = nameF, .size = 8 },
          cm
       );
       for (Int k = j + 1; k < typeSentinel; k++) {
@@ -8445,7 +8459,7 @@ createProtoCompiler(OUT Compiler* proto, Arena* a) {
       .functions = createInListFunction(8, a),
       .sourceCode = str(standardText),
       .names = createLUnt(16, a), .stringDict = createStringDict(128, a),
-      .types = createInListInt(64, a), .typesDict = createStringDict(128, a),
+      .types = createInListUnt(64, a), .typesDict = createStringDict(128, a),
       .rawOverloads = createMultiAssocList(a),
       .fieldNames = createInListFieldName(16, a),
       .stats = (CompStats) {
