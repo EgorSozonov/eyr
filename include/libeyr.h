@@ -268,9 +268,11 @@ typedef struct { //:TypeHeader
 typedef struct { //:ConcrType All primitive types, concrete structs and monomorphic function types
    NameId name;     // Struct/sum type name, or "F" for functions
    Byte sort;       // "sor" constants above
-   TypeId typeExpr; // points to a type like `[Foo Int Str]` where `Foo` is a generic struct
-   TypeId body;     // points to the list of types comprising the body (i.e. fields for a struct,
-                    // or params and return for a function, variant types for a sum type)
+   Unt start;       // points to @types like `[Foo Int Str]` where `Foo` is a generic struct
+   Unt body;        // points to @types where there's a list of types comprising the body (i.e. 
+                    // fields for a struct, or params and return for a function, variant types 
+                    // for a sum type)
+   Int size;        // size of type in bytes
 } ConcrType;
 
 #define accessPrivImm   1 // private, which for abstract classes means "protected"

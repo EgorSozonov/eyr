@@ -1557,11 +1557,10 @@ DEFINE_LIST(ParseFrame) //:createLParseFrame
 
 struct TypeFrame {   // :TypeFrame
    Byte tp;          // "tfr" constants
-   Bool isGeneric;   // Have we encountered any type params here?
    Int typeStart;    // Starting index in @ts.exp
    Int sentinel;     // token id sentinel
    Int countArgs;    // accumulated number of type arguments
-   TypeId id;        // For types, TypeId. For type params, their id within the params list
+   Int tyrity;        // For types, TypeId. For type params, their id within the params list
 };
 
 DEFINE_LIST(TypeFrame) //:createLTypeFrame
@@ -1810,7 +1809,7 @@ printableOfCompResult(CompResult* cr) {
 //{{{ Errors
 //{{{ Compile errors
 
-#define errMaxId 114 // must be updated. The maximal value of the currently existing errIds below
+#define errMaxId 115 // must be updated. The maximal value of the currently existing errIds below
 #define errNonAscii                     0
 #define errPrematureEndOfInput          1
 #define errUnrecognizedByte             2
@@ -1916,7 +1915,8 @@ printableOfCompResult(CompResult* cr) {
 #define errTypeWrongReturnType         99
 #define errTypeMismatch               100
 #define errTypeMustBeBool             101
-#define errTypeConstructorWrongArity  102
+#define errTypeNotAConstructor        102
+#define errTypeWrongTyrity            115
 #define errTypeTooManyParameters      103
 #define errTypeOfNotList              104
 #define errTypeOfListIndex            105
@@ -1999,7 +1999,7 @@ compileErrors[] = {
    "Expected to see a word naming a function",
    "Wrong count of names in a type definition!",
    "Type declarations may only contain types (like Int),"
-      " type params (like A), type constructors (like List) and parentheses!",
+      " type params (like A), type constructors (like L) and brackets!",
    "Cannot parse type expression!",
    "Cannot parse type declaration!",
    "Error resolving type params. Param $0 has an unknown value",
@@ -2042,7 +2042,7 @@ compileErrors[] = {
    "Wrong return type",
    "Declared type doesn't match actual type. $0 vs $1", // 100
    "Expression must have the Bool type, but has: $0",
-   "Wrong arity for the type constructor",
+   "Type $0 is not a type constructor",
    "Only up to 254 type parameters are supported",
    "Trying to get the element of a type which is not a list",
    "The type of a list/array index must be Int",
@@ -2054,7 +2054,8 @@ compileErrors[] = {
    "Expected a word",
    "Operator $0 is not overloadable",
    "Not all fields specified for struct $0, for example $1 is missing",
-   "Incorrect struct definition, should look like `Foo = struct :id Int :name Str;`"
+   "Incorrect struct definition, should look like `Foo = struct :id Int :name Str;`",
+   "Wrong type arity for type $0. Expected $1 but got $2 type params"
 };
 
 struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
@@ -2082,6 +2083,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrOuterTypeOfParam     "Tried to get an outer type of param or generic"
 #define ierrInconsistentTypeExpr "Reduced type expression has != 1 elements"
 #define ierrNotAFunction         "Expected to find a function type here"
+#define ierrInconsistentTypeSpans "Inconsistent type span length in a type expression"
 
 #endif
 //}}}
@@ -2225,10 +2227,10 @@ libeyr_printErrors(CompResult* cr) {
 #define NEXT_BT source[lx->i + 1]
 #define IND_BT (lx->i - lx->stats.standardTextLen)
 
-#ifdef DEBUG
+#if defined(DEBUG) || defined (SAFETY) //:VALIDATEI
 #define VALIDATEI(cond, errMsg) if (!(cond)) { throwExcInternal0(errMsg, __LINE__, cm); }
 #else
-#define VALIDATEI(cond, errInd)
+#define VALIDATEI(cond, errMsg)
 #endif
 
 #define VALIDATEL(cond, err) if (!(cond)) { throwExcLexer0(err, __LINE__, lx); }
@@ -3715,6 +3717,18 @@ nameErr2(Int name, Int name2) {
       .c = {
          (ErrTextSumType){.tp = errtxtName, .c = name },
          (ErrTextSumType){.tp = errtxtName, .c = name2 }
+      }
+   };
+}
+
+private ErrorText //:nameNum2Err
+nameNum2Err(Int name, Int num1, Int num2) {
+   return (ErrorText){
+      .count = 3,
+      .c = {
+         (ErrTextSumType){.tp = errtxtName, .c = name },
+         (ErrTextSumType){.tp = errtxtNumber, .c = num1 }
+         (ErrTextSumType){.tp = errtxtNumber, .c = num2 }
       }
    };
 }
@@ -5791,13 +5805,51 @@ buildPreludeTypes(CM) {
 // Creates the built-in types in the proto compiler
    // primitive types up to topVerbatimType (inclusive)
    for (int i = strInt; i <= strVoid; i++) {
-      cm->activeBindings[nameOfStd(i)] = i - strInt;
-      pushIntypes(0, cm);
+      Int ind = i - strInt;
+      Int name = nameOfStd(i);
+      cm->activeBindings[name] = ind;
+      
+      pushIntypeHeaders((TypeHeader){.name = name, .arity = 0, .tyrity = 0, .concrId = ind}, cm);
    }
+   
+   pushInconcrTypes((TypeHeader){ // Int
+      .name = nameOfStd(strInt), .sort = 0, .typeExpr = 0, .len = 0,
+      .body = VOID_TYPE, .size = 4 }, cm
+   );
+   pushInconcrTypes((TypeHeader){ // Long
+      .name = nameOfStd(strLong), .sort = 0, .typeExpr = 0, .len = 0,
+      .body = VOID_TYPE, .size = 8 }, cm
+   );
+   pushInconcrTypes((TypeHeader){ // Double
+      .name = nameOfStd(strDouble), .sort = 0, .typeExpr = 0, .len = 0, 
+      .body = VOID_TYPE, .size = 8 }, cm
+   );
+   pushInconcrTypes((TypeHeader){ // Bool
+      .name = nameOfStd(strBool), .sort = 0, .typeExpr = 0, .len = 0, 
+      .body = VOID_TYPE, .size = 1 }, cm
+   );
+   pushInconcrTypes((TypeHeader){ // String
+      .name = nameOfStd(strString), .sort = sorStruct, .typeExpr = 0, .len = 0,
+      .body = ??, .size = 16 }, cm
+   );
+   
+   Int indOuterTypeForTypePar = cm->types.len;
    pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
+   pushIntypeHeaders((TypeHeader){.name = -1, .typeExpr = 0, .len = 0 }, cm);
 
    // Array
    Int typeIndA = cm->types.len;
+   
+   pushIntypeHeaders((TypeHeader){
+      .name = nameOfStd(strArr), .arity = 1, .tyrity = 1, .concrId = -1,
+      .start = 0, .len = 0}, cm
+   );
+   
+   
+   pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
+   
+   
+   
    pushIntypes(TYPE_PREFIX + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX - 1
    NameId name = nameOfStd(strArr);
    typeAddHeader(((TypeHeader){
@@ -6764,20 +6816,11 @@ teClose(TStuff* ts, CM) {
       Int typeLen = exp->len - frame.typeStart;
       exp->c[frame.typeStart + 1] += typeLen;
 
-      if (frame.tp == tfrFunction)  {
-         newType = tCreateFnTypeCall(ts, startInd, frame, cm);
-         exp->c[frame.typeStart + 1]
-      } ei (frame.tp == tfrTypeCall) {
-         // need to validate tyrity
-         //
-
-         newType = tCreateTypeCall(ts, sorTypeCall, startInd, frame, cm);
-      } else { // tyeParamCall, a call of a type which is a parameter
-         // TODO higher-kinded types
-         throwExcParser(pError0(errTemp));
+      if (frame.tp == tfrTypeCall) {
+         VALIDATEP(frame.argCount == frame.tyrity, 
+            pError(errTypeWrongTyrity, nameNum2Err(frame.name, frame.tyrity, frame.argCount))
+         );
       }
-      exp->c[startInd] = newType.v;
-      exp->len = startInd + 1; // +1 because we've put one type for the call we've reduced
    }
 }
 
@@ -6794,7 +6837,7 @@ tParseComplexType(TStuff* ts, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
       teClose(ts, cm);
       Token cTk = tokens[cm->i];
 
-      VALIDATEP(frames->len > 0, pError0(errTypeDefError))
+      VALIDATEI(frames->len > 0, ierrInconsistentTypeSpans)
       frames->c[frames->len - 1].countArgs++;
 
       if (cTk.tp == tokType) {
@@ -7002,14 +7045,19 @@ teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM) {
    } else { // ordinary type call
       TypeId const typeId =  typeGetTypeByName(cm->activeBindings[typeName], cm);
       VALIDATEP(typeId.v > -1, pError(errUnknownTypeConstructor, nameErr(typeName)))
+      
+      Int tyrity = cm->typeHeaders[typeId.v].tyrity;
+      VALIDATEP(tyrity > 0, pError(errTypeNotAConstructor, nameErr(typeName))
+      
       add(((TypeFrame){
-            .tp = tfrTypeCall, .id = typeId, .typeStart = typeStart, .sentinel = sentinel
+            .tp = tfrTypeCall, .id = typeId, .typeStart = typeStart, 
+            .tyrity = tyrity, .sentinel = sentinel
          }),
          ts->frames
       );
       add(sorTypeCall + typeId.v, ts->exp);
       // lowest 24 bits to be filled by (type node length) at end of this type call
-      add((cm->typeHeaders[typeId.v].tyrity << 24), ts->exp);
+      add((tyrity << 24), ts->exp);
    }
 }
 
