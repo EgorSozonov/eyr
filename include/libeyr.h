@@ -255,24 +255,26 @@ typedef struct { //:TypeId Index into @typeHeaders
 typedef struct { //:TypeHeader
    Unt start;     // index into @types
    Unt arity : 8; // count of immediate children (struct fields, or function params + return types)
-   Unt len : 24;  // number of nodes in types (not integers, but nodes! type calls are >1 nodes)
+   Unt len : 24;  // number of ints in @types (integers, not nodes! type calls are >1 nodes)
    Unt tyrity : 8;   // count of type parameters
-   Unt concrId : 24; // All 1111's unless tyrity = 0
-   Int nameId; // set only for type declarations, -1 for type calls like `[Foo Int]`
+   Unt entityId : 24; // If tyrity = 0, then @concrTypes, else @typeDecls, 
+                  //or all 1111's if tyrity > 0 and not a declaration
+   Int name; // set only for type declarations, -1 for type calls like `[Foo Int]`
 } TypeHeader;
 
 #define sorFn      1
 #define sorStruct  2
 #define sorSumType 3
 
-typedef struct { //:ConcrType All primitive types, concrete structs and monomorphic function types
-   NameId name;     // Struct/sum type name, or "F" for functions
-   Byte sort;       // "sor" constants above
-   Unt start;       // points to @types like `[Foo Int Str]` where `Foo` is a generic struct
-   Unt body;        // points to @types where there's a list of types comprising the body (i.e. 
-                    // fields for a struct, or params and return for a function, variant types 
-                    // for a sum type)
-   Int size;        // size of type in bytes
+typedef struct {  //:ConcrType All primitive types, concrete structs and monomorphic function types
+   Byte sort;     // "sor" constants above
+   TypeId typeId; // points to @typeHeaders to `[Foo Int Str]` where `Foo` is a generic struct.
+                  // Or, if this is a concrete struct, just is the struct's typeId 
+   Unt body;      // points to @types where there's a list of types comprising the body (i.e. 
+                  // fields for a struct, or params and return for a function, variant types 
+                  // for a sum type)
+   Unt fieldsInd;  // index into @fieldNames, or for a function, -1 
+   Int size;      // size of type in bytes
 } ConcrType;
 
 #define accessPrivImm   1 // private, which for abstract classes means "protected"
@@ -339,11 +341,11 @@ struct Function { //:Function Parsed or built-in function
    Bool needsMangling; // do we need to add "_123" to this function's name when generating code?
 };
 
-struct FieldName { //:FieldName Struct field names + access are in a separate table,
-   NameId name;    // while their types are in @types (to support various instantiations of a
-   Byte access;    // single generic struct). Also used for functions with > 3 params, for
-                   // param names
-};
+typedef struct { //:FieldName Struct field names + access are in a separate table,
+   NameId name;  // while their types are in @types (to support various instantiations of a
+   Byte access;  // single generic struct). Also used for functions with > 3 params, for
+                 // param names
+} FieldName;
 
 
 // nodVar.pl3. It's 0 for uses of ordinary var usage, and one of the following for other uses

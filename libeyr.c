@@ -666,7 +666,7 @@ private InList##T createInList##T(Int initCap, Arena* a) { \
 #define DEFINE_INTERNAL_LIST(fieldName, T, aName)           \
    private void pushIn##fieldName(T newItem, Compiler* cm) {\
       if (cm->fieldName.len < cm->fieldName.cap) {\
-         memcpy((T*)(cm->fieldName.c) + (cm->fieldName.len), &newItem, sizeof(T));\
+         cm->fieldName.c[cm->fieldName.len] = newItem;\
       } else {\
          T* newContent = allocateArray(2*(cm->fieldName.cap), T, cm->aName);\
          memcpy(newContent, cm->fieldName.c, cm->fieldName.len*sizeof(T));\
@@ -848,6 +848,7 @@ copyMultiAssocList(MultiAssocList* ml, Arena* a) {
 //{{{ Datatypes a la carte
 
 DECLARE_INTERNAL_LIST(Int)
+DECLARE_INTERNAL_LIST(Unt)
 DECLARE_INTERNAL_LIST(Ulong)
 
 //}}}
@@ -1676,26 +1677,22 @@ typedef struct { //:Assignment
    Int entityId; // n < 0 => -n - 1 is an index into @functions, otherwise n => @vars
 } Assignment;
 
-typedef struct { //:GenericCall
-   Int nodeInd;
-   TypeId concrete;
-   Int tokenInd;
-} GenericCall;
+typedef struct { //:TypeDeclaration
+   TypeId typeId;
+   Int fieldsInd; // index into @fieldNames where the declared fields for this struct/sum type live
+   Byte access;
+} TypeDeclaration;
 
 DECLARE_INTERNAL_LIST(Assignment)
 DECLARE_INTERNAL_LIST(Var)
 DECLARE_INTERNAL_LIST(Function)
 DECLARE_INTERNAL_LIST(Token) //:InListToken
 DECLARE_INTERNAL_LIST(Node)
+DECLARE_INTERNAL_LIST(TypeHeader)
 DECLARE_INTERNAL_LIST(FieldName)
+DECLARE_INTERNAL_LIST(TypeDeclaration)
+DECLARE_INTERNAL_LIST(ConcrType)
 
-struct Monomorphization { //:Monomorphization
-   Int tokenInd;     // points into @tokens - the (generic) tokens. -1 => no codegen
-   Int nodeInd;      // points into @ast - the monomorphized AST. -1 for built-ins
-   FunctionId fnId;
-};
-
-DEFINE_LIST(Monomorphization)
 
 struct Compiler { // :Compiler Private type holding all lexing and parsing state and results
    // LEXING
@@ -1707,7 +1704,7 @@ struct Compiler { // :Compiler Private type holding all lexing and parsing state
    InListInt numeric;      // [aTmp]
    LBtToken* lexBtrack;    // [aTmp]
    LUnt* names; // Operators, then standard strings, then imported ones, then
-                           // parsed. Contains NameLoc pointing into @sourceCode
+                // parsed. Contains NameLoc pointing into @sourceCode
 
    LToken* reorderBuf;  // Buffer for reordering tokens for mutation assignments
    StringDict* stringDict;
@@ -1735,11 +1732,12 @@ struct Compiler { // :Compiler Private type holding all lexing and parsing state
    InListUnt types;              // sea of nodes, see docs/types.txt
    InListTypeHeader typeHeaders;
    StringDict* typesDict;
+   InListTypeDeclaration typeDecls;
+   InListConcrType concrTypes;
    InListFieldName fieldNames; // fields of sorDeclare types (i.e. not type instantiations)
                                // type instantiations have their own lists of types of fields
                                // but not their names - the names are defined once per generic
                                // type and kept here.
-   SliUnt concreteFields;
    LInt* monos; // Ids in @functions of monomorphizations of generic functions
 
    // GENERAL STATE
@@ -1755,13 +1753,16 @@ DEFINE_INTERNAL_LIST(newlines, Int, a) //:pushInnewlines
 DEFINE_INTERNAL_LIST(numeric, Int, a) //:pushInnumeric
 DEFINE_INTERNAL_LIST(importNames, Int, a) //:pushInimportNames
 DEFINE_INTERNAL_LIST(overloads, Int, a) //:pushInoverloads
-DEFINE_INTERNAL_LIST(types, Int, a) //:pushIntypes
+DEFINE_INTERNAL_LIST(types, Unt, a) //:pushIntypes
+DEFINE_INTERNAL_LIST(typeHeaders, TypeHeader, a) //:pushIntypeHeaders
 DEFINE_INTERNAL_LIST(tokens, Token, a) //:pushIntokens
 DEFINE_INTERNAL_LIST(toplevels, Int, a) //:pushIntoplevels
 DEFINE_INTERNAL_LIST(vars, Var, a) //:pushInentities
 DEFINE_INTERNAL_LIST(functions, Function, a) //:pushInfunctions
 DEFINE_INTERNAL_LIST(ast, Node, a) //:pushInast
 DEFINE_INTERNAL_LIST(fieldNames, FieldName, a) //:pushInfieldNames
+DEFINE_INTERNAL_LIST(typeDecls, TypeDeclaration, a) //:pushIntypeDecls
+DEFINE_INTERNAL_LIST(concrTypes, ConcrType, a) //:pushInconcrTypes
 
 // the following constants for TypeFrame must not clash with the "sor" constants
 // Type expression data format: First element is the tag (one of the following
@@ -2081,6 +2082,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrGenericTypesInconsistent "Two generic types have inconsistent layout "\
                                       "(premature end of type)"
 #define ierrOuterTypeOfParam     "Tried to get an outer type of param or generic"
+#define ierrTypeCallLength       "Type call's length mismatched the length of @types tail"
 #define ierrInconsistentTypeExpr "Reduced type expression has != 1 elements"
 #define ierrNotAFunction         "Expected to find a function type here"
 #define ierrInconsistentTypeSpans "Inconsistent type span length in a type expression"
@@ -5677,62 +5679,70 @@ addRawOverload(NameId const name, TypeId const typeId, FunctionId const fnId, CM
 }
 
 private TypeId //:mergeTypeWorker
-mergeTypeWorker(TypeId startInd, Int lenInts, CM, OUT Bool* wasNew) {
-   Arr(Int) types = cm->types.c;
+mergeTypeWorker(Int startInd, Int lenInts, CM, OUT Bool* wasNew) {
+   Arr(Unt) types = cm->types.c;
    StringDict* hm = cm->typesDict;
    Int const lenBts = lenInts*4;
-   Unt theHash = hashCode((char*)(types + startInd.v), lenBts);
+   Unt theHash = hashCode((char*)(types + startInd), lenBts);
    Int hashOffset = theHash % (hm->dictSize);
    if (*(hm->dict + hashOffset) == null) {
       Bucket* newBucket = allocateOnArena(sizeof(Bucket) + initBucketSize*sizeof(StringValue),
             hm->a);
       newBucket->capAndLen = (initBucketSize << 16) + 1; // left u16 = cap, right u16 = len
       StringValue* firstElem = (StringValue*)newBucket->c;
-      *firstElem = (StringValue){.hash = theHash, .indString = startInd.v };
+      *firstElem = (StringValue){.hash = theHash, .indString = cm->typeHeaders.len };
       *(hm->dict + hashOffset) = newBucket;
    } else {
       Bucket* p = *(hm->dict + hashOffset);
-      int lenBucket = (p->capAndLen & 0xFFFF);
-      Arr(StringValue) stringValues = (StringValue*)p->c;
+      int lenBucket = p->capAndLen & 0xFFFF;
+      Arr(StringValue) stringValues = (Arr(StringValue))p->c;
 
       for (int i = 0; i < lenBucket; i++) {
          if (stringValues[i].hash == theHash
-              && memcmp(types + stringValues[i].indString, types + startInd.v, lenBts) == 0) {
+              && memcmp(types + stringValues[i].indString, types + startInd, lenBts) == 0) {
             // key already present
-            cm->types.len = startInd.v;
+            cm->types.len = startInd; // rewind the length to exclude this tentative span
             return typeOf(stringValues[i].indString);
          }
       }
-      addValueToBucket((hm->dict + hashOffset), startInd.v, theHash, hm->a);
+      addValueToBucket((hm->dict + hashOffset), cm->typeHeaders.len, theHash, hm->a);
    }
    *wasNew = true;
-   return startInd;
+   pushIntypeHeaders(((TypeHeader){}), cm);
+   return typeOf(cm->typeHeaders.len - 1);
 }
 
 private TypeId //:tMerge
-tMerge(TypeId tentativeStartInd, CM, OUT Bool* wasNew) {
+tMerge(Int tentativeStartInd, CM, OUT Bool* wasNew) {
 // Unique'ing of types. Precondition: the type is parked at the end of cm->types, forming its
 // tail, and covered by @types.len. Returns the resulting index of this type and decreases the
 // @types.len if it was not a genuinely new type
-   Int lenInts = cm->types.c[startInd.v] + 1; // +1 for the type length
-   TypeId r = mergeTypeWorker(startInd, lenInts, cm, OUT wasNew);
+   Int lenTypeInts = cm->types.c[tentativeStartInd] + 1; // +1 for the type length
+   VALIDATEI(lenTypeInts == (cm->types.len - tentativeStartInd), ierrTypeCallLength);
+   TypeId r = mergeTypeWorker(tentativeStartInd, lenTypeInts, cm, OUT wasNew);
    return r;
 }
 
 private TypeId //:addConcrFnType
 addConcrFnType(Int arity, Arr(Int) paramsAndReturn, CM) {
 // Function types are stored as: (paramType1, paramType2, ..., returnType)
-   TypeId newInd = typeOf(cm->types.len);
-   pushIntypes(TYPE_PREFIX + arity, cm);
-   typeAddHeader(
-      (TypeHeader){ .sort = sorDeclare, .arity = arity + 1,
-         .name = nameF, .isGeneric = false, .size = 8 },
-      cm
-   );
+   Int const bodyInd = cm->types.len;
    for (Int k = 0; k <= arity; k++) { // <= because there are (arity + 1) elts - the return type!
       pushIntypes(paramsAndReturn[k], cm);
    }
-   return mergeType(newInd, cm);
+   
+   Bool wasNew = false;
+   TypeId fnType = tMerge(bodyInd, cm, OUT &wasNew);
+   if (wasNew) {
+      Unt const concrId = cm->concrTypes.len;
+      pushInconcrTypes(((ConcrType){
+         .sort = sorFn, .typeId = fnType, .body = bodyInd, .fieldsInd = -1, .size = 8
+      }), cm);
+      cm->typeHeaders.c[fnType.v] = (TypeHeader){
+         .entityId = concrId, .name = -1, .tyrity = 0, .arity = arity + 1, 
+         .start = bodyInd, .len = arity + 1
+      }; 
+   }
 }
 
 private void //:importGenericTypesForLists
@@ -5809,83 +5819,81 @@ buildPreludeTypes(CM) {
       Int name = nameOfStd(i);
       cm->activeBindings[name] = ind;
       
-      pushIntypeHeaders((TypeHeader){.name = name, .arity = 0, .tyrity = 0, .concrId = ind}, cm);
+      pushIntypeHeaders((TypeHeader){.name = name, .arity = 0, .tyrity = 0, .entityId = ind}, cm);
    }
    
-   pushInconcrTypes((TypeHeader){ // Int
-      .name = nameOfStd(strInt), .sort = 0, .typeExpr = 0, .len = 0,
-      .body = VOID_TYPE, .size = 4 }, cm
+   pushInconcrTypes((ConcrType){ // Int
+      .sort = 0, .typeId = tokInt, .size = 4, .body = (Unt)-1, .fieldsInd = -1 }, cm
    );
-   pushInconcrTypes((TypeHeader){ // Long
-      .name = nameOfStd(strLong), .sort = 0, .typeExpr = 0, .len = 0,
-      .body = VOID_TYPE, .size = 8 }, cm
+   pushInconcrTypes((ConcrType){ // Long
+      .sort = 0, .typeId = tokLong, .size = 8, .body = (Unt)-1, .fieldsInd = -1 }, cm
    );
-   pushInconcrTypes((TypeHeader){ // Double
-      .name = nameOfStd(strDouble), .sort = 0, .typeExpr = 0, .len = 0, 
-      .body = VOID_TYPE, .size = 8 }, cm
+   pushInconcrTypes((ConcrType){ // Double
+      .sort = 0, .typeId = tokDouble, .size = 8, .body = (Unt)-1, .fieldsInd = -1 }, cm
    );
-   pushInconcrTypes((TypeHeader){ // Bool
-      .name = nameOfStd(strBool), .sort = 0, .typeExpr = 0, .len = 0, 
-      .body = VOID_TYPE, .size = 1 }, cm
-   );
-   pushInconcrTypes((TypeHeader){ // String
-      .name = nameOfStd(strString), .sort = sorStruct, .typeExpr = 0, .len = 0,
-      .body = ??, .size = 16 }, cm
+   pushInconcrTypes((ConcrType){ // Bool
+      .sort = 0, .typeId = tokBool, .size = 1, .body = (Unt)-1, .fieldsInd = -1 }, cm
    );
    
-   Int indOuterTypeForTypePar = cm->types.len;
-   pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
-   pushIntypeHeaders((TypeHeader){.name = -1, .typeExpr = 0, .len = 0 }, cm);
+   // String
+   Int const stringBodyInd = cm->types.len;
+   Int const stringId = cm->typeHeaders.len;
+   Int const stringConcrInd = cm->concrTypes.len;
+   Int const stringFieldsInd = cm->fieldNames.len;
+   Int const stringName = nameOfStd(strString);
+   pushInfieldNames(((FieldName){.name = -1, .access = accessPubImm}), cm);
+   pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
+   pushIntypes(-1, cm);     // the hidden content field
+   pushIntypes(tokInt, cm); // the  "len" field
+   pushIntypeHeaders((TypeHeader){
+      .name = stringName, .arity = 2, .tyrity = 0, .entityId = stringConcrInd}, cm
+   );
+   pushInconcrTypes((ConcrType){
+      .sort = sorStruct, .typeId = tokString, .fieldsInd = stringFieldsInd,
+      .body = stringBodyInd, .size = 16 }, cm
+   );
+   cm->activeBindings[stringName] = stringId;
+   
+   // Empty type to signify  "outerTypeForTypeParam"
+   Int indOuterTypeForTypePar = cm->typeHeaders.len;
+   pushIntypeHeaders((TypeHeader){.name = -1}, cm);
 
    // Array
-   Int typeIndA = cm->types.len;
-   
+   Int const arrayId = cm->typeHeaders.len;
+   Int const arrayFieldsInd = cm->fieldNames.len;
+   Int const arrayDeclId = cm->typeDecls.len;
+   pushInfieldNames(((FieldName){.name = -1, .access = accessAbstract}), cm);
+   pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
+   pushIntypeDecls(((TypeDeclaration){
+      .typeId = arrayId, .fieldsInd = arrayFieldsInd, .access = accessPubImm
+   }), cm);
    pushIntypeHeaders((TypeHeader){
-      .name = nameOfStd(strArr), .arity = 1, .tyrity = 1, .concrId = -1,
+      .name = nameOfStd(strArr), .arity = 2, .tyrity = 1, .entityId = arrayDeclId,
       .start = 0, .len = 0}, cm
    );
-   
-   
-   pushIntypes(0, cm); //empty type for "outerTypeForTypeParam"
-   
-   
-   
-   pushIntypes(TYPE_PREFIX + 3, cm); // 3 = 4 - 1, since header size = TYPE_PREFIX - 1
-   NameId name = nameOfStd(strArr);
-   typeAddHeader(((TypeHeader){
-      .sort = sorDeclare, .isGeneric = true, .arity = 2, .name = name, .size = 16}), cm
-   );
-   pushIntypes(-1, cm); // dummy value for the raw pointer, not to be used within Eyr
-   pushIntypes(tokInt, cm);
-   pushIntypes(cm->genericFields.len, cm);
-   pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
-   pushInfieldNames(((FieldName){.name = -1, .access = accessPrivImm}), cm);
-   pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
-
-   cm->activeBindings[name] = typeIndA;
-   cm->stats.arrayType = typeIndA;
+   cm->activeBindings[name] = arrayId;
+   cm->stats.arrayType = arrayId;
 
    // List
-   Int typeIndL = cm->types.len;
-   pushIntypes(TYPE_PREFIX + 4, cm); // 4 = 5 - 1, since header size = TYPE_PREFIX - 1
-   name = nameOfStd(strL);
-   typeAddHeader(((TypeHeader){
-      .sort = sorDeclare, .arity = 3, .isGeneric = true, .name = name, .size = 16 }),
-      cm
-   );
-   pushIntypes(-1, cm); // dummy value for the raw pointer, not to be used within Eyr
-   pushIntypes(tokInt, cm);
-   pushIntypes(tokInt, cm);
-   pushIntypes(cm->genericFields.len, cm);
-   pushIntypes(-nameOfStd(strTypeVarT) - 1, cm); // the generic param $T
-   pushInfieldNames(((FieldName){.name = -1, .access = accessPrivImm}), cm);
+   Int const listId = cm->typeHeaders.len;
+   Int const listFieldsInd = cm->fieldNames.len;
+   Int const listDeclId = cm->typeDecls.len;
+   pushInfieldNames(((FieldName){.name = -1, .access = accessAbstract}), cm);
    pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
-   pushIngenericFields(((FieldName){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
-   cm->activeBindings[name] = typeIndL;
-   cm->stats.listType = typeIndL;
+   pushInfieldNames(((FieldName){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
+   pushIntypeDecls(((TypeDeclaration){
+      .typeId = listId, .fieldsInd = listFieldsInd, .access = accessPubImm
+   }), cm);
+   pushIntypeHeaders((TypeHeader){
+      .name = nameOfStd(strArr), .arity = 3, .tyrity = 1, .entityId = listDeclId,
+      .start = 0, .len = 0}, cm
+   );
+   cm->activeBindings[name] = listId;
+   cm->stats.arrayType = listId;
+   
    // no need to merge the types as they are surely unique
 
-   cm->stats.voidToVoidType = addConcrFnType(0, (Int[]){ voidType}, cm).v;
+   cm->stats.voidToVoidType = addConcrFnType(0, (Int[]){ voidType }, cm).v;
 }
 
 private void //:buildOper
