@@ -252,30 +252,29 @@ typedef struct { //:TypeId Index into @typeHeaders
 } TypeId;
 
 
-typedef struct { //:TypeHeader
+typedef struct { //:TSpan A type span (interval within @types)
    Unt start;     // index into @types
-   Unt arity : 8; // count of immediate children (struct fields, or function params + return types)
-   Unt len : 24;  // number of ints in @types (integers, not nodes! type calls are >1 nodes)
-   Unt tyrity : 8;   // count of type parameters
-   Unt entityId : 24; // If tyrity = 0, then @concrTypes, else @typeDecls, 
-                  //or all 1111's if tyrity > 0 and not a declaration
-   Int name; // set only for type declarations, -1 for type calls like `[Foo Int]`
-} TypeHeader;
+   Unt len;       // number of ints in @types (integers, not nodes! type calls are >1 nodes)
+   Unt isGeneric : 1;
+   Unt entityId : 31; // If isGeneric, then points to @generics, else @concretes, 
+} TSpan;
 
+// Sorts of concrete types
 #define sorFn      1
 #define sorStruct  2
 #define sorSumType 3
 
-typedef struct {  //:ConcrType All primitive types, concrete structs and monomorphic function types
+typedef struct {  //:Concrete All primitive types, concrete structs and monomorphic function types
    Byte sort;     // "sor" constants above
-   TypeId typeId; // points to @typeHeaders to `[Foo Int Str]` where `Foo` is a generic struct.
-                  // Or, if this is a concrete struct, just is the struct's typeId 
-   Unt body;      // points to @types where there's a list of types comprising the body (i.e. 
-                  // fields for a struct, or params and return for a function, variant types 
+   TypeId spanId; // points to @spans like `[Foo Int Str]` where `Foo` is a generic struct.
+                  // Or, if this is a concrete struct, just is the struct declaration's spanId 
+   Unt start;     // points to @types where there's a list of ids of @concretes comprising the body
+                  // (i.e. fields for a struct, or params and return for a function, variant types 
                   // for a sum type)
-   Unt fieldsInd;  // index into @fieldNames, or for a function, -1 
+   Unt arity;               
+   Unt fieldsInd; // index into @fieldNames, or for a function, -1 
    Int size;      // size of type in bytes
-} ConcrType;
+} Concrete;
 
 #define accessPrivImm   1 // private, which for abstract classes means "protected"
 #define accessPrivMut   2
