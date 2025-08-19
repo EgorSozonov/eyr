@@ -522,9 +522,11 @@ private void dbgExprFrames(CM);
 private void printLInt(LInt* st);
 void dbgTypeFrames(TStuff* st);
 void dbgOverloads(Int nameId, CM);
+void printTypesInterval(Int indInTypes, Int count, CM);
 void dbgScopes(CM);
 void dbgParseFrames(CM);
 void dbgNodes(LNode*);
+
 
 #define dbgType(t) printf("type %d len %d", t, cm->types.c[t.v] + 1);\
    printIntArrayOff(t.v, cm->types.c[t.v] + 1, cm->types.c);\
@@ -1670,7 +1672,7 @@ struct TStuff { // :TStuff State for parsing types & type expressions. Lives in 
    LTypeFrame* frames;
    LInt names;         // Record field names
    LTypeParam params;  // Unique type param names
-   LInt* tmp;          // Used in name uniqueness validation, and generic param substitution
+   LInt tmp;          // Used in name uniqueness validation, and subtree determination
    LTypeLoc* genericWalk;  // Type location stack within a generic type, used for unification
    LTypeLoc* concreteWalk; // Type location stack within a concrete type, used for unification
    StringDict* typesDict;
@@ -6200,7 +6202,7 @@ initializeParser(Compiler* lx, Arena* a) {
       .names = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
       .paramNames = (LInt){.c = allocateArray(4, Int, cm->aTmp), .len = 0, .cap = 4},
       .tParams = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
-      .tmp = createLInt(16, cm->aTmp),
+      .tmp = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
       .genericWalk = createLTypeLoc(16, cm->aTmp),
       .concreteWalk = createLTypeLoc(16, cm->aTmp),
    };
@@ -6848,8 +6850,33 @@ tAddTypeCall(Int name, CM) {
 //{{{ Type expressions
 
 private TSpan //:tSubtreeStartingAt
-tSubtreeStartingAt() {
-   
+tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
+   LInt* sentinels = &(ts->tmp);
+   Int const startingLen = sentinels.len; // will be restored at end of function
+   for (Int j = 0; true; j++) {
+      switch (gen & UPPER3BITS) {
+      case 0: {
+         break;
+      }
+      case ttagTypeCall: {
+         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
+         j++;
+         break;
+      }
+      case ttagParam: {
+         break;
+      } 
+      case ttagFnCall: {
+         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
+         j++;
+         break;
+      }
+      case ttagPointer: break; // Coming in future releases
+      case ttagNullable: break; // Coming in future releases
+      }
+      if (ts->frames.len == startingLen)
+         { return (TSpan){.start = start, .len = j - start, .isGeneric = 0}; }
+   } 
 }
 
 private void //:tFreshState
@@ -7266,18 +7293,20 @@ tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
 }
 
 private void //:tUnifyParam
-tUnifyParam(Int paramName, Int concreteId, TStuff* restrict ts) {
+tUnifyParam(Int paramName, Int concreteId, TStuff* restrict ts, CM) {
 // If this param is encountered for the first time, adds it to @ts.params
 // Otherwise, compares the subtree in the concrete type with the param value and throws if diff
    // subtree = ...
-   TSpan subtree = tSubtreeStartingAt(concreteId);
+   TSpan subtree = tSubtreeStartingAt(concreteId, ts, cm->types.c);
    for (Int j = 0; j < ts->params.len; j++) {
       if (ts->params.c[j].name == paramName) {
          // compare the subtrees, require them to be equal
+         VALIDATEP(ts->params.c[j].span == subtree, )
          return;
       }
    }
    TypeParam newParam = (TypeParam){.name = paramName, .spanId = };
+   add(ts->params);
 }
 
 private LInt //:tUnify
@@ -7326,6 +7355,7 @@ tUnify(TypeId genId, TypeId conId, CM) {
          )
          i += 2;
          j += 2;
+         break;
       }
       case ttagPointer: i++; j++; break; // Coming in future releases
       case ttagNullable: i++; j++; break; // Coming in future releases
@@ -8459,6 +8489,48 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
       printf("%d ", overs[j]);
    }
    printf("]\n\n");
+}
+
+void //:printTypesInterval
+printTypesInterval(Int startInd, Int count, CM) {
+   print("@types[...");
+   Int printedOnThisLine = 0;
+   for (Int k = 0; k < count; k++) {
+      Int value = cm->types.c[k];
+      switch (value & UPPER3BITS) {
+      case 0: {
+         printNameNoLn(cm->concretes.c[value].name, cm); break;
+      }
+      case ttagTypeCall: {
+         printf("TCall ");
+         Int name = value & LOWER29BITS;
+         printNameNoLn(name, cm);
+         k++;
+         break;
+      }
+      case ttagParam: {
+         printf("$");
+         printNameNoLn(value & LOWER29BITS, cm);
+         break;
+      } 
+      case ttagFnCall: {
+         printf("F[");
+         k++;
+         break;
+      }
+      case ttagPointer: printf("'"); break;
+      case ttagNullable: printf("?"); break;
+      }
+   
+      printedOnThisLine++;
+      if (printedOnThisLine == 3) {
+         printf(",\n");
+         printedOnThisLine = 0;
+      } else {
+         printf(", ");
+      }
+   }
+   printf("]\n");
 }
 
 void

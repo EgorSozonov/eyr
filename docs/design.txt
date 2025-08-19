@@ -194,6 +194,38 @@ to ensure that the outer arena lives longer than them. Useful for fork-join para
    join forkedThread; // "childArena" gets destroyed but the results of the thread are in "parent"
 
 
+////////////////////
+// Submodules and friend modules
+////////////////////
+
+When a module is declared as a submodule of another, all its contents are visible in its parent
+and in its siblings, but nowhere else. The parent may re-export elements of its submodules - then
+they will be visible outside it.
+
+Friend modules: declare that a module may see specific elements of this module. The "friend" module
+still needs to import those elements to use them.
+
+
+////////////////////
+// Namespaces
+////////////////////
+
+Within any name on module toplevel, there may be 2 parts like "asdf:namespace". If the nspace is
+"pub", that means it's public (exported). So a function or method named "foo:pub" is importable
+as "foo" in other modules. "pub" also allows names to be tripartite like "create:fromInt:pub".
+
+This can be used for all kinds of partitioning. For example a "FooStruct" can have a constructor
+"fooStruct:new". What is "overloaded methods" in Java can be named with single prefix:
+"doSomething:int", "doSomething:listInts" etc.
+
+But how to reconcile it with modules?
+
+mod1:submod::fooStruct:new
+
+fn apiMethod:pub [Self Int -> Double] {- s inp ->
+}
+
+
    [[[Optimization (so for the future)]]]
    
 When the types of interface values are statically-known, resolve method calls statically
@@ -209,3 +241,7 @@ class { p1 FooProcessor; p2 BarProcessor; ...;
       // plain inheritance of no more than 3 layers?
    }
 }
+
+
+
+
