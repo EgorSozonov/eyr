@@ -27,16 +27,14 @@ typedef bool Bool;
 #define OUT // the "out" parameters and args in functions
 #define NULLABLE // the marker of nullability
 #define LOWER24BITS 0x00FFFFFF
-#define LOWER26BITS 0x03FFFFFF
 #define LOWER16BITS 0x0000FFFF
 #define LOWER32BITS 0x00000000FFFFFFFF
 #define PENULTIMATE8BITS 0xFF00
-#define THIRTYFIRSTBIT 0x40000000
 #define MAXTOKENLEN 67108864 // 2^26
-#define SIXTEENPLUSONE 65537 // 2^16 + 1
+//#define SIXTEENPLUSONE 65537 // 2^16 + 1
 #define LEXER_INIT_SIZE 1000
 #define ei else if
-#define defstruct(T) typedef struct T T
+#define declStruct(T) typedef struct T T
 
 #define d(...) \
   printf(__VA_ARGS__);\
@@ -64,11 +62,11 @@ typedef struct Compiler Compiler;
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
-defstruct(SourceLoc);
-defstruct(Var);
-defstruct(Node);
-defstruct(Function);
-defstruct(StructField);
+declStruct(SourceLoc);
+declStruct(Var);
+declStruct(Node);
+declStruct(Function);
+declStruct(StructField);
 
 //{{{ List
 
@@ -167,22 +165,20 @@ libeyr_String str(const char* content);
 //}}}
 //{{{ AST nodes & operators
 
-#define tokInt          0
-#define tokLong         1
-#define tokDouble       2
-#define tokBool         3  // pl2 = value (1 or 0)
-#define tokString       4  // pl1 = startBt, pl2 = lenBts
-
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUnderscore
-                           // pl2 = name of field/kwarg iff miscField.
-                           // Also stands for "Void" among the primitive types
+// token ids, doubling as pl3 for nodLit
+#define tokInt          1
+#define tokLong         2
+#define tokDouble       3
+#define tokBool         4  // pl2 = value (1 or 0)
+#define tokString       5  // pl1 = startBt, pl2 = lenBts
 
 // AST nodes
-#define nodVar          6  // pl1 = index into @vars.
+#define nodLit          0
+#define nodVar          1  // pl1 = index into @vars.
                            // pl2 = fnId iff pl3 = assiFnVarUse /\ assiFnVarDef
                            // pl3 >0 => it's a definition (except if pl3 = assiFnVar...) and is one
                            //     of the "assi" constants
-#define nodCall         7  // pl1 =
+#define nodCall         2  // pl1 =
                            //   index into @functions (after type resolution) when pl3 = callNormal,
                            //   into @monos if pl3 = callMonomorph,
                            //   into @vars if pl3 = callVar,
@@ -190,46 +186,46 @@ libeyr_String str(const char* content);
                            // pl2 = arg count (or, iff pl3 == callField, ind of field within type).
                            // pl3 = "call" constants.
 // Spans. pl2 = node count inside (so for [span node1 node2], span.pl2 = 2)
-#define nodScope        8  // if it's the outer scope of a forNode, then pl3 = length of nodes till
+#define nodScope        3  // if it's the outer scope of a forNode, then pl3 = length of nodes till
                            // inner scope. See parser tests for examples
-#define nodExpr         9  // pl1 = 1 iff it's a composite expression (has internal var decls)
-#define nodAssignment  10  // Followed by nodVar or complex left side. pl3 = distance to the right
+#define nodExpr         4  // pl1 = 1 iff it's a composite expression (has internal var decls)
+#define nodAssignment   5  // Followed by nodVar or complex left side. pl3 = distance to the right
                            // side, which is always an atom, nodExpr or a nodDataLit
-#define nodDataLit     11  // pl1 = concrete collection type, pl3 = count of elements.
+#define nodDataLit      6  // pl1 = concrete collection type, pl3 = count of elements.
                            // if pl2 == 0, it's an array with comp-time size but no
                            // contents;
                            // if pl2 > 0 and pl3 == BIG, it's an array with runtime-known
                            // size and no contents;
                            // if pl2 > 0 and pl3 > 0, then it has fully specified contents.
-#define nodStruct      12  // Struct init.
+#define nodStruct       7  // Struct init.
                            // pl1 = name before typecheck, concrete typeId after. pl2 = field count
                            // Iff pl3 == 1, it's a field (temporary, during expression parsing)
                            // and pl1 = name of field
-#define nodAssert      13  // pl1 = 1 iff it's a debug assert
-#define nodBreakCont   14  // pl1 = number of label to break or continue to, -1 if none needed.
+#define nodAssert       8  // pl1 = 1 iff it's a debug assert
+#define nodBreakCont    9  // pl1 = number of label to break or continue to, -1 if none needed.
                            // pl3 = 1 iff it's a "continue"
-#define nodCatch       15  // `catch e {`
-#define nodImport      16  // This is for test files only, no need to import anything in main
-#define nodToplevelFn  17  // pl1 = index into @functions
-#define nodTrait       18
-#define nodReturn      19
-#define nodTry         20
-#define nodFor         21  // pl1 = number of nodes to skip to get to the condition. Loops that get
+#define nodCatch       10  // `catch e {`
+#define nodImport      11  // This is for test files only, no need to import anything in main
+#define nodToplevelFn  12  // pl1 = index into @functions
+#define nodTrait       13
+#define nodReturn      14
+#define nodTry         15
+#define nodFor         16  // pl1 = number of nodes to skip to get to the condition. Loops that get
                            // "continue"d to have pl1 += BIG.
                            // pl3: the number of nodes to skip to get to the "step" part (or 0 if
                            // there's no step)
-#define nodIf          22
-#define nodIfClause    23  // pl3 = "ifcl" constants
-#define nodImpl        24
-#define nodMatch       25  // pattern matching on sum type tag
-#define countAstForms  26  // sentinel
+#define nodIf          17
+#define nodIfClause    18  // pl3 = "ifcl" constants
+#define nodImpl        19
+#define nodMatch       20  // pattern matching on sum type tag
+#define countAstForms  21  // sentinel
 
 #define countSpanForms (countAstForms - nodScope)
 
 #define metaDoc         1  // Doc comments
 #define metaDefault     2  // Default values for type arguments
 
-#define topVerbatimType tokMisc
+#define topVerbatimType tokString
 
 #define voidType        tokMisc
 
@@ -247,7 +243,7 @@ struct Node { // :Node
    Int pl2;
 };
 
-typedef struct { //:TypeId Index into @typeHeaders
+typedef struct { //:TypeId Index into @tSpans
     Int v;
 } TypeId;
 
@@ -256,7 +252,7 @@ typedef struct { //:TSpan A type span (interval within @types)
    Unt start;     // index into @types
    Unt len;       // number of ints in @types (integers, not nodes! type calls are >1 nodes)
    Unt isGeneric : 1;
-   Unt entityId : 31; // If isGeneric, then points to @generics, else @concretes, 
+   Unt entityId : 31; // If isGeneric, then points to @generics, else @concretes, or all 1s if none
 } TSpan;
 
 // Sorts of concrete types
@@ -268,12 +264,13 @@ typedef struct {  //:Concrete All primitive types, concrete structs and monomorp
    Byte sort;     // "sor" constants above
    TypeId spanId; // points to @spans like `[Foo Int Str]` where `Foo` is a generic struct.
                   // Or, if this is a concrete struct, just is the struct declaration's spanId 
-   Unt start;     // points to @types where there's a list of ids of @concretes comprising the body
+   Unt fields;     // points to @types where there's a list of ids of @concretes comprising the body
                   // (i.e. fields for a struct, or params and return for a function, variant types 
                   // for a sum type)
+   Unt fieldNames; // index into @fieldNames, or for a function, -1 
    Unt arity;               
-   Unt fieldsInd; // index into @fieldNames, or for a function, -1 
    Int size;      // size of type in bytes
+   Int codegenConcr; // if >0, points to another concrete which codegen must use instead of this one
 } Concrete;
 
 #define accessPrivImm   1 // private, which for abstract classes means "protected"
@@ -535,10 +532,7 @@ Int calcNodeSentinel(Node nd, Int nodeInd);
 Compiler* lexicallyAnalyzeFromFile(libeyr_String sourceCode, Arena* a);
 
 libeyr_CompResult* getCompResult(CM);
-TypeHeader libeyr_readTypeHeader(TypeId t, Arr(Int) types);
 Int libeyr_sizeOfType(TypeId t, Arr(Int) types);
-Int libeyr_getStructFieldInd(TypeId t, TypeHeader hdr, Arr(Int) types);
-TypeId libeyr_typeGetGenericArg(TypeId t, TypeHeader hdr, Int ind, Arr(Int) types);
 void libeyr_printErrors(libeyr_CompResult*);
 Int libeyr_getFirstErrorId(libeyr_CompResult*);
 libeyr_CompResult* libeyr_compileFile(libeyr_String filename);

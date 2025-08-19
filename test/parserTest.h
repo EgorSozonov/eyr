@@ -143,12 +143,13 @@ void createCompiler(Compiler* lx, Arena* a);
 Compiler* lexicallyAnalyze(String input, Arena*);
 Compiler* createLexer(String sourceCode, Bool prependStandard, Arena* a);
 
-#define tokInt          0
-#define tokLong         1
-#define tokDouble       2
-#define tokBool         3  // pl2 = value (1 or 0)
-#define tokString       4
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff miscUscore
+
+#define tokMisc         0
+#define tokInt          1
+#define tokLong         2
+#define tokDouble       3
+#define tokBool         4
+#define tokString       5
 
 #define voidType            tokMisc
 

@@ -154,19 +154,20 @@ typedef struct {
 // The following group of variants are transferred to the AST byte for byte, with no analysis
 // Their values must exactly correspond with the initial group of variants in "Node"
 // The largest value must be stored in "topVerbatimTokenVariant" constant
-#define tokInt          0
-#define tokLong         1
-#define tokDouble       2
-#define tokBool         3  // pl2 = value (1 or 0)
-#define tokString       4
-
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff
+#define tokMisc         0  // pl1 = see the misc* constants. pl2 = underscore count iff
                            // miscUnderscore, step iff nonzero and miscLoopStep
                            // Also stands for "Void" among the primitive types
                            // Also works as a marker in "for" loops: initially it's placed after
                            // tokFor and pl2 = token ind of body start.
                            // After {reorderFor}, it's placed right between body and stepping code.
+#define tokInt          1
+#define tokLong         2
+#define tokDouble       3
+#define tokBool         4  // pl2 = value (1 or 0)
+#define tokString       5
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
+
+
 #define tokTypeVar      7  // pl1 same as tokWord. `$A`
 #define tokKey          8  // pl1 = same as tokWord. `:argName` or `:structField` or `:dictKey`
 #define tokOperator     9  // pl1 = nameId = operId, pl2 = precedence. `+`

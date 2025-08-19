@@ -88,18 +88,18 @@ typedef struct { // :Token
 // The following group of variants are transferred to the AST byte for byte, with no analysis
 // Their values must exactly correspond with the initial group of variants in "Node"
 // The largest value must be stored in "topVerbatimTokenVariant" constant
-#define tokInt          0
-#define tokLong         1
-#define tokDouble       2
-#define tokBool         3  // pl2 = value (1 or 0)
-#define tokString       4
-
-#define tokMisc         5  // pl1 = see the misc* constants. pl2 = underscore count iff
+#define tokMisc         0  // pl1 = see the misc* constants. pl2 = underscore count iff
                            // miscUnderscore, step iff nonzero and miscLoopStep
                            // Also stands for "Void" among the primitive types
                            // Also works as a marker in "for" loops: initially it's placed after
                            // tokFor and pl2 = token ind of body start.
                            // After {reorderFor}, it's placed right between body and stepping code.
+#define tokInt          1
+#define tokLong         2
+#define tokDouble       3
+#define tokBool         4  // pl2 = value (1 or 0)
+#define tokString       5
+
 #define tokWord         6  // pl1 = nameId (index in @names). pl2 = 1 iff followed by '
 #define tokTypeVar      7  // pl1 same as tokWord. `$A`
 #define tokKey          8  // pl1 pl2 = same as tokWord.
@@ -350,12 +350,12 @@ operatorStartSymbols[] = {
 //}}}
 //{{{ Syntactical structure
 
-defstruct(BtToken);
-defstruct(ParseFrame);
-defstruct(TypeFrame);
-defstruct(ExprFrame);
-defstruct(Monomorphization);
-defstruct(TypeLoc);
+declStruct(BtToken);
+declStruct(ParseFrame);
+declStruct(TypeFrame);
+declStruct(ExprFrame);
+declStruct(Monomorphization);
+declStruct(TypeLoc);
 
 //{{{ Parse table
 
@@ -371,12 +371,7 @@ PARSE_FN(pElse) PARSE_FN(pFor) PARSE_FN(pEach)
 
 private ParseFn const //:PARSE_TABLE
 PARSE_TABLE[countSyntaxForms] = {
-   [tokInt]        = parseErrorBareAtom,
-   [tokLong]       = &parseErrorBareAtom,
-   [tokDouble]     = &parseErrorBareAtom,
-   [tokBool]       = &parseErrorBareAtom,
-   [tokString]     = &parseErrorBareAtom,
-   [tokMisc]       = &pLoopStepMarker,
+   [nodLit]        = &pLoopStepMarker,
    [tokWord]       = &parseErrorBareAtom,
    [tokTypeVar]    = &parseErrorBareAtom,
    [tokKey]        = &parseErrorBareAtom,
@@ -412,6 +407,8 @@ PARSE_TABLE[countSyntaxForms] = {
 //{{{ Forward decls & generics
 
 #define BIG 67'108'864 // 2^26
+#define UNT_MAX_31_BITS 2'147'483'647 // 2^32 - 1 - 2^31, ie. all "1"s in lower 31 bits
+#define LOWER29BITS 0x1FFFFFFF
 DECLARE_LIST(Token)
 DECLARE_LIST(BtToken)
 DECLARE_LIST(ParseFrame)
@@ -420,8 +417,11 @@ DECLARE_LIST(TypeFrame)
 DECLARE_LIST(Monomorphization)
 DECLARE_LIST(TypeLoc)
 DECLARE_LIST(ChInterval)
-defstruct(CompileError);
+declStruct(CompileError);
 DECLARE_LIST(CompileError)
+
+declStruct(TypeParam);
+DECLARE_LIST(TypeParam)
 
 typedef libeyr_CompResult CompResult;
 #define SRC Arr(char const) restrict source // Source text
@@ -429,12 +429,12 @@ typedef libeyr_CompResult CompResult;
 #define CM Compiler* restrict cm // Compiler for parser functions
 private void closeStatement(LX);
 
-defstruct(Expr);
-defstruct(TStuff);
+declStruct(Expr);
+declStruct(TStuff);
 
-defstruct(Scopes);
+declStruct(Scopes);
 void printLexer(LX);
-defstruct(EachData);
+declStruct(EachData);
 
 private void eSaveNodes(Int startNodeInd, CM);
 private void eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM);
@@ -460,7 +460,7 @@ private TypeId tParse(Int sentinel, TOKENS, CM, OUT TSpan* hdr);
 private NameLoc nameOfHost(Int strId);
 void printNameNoLn(NameId nameId, CM);
 
-defstruct(PrintableCompiler);
+declStruct(PrintableCompiler);
 void printNameNoLnCr(NameId nameId, PrintableCompiler prc);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
@@ -491,7 +491,8 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
    LNode*: addNode,\
    LChInterval*: addChInterval,\
    LCompileError*: addCompileError,\
-   LSourceLoc*: addSourceLoc\
+   LSourceLoc*: addSourceLoc,\
+   LTypeParam*: addTypeParam,\
 )(A, X)
 
 #define removeLast(X) _Generic((X),\
@@ -509,7 +510,7 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
    LSourceLoc*: removeLastSourceLoc\
 )(X)
 
-defstruct(MultiAssocList);
+declStruct(MultiAssocList);
 
 #ifdef DEBUG
 
@@ -1561,7 +1562,7 @@ struct TypeFrame {   // :TypeFrame
    Int typeStart;    // Starting index in @ts.exp
    Int sentinel;     // token id sentinel
    Int countArgs;    // accumulated number of type arguments
-   Int tyrity;        // For types, TypeId. For type params, their id within the params list
+   Int tyrity;       // For comparison with countArgs when the frame ends
 };
 
 DEFINE_LIST(TypeFrame) //:createLTypeFrame
@@ -1657,11 +1658,18 @@ struct Expr { //:Expr State for parsing expressions
    Bool metAnAllocation; // if we've met an allocation, we need to emit sub-expression nodes
 };
 
+struct TypeParam { //:TypeParam
+   Int name;
+   TypeId spanId;
+};
+
+DEFINE_LIST(TypeParam)
+
 struct TStuff { // :TStuff State for parsing types & type expressions. Lives in [aTmp]
    LInt* exp;          //  TypeId
    LTypeFrame* frames;
    LInt names;         // Record field names
-   LInt params;        // Unique type param names
+   LTypeParam params;  // Unique type param names
    LInt* tmp;          // Used in name uniqueness validation, and generic param substitution
    LTypeLoc* genericWalk;  // Type location stack within a generic type, used for unification
    LTypeLoc* concreteWalk; // Type location stack within a concrete type, used for unification
@@ -1685,7 +1693,7 @@ typedef struct { //:Generic
    TypeId spanId;
    Int arity;
    Int tyrity;
-   Int fieldsInd; // index into @fieldNames where the declared fields for this struct/sum type live
+   Int fieldNames; // index into @fieldNames where the declared fields for this struct/sum type live
 } Generic;
 
 DECLARE_INTERNAL_LIST(Assignment)
@@ -2089,6 +2097,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrInconsistentTypeExpr "Reduced type expression has != 1 elements"
 #define ierrNotAFunction         "Expected to find a function type here"
 #define ierrInconsistentTypeSpans "Inconsistent type span length in a type expression"
+#define ierrInconsistentTyrities "Same type constructor has different tyrities in type exprs"
 
 #endif
 //}}}
@@ -4022,7 +4031,7 @@ getBinding(Int id, CM) { return cm->activeBindings[id]; }
 
 private TypeId pTypeDef(Int sentinel, TOKENS, CM);
 private Bool tIsList(TypeId t, CM);
-private TypeId typeGetTypeByName(Int t, CM);
+private TypeId tGetSpanByName(Int name, CM);
 private TSpan createTSpan(Int start, Int len);
 
 internal Int getOper(Int opName, Int operandType, Compiler* cm);
@@ -4423,7 +4432,10 @@ pFor(Token forTk, Int sentinel, TOKENS, CM) {
 private void //:pLoopStepMarker
 pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 // tokMisc as a span token must be the marker for stepping code in loops
-   VALIDATEI(tok.pl1 == miscLoopStep && cm->parseFrames->len > 0, ierrInconsistentSpans);
+   VALIDATEI(
+      tok.pl1 == miscLoopStep && cm->parseFrames->len > 0 && tok.pl3 == tokMisc, 
+      ierrInconsistentSpans
+   );
 
    Int j = cm->parseFrames->len - 1;
    for (; j > -1; j--) {
@@ -4693,8 +4705,8 @@ exprSingleItem(Token tk, CM) {
    } ei (tk.tp == tokString) {
       newNode((Node){.tp = tokString, .pl1 = tk.startBt, .pl2 = tk.lenBts}, interOf(tk), cm);
       typeId = typeOf(tokString);
-   } ei (tk.tp <= topVerbatimType) {
-      newNode((Node){.tp = tk.tp, .pl1 = tk.pl1, .pl2 = tk.pl2}, interOf(tk), cm);
+   } ei (tk.tp < topVerbatimType) {
+      newNode((Node){.tp = nodLit, .pl1 = tk.pl1, .pl2 = tk.pl2, .pl3 = tk.tp}, interOf(tk), cm);
       typeId = typeOf(tk.tp);
    } ei (tk.tp == tokData) { // `[]`
       newNode((Node){.tp = nodDataLit, .pl1 = -1, .pl2 = 0, .pl3 = 0}, interOf(tk), cm);
@@ -4926,7 +4938,7 @@ reorderStruct(ExprFrame frame, Expr* restrict e, CM) {
 // Validates that keys in a struct initializer match the type, and replaces the nodes in @exp.
 // (:key value :key value) => (value value) in the order of the struct fields
    Node nd = e->scr.c[frame.startNode];
-   TypeId t = typeGetTypeByName(nd.pl1, cm);
+   TypeId t = tGetSpanByName(nd.pl1, cm);
    TSpan hdr = typeReadHeader(t, cm);
 
    Int nodeCount = e->scr.len - frame.startNode;
@@ -5744,7 +5756,8 @@ addConcrFnType(Int arity, Arr(Int) paramsAndReturn, CM) {
    if (wasNew) {
       Unt const concrId = cm->concretes.len;
       pushInconcretes(((Concrete){
-         .sort = sorFn, .spanId = fnSpan, .start = bodyInd, .arity = arity, .fieldsInd = -1, .size = 8
+         .sort = sorFn, .spanId = fnSpan, .fields = bodyInd, .fieldNames = -1,  
+         .arity = arity, .size = 8
       }), cm);
       cm->tSpans.c[fnSpan.v] = (TSpan){
          .entityId = concrId, .isGeneric = 0, .start = bodyInd, .len = arity + 1
@@ -5826,20 +5839,20 @@ buildPreludeTypes(CM) {
       Int name = nameOfStd(i);
       cm->activeBindings[name] = ind;
       
-      pushIntSpans((TSpan){ .start = ind, .isGeneric = 0, .entityId = ind}, cm);
+      pushIntSpans((TSpan){ .start = -1, .len = -1, .isGeneric = 0, .entityId = ind}, cm);
    }
    
    pushInconcretes((Concrete){ // Int
-      .sort = 0, .spanId = tokInt, .size = 4, .start = (Unt)-1, .fieldsInd = -1, .arity=0 }, cm
+      .sort = 0, .spanId = tokInt, .size = 4, .fields = (Unt)-1, .fieldNames = -1, .arity=0 }, cm
    );
    pushInconcretes((Concrete){ // Long
-      .sort = 0, .spanId = tokLong, .size = 8, .start = (Unt)-1, .fieldsInd = -1, .arity=0 }, cm
+      .sort = 0, .spanId = tokLong, .size = 8, .fields = (Unt)-1, .fieldNames = -1, .arity=0 }, cm
    );
    pushInconcretes((Concrete){ // Double
-      .sort = 0, .spanId = tokDouble, .size = 8, .start = (Unt)-1, .fieldsInd = -1, .arity=0 }, cm
+      .sort = 0, .spanId = tokDouble, .size = 8, .fields = (Unt)-1, .fieldNames = -1, .arity=0 }, cm
    );
    pushInconcretes((Concrete){ // Bool
-      .sort = 0, .spanId = tokBool, .size = 1, .start = (Unt)-1, .fieldsInd = -1, .arity=0 }, cm
+      .sort = 0, .spanId = tokBool, .size = 1, .fields = (Unt)-1, .fieldNames = -1, .arity=0 }, cm
    );
    
    // String
@@ -5856,10 +5869,14 @@ buildPreludeTypes(CM) {
       .start = stringId, .len = 0, .isGeneric = 0, .entityId = stringConcrInd}, cm
    );
    pushInconcretes((Concrete){
-      .sort = sorStruct, .spanId = tokString, .fieldsInd = stringFieldsInd,
-      .start = stringBodyInd, .size = 16 }, cm
+      .sort = sorStruct, .spanId = tokString, 
+      .fields = stringBodyInd, .fieldNames = stringFieldsInd, .size = 16 }, cm
    );
    cm->activeBindings[stringName] = stringId;
+   
+   pushInconcretes((Concrete){ // Void
+      .sort = 0, .spanId = tokMisc, .size = 0, .fields = (Unt)-1, .fieldNames = -1, .arity=0 }, cm
+   );
    
    // Empty type to signify  "outerTypeForTypeParam"
    Int indOuterTypeForTypePar = cm->tSpans.len;
@@ -5867,13 +5884,13 @@ buildPreludeTypes(CM) {
 
    // Array
    Int const arrayId = cm->tSpans.len;
-   Int const arrayFieldsInd = cm->fieldNames.len;
+   Int const arrayFieldNames = cm->fieldNames.len;
    Int const arrayDeclId = cm->generics.len;
    Int const arrayName = nameOfStd(strArr);
    pushInfieldNames(((FieldName){.name = -1, .access = accessAbstract}), cm);
    pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
    pushIngenerics(((Generic){
-      .name = arrayName, .spanId = arrayId, .fieldsInd = arrayFieldsInd,
+      .name = arrayName, .spanId = arrayId, .fieldNames = arrayFieldNames,
       .arity = 2, .tyrity = 1, .access = accessPubImm
    }), cm);
    pushIntSpans((TSpan){
@@ -5884,14 +5901,14 @@ buildPreludeTypes(CM) {
 
    // List
    Int const listId = cm->tSpans.len;
-   Int const listFieldsInd = cm->fieldNames.len;
+   Int const listFieldNames = cm->fieldNames.len;
    Int const listDeclId = cm->generics.len;
    Int const listName = nameOfStd(strL);
    pushInfieldNames(((FieldName){.name = -1, .access = accessAbstract}), cm);
    pushInfieldNames(((FieldName){.name = nameOfStd(strLen), .access = accessPubImm}), cm);
    pushInfieldNames(((FieldName){.name = nameOfStd(strCap), .access = accessPubImm}), cm);
    pushIngenerics(((Generic){
-      .name = listName, .spanId = listId, .fieldsInd = listFieldsInd, .access = accessPubImm,
+      .name = listName, .spanId = listId, .fieldNames = listFieldNames, .access = accessPubImm,
       .arity = 3, .tyrity = 1 
    }), cm);
    pushIntSpans((TSpan){ .entityId = listDeclId, .start = 0, .len = 0}, cm);
@@ -6801,18 +6818,39 @@ calcSizeOfStruct(TypeId t, CM) {
    return 8;
 }
 
-//}}}
-//{{{ Parsing type names
-
-private TypeId //:typeGetTypeByName
-typeGetTypeByName(Int t, CM) {
+private TypeId //:tGetSpanByName
+tGetSpanByName(Int t, CM) {
    Int const mbTypeId = cm->activeBindings[t];
    VALIDATEP(mbTypeId > -1, pError(errUnknownType, nameErr(t)));
    return typeOf(mbTypeId);
 }
 
+
+private void //:tAddTypeCall
+tAddTypeCall(Int name, CM) {
+// Writes a single type call to the end of @types
+   TypeId spanId = tGetSpanByName(name, cm);
+   TSpan span = cm->tSpans.c[spanId];
+   VALIDATEP(
+      span.isGeneric > 0 && span.entityId < UNT_MAX_31_BITS, 
+      pError(errTypeNotAConstructor, nameErr(name))
+   )
+   Unt firstValue = ttagTypeCall + (Unt)spanId.v;
+   Unt secondValue = cm->generics.c[span.entityId].tyrity << 24;
+   // length will be added to the lower 24 bits of this second value
+   pushIntypes(firstValue, secondValue);
+}
+
+//}}}
+//{{{ Parsing type names
+
 //}}}
 //{{{ Type expressions
+
+private TSpan //:tSubtreeStartingAt
+tSubtreeStartingAt() {
+   
+}
 
 private void //:tFreshState
 tFreshState(TStuff* ts) {
@@ -6859,7 +6897,7 @@ tParseComplexType(TStuff* ts, Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
 
       if (cTk.tp == tokType) {
          if (cTk.pl2 == 0) {
-            add(typeGetTypeByName(cTk.pl1, cm).v, exp);
+            add(tGetSpanByName(cTk.pl1, cm).v, exp);
          } else {
             Int const typeCallSent = calcSentinel(cTk, cm->i);
             teOpenTypeCall(cTk.pl1, typeCallSent, ts, cm);
@@ -6886,7 +6924,7 @@ tParse(Int sentinel, TOKENS, CM, OUT TSpan* hdr) {
    TStuff* ts = &(cm->ts);
    if (cm->i + 1 == sentinel) { // single-name type
       VALIDATEP(firstTypeTk.tp == tokType, pError0(errExpectedType))
-      TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
+      TypeId simpleType = tGetSpanByName(firstTypeTk.pl1, cm);
       *hdr = cm->tSpans.c[simpleType.v];
       add(simpleType.v, ts->exp);
       return simpleType;
@@ -6907,7 +6945,7 @@ OLDtParse(Int sentinel, OUT Bool* isGeneric, TOKENS, CM) {
    TStuff* ts = &(cm->ts);
    if (cm->i + 1 == sentinel) { // single-name type
       if (firstTypeTk.tp == tokType)  {
-         TypeId simpleType = typeGetTypeByName(firstTypeTk.pl1, cm);
+         TypeId simpleType = tGetSpanByName(firstTypeTk.pl1, cm);
          *isGeneric = typeReadHeader(simpleType, cm).isGeneric;
          add(simpleType.v, ts->exp);
          return simpleType;
@@ -6981,8 +7019,8 @@ tCreateTypeCall(TStuff* ts, Byte sort, Int startInd, TypeFrame frame, CM) {
 
 
 private Int //:teMergeParam
-teMergeParam(NameId name, TStuff* restrict ts, CM) {
-   for (Int j = ts->frames->len; j > -1 && !te->frames->c[j].isGeneric; j--) {
+teMergeParam(NameId name, TStuff* restrict ts) {
+   for (Int j = ts->frames->len; j > -1 && !ts->frames->c[j].isGeneric; j--) {
       ts->frames->c[j].isGeneric = true;
    }
    add(-name - 1, ts->exp);
@@ -7042,6 +7080,7 @@ tCreateSingleParamTypeCall(NameId nameOfOuter, TypeId typeArg, CM) {
 #define maxTypeParams 254
 // Tags within @types. See "docs/types.txt"
 #define ttagTypeCall (1 << 29)
+#define ttagTypeCall (1 << 29)
 #define ttagParam (2 << 29)
 #define ttagFnCall (3 << 29)
 #define ttagPointer (4 << 29)
@@ -7060,7 +7099,7 @@ teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM) {
       add(sorFnCall, ts->exp);
       add(0, ts->exp); // to be filled by (tyrity (type node length)) at end of this type call
    } else { // ordinary type call
-      TypeId const typeId =  typeGetTypeByName(cm->activeBindings[typeName], cm);
+      TypeId const typeId =  tGetSpanByName(cm->activeBindings[typeName], cm);
       VALIDATEP(typeId.v > -1, pError(errUnknownTypeConstructor, nameErr(typeName)))
       
       Int tyrity = cm->tSpans[typeId.v].tyrity;
@@ -7226,11 +7265,28 @@ tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
    return mergeType(typeOf(tentativeType), cm);
 }
 
+private void //:tUnifyParam
+tUnifyParam(Int paramName, Int concreteId, TStuff* restrict ts) {
+// If this param is encountered for the first time, adds it to @ts.params
+// Otherwise, compares the subtree in the concrete type with the param value and throws if diff
+   // subtree = ...
+   TSpan subtree = tSubtreeStartingAt(concreteId);
+   for (Int j = 0; j < ts->params.len; j++) {
+      if (ts->params.c[j].name == paramName) {
+         // compare the subtrees, require them to be equal
+         return;
+      }
+   }
+   TypeParam newParam = (TypeParam){.name = paramName, .spanId = };
+}
+
 private LInt //:tUnify
-tUnify(TSpan generic, TSpan concrete, CM) {
+tUnify(TypeId genId, TypeId conId, CM) {
 // Returns: @te.tParams with type parameters fully resolved: [(name type)]
 // Precondition: for both "generic" and "concrete", sentinel - currPos must be same length
 // Throws if not types not unifiable
+   TSpan generic = cm->tSpans.c[genId];
+   TSpan concrete = cm->tSpans.c[conId];
    Int const sentinelGen = generic.start + generic.len;
    Int const sentinelCon = concrete.start + concrete.len;
    Int i = generic.start;
@@ -7239,23 +7295,40 @@ tUnify(TSpan generic, TSpan concrete, CM) {
       Int con = cm->types.c[j];
       switch (gen & UPPER3BITS) {
       case 0: {
-         VALIDATEP(gen == con, pError(errTypeGenericCallDoesntUnify, typeErr2(gen, con)))
+         VALIDATEP(gen == con, pError(errTypeGenericCallDoesntUnify, typeErr2(genId, conId)))
          i++;
          j++;
          continue;
       }
       case ttagTypeCall: {
-         
-         
+         Int nameGen = gen & LOWER29BITS;
+         VALIDATEP(
+            con & UPPER3BITS == ttagTypeCall && (con & LOWER29BITS) == nameGen,
+            pError(errTypeGenericCallDoesntUnify, typeErr2(genId, conId))
+         )
+         VALIDATEI( // compare tyrities of the type calls. Should be correct by construction
+            (i + 1) < sentinelGen && (j + 1) < sentinelCon
+            && (cm->types.c[i + 1] >> 24) == (cm->types.c[j + 1] >> 24),
+            ierrInconsistentTyrities
+         )
+         i += 2;
+         j += 2;
+         break;
       }
       case ttagParam: {
-         
+         tUnifyParam(gen & LOWER29BITS, ts);
+         break;
       } 
       case ttagFnCall: {
-         
+         VALIDATEP(
+            con & UPPER3BITS == ttagFnCall && (con & LOWER29BITS) == (gen & LOWER29BITS),
+            pError(errTypeGenericCallDoesntUnify, typeErr2(genId, conId))
+         )
+         i += 2;
+         j += 2;
       }
-      case ttagPointer: break; // Future releases
-      case ttagNullable: break; // Future releases
+      case ttagPointer: i++; j++; break; // Coming in future releases
+      case ttagNullable: i++; j++; break; // Coming in future releases
       }
       Int con = cm->types.c[j];
    }
@@ -7621,7 +7694,7 @@ typeCheckStruct(Node nd, LInt* restrict exp, CM) {
 // Handles struct initializers: resolves it to a concrete type and stores it in the nodStruct
    Int const fieldCount = nd.pl2;
    Arr(Int) args = exp->c + exp->len - fieldCount;
-   TypeId structType = typeGetTypeByName(nd.pl1, cm);
+   TypeId structType = tGetSpanByName(nd.pl1, cm);
    TSpan structHdr = typeReadHeader(structType, cm);
 
    // Note that we do NOT need to check for arity or that @exp.len is sufficient
@@ -8105,8 +8178,7 @@ printLexer(LX) { //:printLexer
 
 // Must agree in order with node types in eyr.internal.h
 char const* nodeNames[] = {
-   "Int", "Long", "Double", "Bool", "String", "misc",
-   "var", "call",
+   "Literal", "var", "call",
    "{", "Expr", "=", "[data]", "Struct()",
    "assert", "breakCont", "catch", "import",
    "f{ }", "trait", "return", "try",
