@@ -3811,7 +3811,7 @@ throwExcParser0(CompileError error, Int lineNumber, CM) {
    longjmp(excBuf, 1);
 }
 
-#define throwExcParser(errId) throwExcParser0(errId, __LINE__, cm)
+#define throwExcParser(err) throwExcParser0(err, __LINE__, cm)
 
 //}}}
 
@@ -6849,7 +6849,7 @@ tAddTypeCall(Int name, CM) {
 //}}}
 //{{{ Type expressions
 
-private TSpan //:tSubtreeStartingAt
+private TypeId //:tSubtreeStartingAt
 tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
    LInt* sentinels = &(ts->tmp);
    Int const startingLen = sentinels.len; // will be restored at end of function
@@ -6874,8 +6874,12 @@ tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
       case ttagPointer: break; // Coming in future releases
       case ttagNullable: break; // Coming in future releases
       }
-      if (ts->frames.len == startingLen)
-         { return (TSpan){.start = start, .len = j - start, .isGeneric = 0}; }
+      if (ts->frames.len == startingLen) {
+         Bool wasNew;
+         return tMerge(
+            (TSpan){.start = start, .len = j - start, .isGeneric = 0}, cm, OUT &wasNew
+         );
+      }
    } 
 }
 
@@ -7292,24 +7296,26 @@ tGlueReturnTypeOntoFn(TypeId args, TypeId returnType, CM) {
    return mergeType(typeOf(tentativeType), cm);
 }
 
-private void //:tUnifyParam
+private Bool //:tUnifyParam
 tUnifyParam(Int paramName, Int concreteId, TStuff* restrict ts, CM) {
 // If this param is encountered for the first time, adds it to @ts.params
-// Otherwise, compares the subtree in the concrete type with the param value and throws if diff
+// Otherwise, compares the subtree in the concrete type with param value and returns false if diff
    // subtree = ...
-   TSpan subtree = tSubtreeStartingAt(concreteId, ts, cm->types.c);
+   TypeId subtreeId = tSubtreeStartingAt(concreteId, ts, OUT &subtreeId, cm->types.c);
+   TSpan subtree = cm->tSpans.c[subtreeId];
    for (Int j = 0; j < ts->params.len; j++) {
       if (ts->params.c[j].name == paramName) {
          // compare the subtrees, require them to be equal
-         VALIDATEP(ts->params.c[j].span == subtree, )
-         return;
+         return (ts->params.c[j].span == subtree);
       }
    }
+   
    TypeParam newParam = (TypeParam){.name = paramName, .spanId = };
-   add(ts->params);
+   add(newParam, ts->params);
+   return true;
 }
 
-private LInt //:tUnify
+private LTypeParam //:tUnify
 tUnify(TypeId genId, TypeId conId, CM) {
 // Returns: @te.tParams with type parameters fully resolved: [(name type)]
 // Precondition: for both "generic" and "concrete", sentinel - currPos must be same length
@@ -7345,7 +7351,9 @@ tUnify(TypeId genId, TypeId conId, CM) {
          break;
       }
       case ttagParam: {
-         tUnifyParam(gen & LOWER29BITS, ts);
+         if (!tUnifyParam(gen & LOWER29BITS, j, ts)) {
+            throwExcParser(pError(errTypeGenericCallDoesntUnify, typeErr2(genId, conId)));
+         }
          break;
       } 
       case ttagFnCall: {
@@ -7356,41 +7364,18 @@ tUnify(TypeId genId, TypeId conId, CM) {
          i += 2;
          j += 2;
          break;
+         
       }
       case ttagPointer: i++; j++; break; // Coming in future releases
       case ttagNullable: i++; j++; break; // Coming in future releases
       }
       Int con = cm->types.c[j];
    }
-
-
-
-
-
-   TStuff* restrict ts = &(cm->ts);
-   ts->genericWalk->len = 0;
-   ts->concreteWalk->len = 0;
-   ts->tParams.len = 0;
-
-   add(generic, ts->genericWalk);
-   add(concrete, ts->concreteWalk);
-   for (; ts->genericWalk->len > 0 && ts->concreteWalk->len > 0; ) {
-      TypeLoc* genericLoc = &last(te->genericWalk);
-      TypeLoc* concreteLoc = &last(te->concreteWalk);
-      TypeId g = { .v = cm->types.c[genericLoc->currPos] };
-      TypeId c = { .v = cm->types.c[concreteLoc->currPos] };
-
-      // next step in the tree-walk
-      genericLoc->currPos++;
-      concreteLoc->currPos++;
-      if (genericLoc->currPos == genericLoc->sentinel) {
-         ts->genericWalk->len--;
-         ts->concreteWalk->len--;
-      }
-
-      tGenericTryUnifyTreeNodes(g, c, ts->genericWalk, ts->concreteWalk, cm);
-   }
-   return ts->tParams;
+   VALIDATEP(
+      i == sentinelGen && j == sentinelCon, 
+      pError(errTypeGenericCallDoesntUnify, typeErr2(genId, conId))
+   )
+   return ts->params;
 }
 
 private TypeId //:monomorphizeStruct
@@ -7896,7 +7881,7 @@ typeTryGetField(NameId fieldName, TypeId t, OUT Int* fieldInd, CM) {
 //{{{ Generic types
 
 TypeId //:tGenericSubstituteParams
-tGenericSubstituteParams(TypeId t, LInt resolvedParams, CM) {
+tGenericSubstituteParams(TypeId t, LTypeParam resolvedParams, CM) {
 // Performs the substitutions of type params into generic types according to @resolvedParams
 // "resolvedParams" = [(name type)] of type parameters
    if (t.v <= topVerbatimType)
@@ -7994,7 +7979,7 @@ tResolveGenericFnCall(Function fn, Arr(Int) argTypes, Int argCount, CM) {
       .currPos = tGetBodyStart(fn.typeId, genericHdr), .sentinel = genericSent
    };
 
-   LInt resolvedParams = tUnify(genericLoc, concreteLoc, cm);
+   LTypeParam resolvedParams = tUnify(genericLoc, concreteLoc, cm);
    TypeId genericReturnType = tFunctionReturnType(fn.typeId, cm);
    TypeId returnType = tGenericSubstituteParams(genericReturnType, resolvedParams, cm);
    return tGlueReturnTypeOntoFn(args, returnType, cm);
