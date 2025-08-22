@@ -178,15 +178,14 @@ void runTest(ParserTest test, TestContext* ct) {
       else
          { return; }
    }
-   print("runnin test")
    CompResult* testRes = getCompResult(test.test);
    CompResult* controlRes = getCompResult(test.control);
    Int testId = ct->countTests - 1;
    if (testRes->stats.toksLen == 0) {
-      print("Lexer result empty");
+      d("Lexer result empty");
       return;
    } else if (controlRes->wasLexerError) {
-      print("[%d]Lexer error", testId);
+      d("[%d]Lexer error", testId);
       printLexer(test.control);
       return;
    }
@@ -203,17 +202,17 @@ void runTest(ParserTest test, TestContext* ct) {
       printf("\nBut was expected: ");
       libeyr_printErrors(controlRes);
       printf("\n");
-      print("   LEXER:")
+      d("   LEXER:")
       printLexer(test.test);
-      print("   PARSER:")
+      d("   PARSER:")
       printParser(test.test);
    } else {
       printf("ERROR IN [%d]", testId);
       printString(test.name);
       printf("On node %d\n", equalityStatus);
-      print("   LEXER:")
+      d("   LEXER:")
       printLexer(test.test);
-      print("   PARSER:")
+      d("   PARSER:")
       printParser(test.test);
    }
 }

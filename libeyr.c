@@ -455,6 +455,7 @@ private TypeId tCreateFnTypeCall(TStuff* ts, Int startInd, TypeFrame frame, CM);
 private TypeId tCreateTypeCall(TStuff* ts, Byte sort, Int startInd, TypeFrame frame, CM);
 private void teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM);
 private Int teMergeParam(NameId name, TStuff* restrict ts, CM);
+private TypeId tExtractFnOverloadHandle(TSpan fnType, CM);
 
 private TypeId tParse(Int sentinel, TOKENS, CM, OUT TSpan* hdr);
 private NameLoc nameOfHost(Int strId);
@@ -492,7 +493,7 @@ private void fillInCompilationResult(CM, OUT CompResult* cr);
    LChInterval*: addChInterval,\
    LCompileError*: addCompileError,\
    LSourceLoc*: addSourceLoc,\
-   LTypeParam*: addTypeParam,\
+   LTypeParam*: addTypeParam\
 )(A, X)
 
 #define removeLast(X) _Generic((X),\
@@ -1526,7 +1527,7 @@ DEFINE_LIST(Token) //:createLToken
 constexpr TypeId boolTy = { .v = tokBool };
 constexpr TypeId intTy = { .v = tokInt };
 constexpr TypeId ZERO_ARITY_TYPE = { .v = tokMisc };
-constexpr TypeId VOID_TYPE = { .v = voidType };
+constexpr TypeId VOID_TYPE = { .v = 0 };
 
 constexpr Int arrLitRuntimeLength = BIG;  // array literal without elements but with runtime-known
                                           // length, [@Int (x + 2)]
@@ -1665,16 +1666,27 @@ struct TypeParam { //:TypeParam
    TypeId spanId;
 };
 
+typedef enum {
+   ovSortNullary, // each function can have one of these
+   ovSortConcrete, // concrete types, possible when ovSortTypeParam doesn't exist
+   ovSortGeneric, // type constructors, possible without ovSortTypeParam and intersections
+   ovSortFn, // functions, possible without ovSortTypeParam and different fn arities
+   ovSortTypeParam // each function can have one of these but if so, only ovSortNullary allowed
+} OverloadSort;
+
+typedef struct { //:OverloadHandle
+   Int v; // see {tDecodeOverloadHandle}
+} OverloadHandle;
+
 DEFINE_LIST(TypeParam)
 
 struct TStuff { // :TStuff State for parsing types & type expressions. Lives in [aTmp]
    LInt* exp;          //  TypeId
    LTypeFrame* frames;
-   LInt names;         // Record field names
    LTypeParam params;  // Unique type param names
    LInt tmp;          // Used in name uniqueness validation, and subtree determination
-   LTypeLoc* genericWalk;  // Type location stack within a generic type, used for unification
-   LTypeLoc* concreteWalk; // Type location stack within a concrete type, used for unification
+   //LTypeLoc* genericWalk;  // Type location stack within a generic type, used for unification
+   //LTypeLoc* concreteWalk; // Type location stack within a concrete type, used for unification
    StringDict* typesDict;
 };
 
@@ -2092,6 +2104,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrOverloadsIncoherent  "The overloads table is incoherent"
 #define ierrExpressionIsNotAnExpr "What is supposed to be an expression in the AST is not a nodExpr"
 #define ierrComplexExpression     "Error in a complex expression's internal definitions"
+#define ierrTypeExprNotAFunction  "This type expression was supposed to be a function"
 #define ierrGenericTypesInconsistent "Two generic types have inconsistent layout "\
                                       "(premature end of type)"
 #define ierrOuterTypeOfParam     "Tried to get an outer type of param or generic"
@@ -3746,7 +3759,7 @@ nameNum2Err(Int name, Int num1, Int num2) {
       .count = 3,
       .c = {
          (ErrTextSumType){.tp = errtxtName, .c = name },
-         (ErrTextSumType){.tp = errtxtNumber, .c = num1 }
+         (ErrTextSumType){.tp = errtxtNumber, .c = num1 },
          (ErrTextSumType){.tp = errtxtNumber, .c = num2 }
       }
    };
@@ -4147,7 +4160,7 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
    NameId fnName = rightTk.pl1;
 
    FunctionId fnId = findOverload(
-      fnName, libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c), cm
+      fnName, tExtractFnOverloadHandle(leftType, cm), cm
    );
    TypeId fnType = cm->functions.c[fnId].typeId;
    VALIDATEP(eq(leftType, fnType), pError(errTypeMismatch, typeErr2(leftType, fnType)));
@@ -5924,13 +5937,17 @@ buildPreludeTypes(CM) {
 
 private void //:buildOper
 buildOper(Int operId, TypeId typeId, Emit emit, CM) {
-//Creates an entity, pushes it to @rawOverloads and activates its name
+//Creates an entity, pushes it to @rawOverloads (if oper is overloadable) and activates its name
    FunctionId newFnId = cm->functions.len;
    pushInfunctions(
       (Function){ .typeId = typeId, .name = OPERATORS[operId].name, .emit = emit, },
       cm
    );
-   addRawOverload(operId, typeId, newFnId, cm);
+   if (OPERATORS[operId].overloadable) {
+      addRawOverload(operId, typeId, newFnId, cm);
+   } else {
+      cm->activeBindings[operId] = newFnId;  
+   }
 }
 
 private void //:buildOperators
@@ -6187,24 +6204,19 @@ initializeParser(Compiler* lx, Arena* a) {
    memcpy(cm->fieldNames.c, PROTO.fieldNames.c, PROTO.fieldNames.len*sizeof(FieldName));
    cm->fieldNames.len = PROTO.fieldNames.len;
 
-   cm->fieldTypes = createInListInt(PROTO.fieldTypes.len, a);
-   memcpy(cm->fieldTypes.c, PROTO.fieldTypes.c, PROTO.fieldTypes.len*4);
-   cm->fieldTypes.len = PROTO.fieldTypes.len;
 
    cm->importNames = createInListInt(8, lx->aTmp);
    cm->toplevels = createInListInt(8, lx->a);
    cm->monos = createLInt(4, lx->a);
 
    cm->ts = (TStuff) {
-      .typesDict = copyStringDict(PROTO.typesDict, a),
+      .typesDict = copyStringDict(PROTO.ts.typesDict, a),
       .exp = createLInt(16, cm->aTmp),
       .frames = createLTypeFrame(16, cm->aTmp),
-      .names = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
-      .paramNames = (LInt){.c = allocateArray(4, Int, cm->aTmp), .len = 0, .cap = 4},
-      .tParams = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
+      .params = (LTypeParam){.c = allocateArray(4, TypeParam, cm->aTmp), .len = 0, .cap = 4},
       .tmp = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
-      .genericWalk = createLTypeLoc(16, cm->aTmp),
-      .concreteWalk = createLTypeLoc(16, cm->aTmp),
+//      .genericWalk = createLTypeLoc(16, cm->aTmp),
+//      .concreteWalk = createLTypeLoc(16, cm->aTmp),
    };
    cm->entrypoint = -1;
 
@@ -6389,7 +6401,7 @@ validateOverloadsFull(CM) {
       }
       for (Int j = currInd + countOverloads + 1; j < nextInd; j++) {
          if (cm->overloads.c[j] < 0) {
-            print("ERR overload missing entity currInd %d nextInd %d j %d cm->overloads.c[j] %d", currInd, nextInd,
+            d("ERR overload missing entity currInd %d nextInd %d j %d cm->overloads.c[j] %d", currInd, nextInd,
                j, cm->overloads.c[j])
             throwExcInternal(ierrOverloadsNotFull);
          }
@@ -6661,6 +6673,47 @@ libeyr_getFieldNameInd(TypeId t, TSpan hdr, Arr(Int) types) {
    return types[t.v + TYPE_PREFIX + hdr.arity];
 }
 
+private Int //:tGetOuterGeneric
+tGetOuterGeneric(Int tp, Arr(Int) types) {
+// `[Foo Int Str]` in @types => the genericId of `Foo`
+   
+}
+
+private Int //:tDecodeOverloadHandle
+tDecodeOverloadHandle(OverloadHandle hndl, OUT Int* value) {
+   if (hndl.v == 0) {
+      return ovSortNullary;
+   } ei (hndl.v < BIG) {
+      *value = hndl.v;
+      return ovSortConcrete;
+   } ei (hndl.v < 2*BIG) {
+      *value = hndl.v - BIG;   // genericId
+      return ovSortGeneric;
+   } ei (hndl.v < 3*BIG) {
+      *value = hndl.v - 2*BIG; // fn arity
+      return ovSortFn;
+   } else {
+      return ovSortTypeParam;
+   }
+}
+
+private OverloadHandle //:tExtractFnOverloadHandle
+tExtractFnOverloadHandle(TypeId fnType, CM) {
+// From a function type, extracts the handle which is used for finding overloads:
+// If the first param is a concrete type, then its typeId; otherwise, the outer type constructor's.
+   TSpan fnSpan = cm->tSpans.c[fnType.v];
+   Int j = fnSpan.start;
+   VALIDATEI(cm->types.c[j] & UPPER3BITS == ttagFnCall, ierrTypeExprNotAFunction)
+   j += 2; // CONSUME the `F[`
+   TypeId firstParamId = tSubtreeStartingAt(j, ts, types);
+   TSpan firstParam = cm->tSpans.c[firstParamId.v];
+   if (firstParam.isGeneric == 0) {
+      return firstParamId;
+   }
+   
+   
+}
+
 TypeId //:libeyr_typeGetGenericArg
 libeyr_typeGetGenericArg(TypeId t, TSpan hdr, Int indArg, Arr(Int) types) {
 // (S Foo) => Foo. (F A -> B) => A
@@ -6853,6 +6906,7 @@ private TypeId //:tSubtreeStartingAt
 tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
    LInt* sentinels = &(ts->tmp);
    Int const startingLen = sentinels.len; // will be restored at end of function
+   Int isGeneric = 0;
    for (Int j = 0; true; j++) {
       switch (gen & UPPER3BITS) {
       case 0: {
@@ -6864,7 +6918,7 @@ tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
          break;
       }
       case ttagParam: {
-         break;
+         isGeneric = 1; break;
       } 
       case ttagFnCall: {
          add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
@@ -6877,7 +6931,7 @@ tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
       if (ts->frames.len == startingLen) {
          Bool wasNew;
          return tMerge(
-            (TSpan){.start = start, .len = j - start, .isGeneric = 0}, cm, OUT &wasNew
+            (TSpan){.start = start, .len = j - start, .isGeneric = isGeneric}, cm, OUT &wasNew
          );
       }
    } 
@@ -7447,57 +7501,68 @@ tFunctionReturnType(TypeId funcTypeId, CM) {
 
 
 private Bool //:tFindOverload
-tFindOverload(TypeId typeId, Int ovInd, CM, OUT FunctionId* fn) {
-// Params: typeId = type of the first function parameter, or -1 if it's 0-arity
-//         ovInd = ind in @overloads, which is found via @activeBindings
+tFindOverload(Int fnName, TypeId firstParamTp, CM, OUT FunctionId* fn) {
+// Params: firstParamTp = type of the first function parameter, or 0 if it's nullary
 //         entityId = address where to store the result, if successful
-// We have 4 scenarios here, sorted from left to right in the outerType part of [overloads]:
-// 1. outerType = -1 => 0-arity function
-// 2. outerType = outerTypeForTypeParam => a blanket overload
-// 3. default
+// For decoding the overload handles in @overloads, see {tDecodeOverloadHandle}
+
+   Int ovInd = -getBinding(fnName, cm) - 2;
    Int const start = ovInd + 1;
    Arr(Int) overs = cm->overloads.c;
 
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
-
-   if (eq(typeId, typeOf(tokMisc))) { // scenario 1
-      Int j = ovInd + 1;
-      if (j < sentinel && overs[j] == voidType) {
+   
+   // nullary and concrete overloads
+   Int j = ovInd + 1;
+   for (; j < sentinel && overs[j] < BIG; j++) {
+      if (overs[j] == firstParamTp.v) {
          (*fn) = overs[j + countOverloads];
          return true;
-      } else {
-         return false;
       }
    }
-
-   TypeId const outerType = typeGetOuter(typeId, cm);
-
-   Int firstNonneg = start;
-   for (; firstNonneg < sentinel && overs[firstNonneg] < 0; firstNonneg++);
-
-   Int k = sentinel - 1;
-   for (; k > firstNonneg && overs[k] >= BIG; k--) {}
-   if (k < firstNonneg)
+   if (j == sentinel)
       { return false; }
-   if (overs[firstNonneg] == outerTypeForTypeParam) {
-      (*fn) = overs[firstNonneg + countOverloads];
+      
+   // all-matching overload   
+   if (ovSortTypeParam == tDecodeOverloadHandle(overs[j], OUT &ovValue)) {
+      (*fn) = overs[j + countOverloads];
       return true;
    }
-
-   Int ind = binarySearch(outerType.v, firstNonneg, k + 1, overs);
-   if (ind == -1)
-      { return false; }
-   (*fn) = overs[ind + countOverloads];
-   return true;
+      
+   // generic types and function overloads
+   Int needle;
+   if (tIsFunction(tpFstArg)) {
+      needle = -arity;
+   } else {
+      needle = tGetOuterGeneric(tpFstArg, cm->types.c)
+   }
+   for (; j < sentinel; j++) {
+      Int ovValue;
+      OverloadSort ovSort = tDecodeOverloadHandle(overs[j], OUT &ovValue);
+      switch (ovSort) {
+      case ovSortGeneric: {
+         if (ovValue == needle) {
+            (*fn) = overs[j + countOverloads];
+            return true;
+         }
+      }
+      case ovSortFn: {
+         if (ovValue == -needle) {
+            (*fn) = overs[j + countOverloads];
+            return true;
+         }
+      }
+      }
+   }
+   return false;
 }
 
 private FunctionId //:findOverload
-findOverload(NameId name, TypeId tpFstArg, CM) {
-   Int indOverl = -cm->activeBindings[name] - 2;
+findOverload(NameId fnName, TypeId tpFstArg, CM) {
    VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name)))
    Int fnId;
-   Bool ovFound = tFindOverload(tpFstArg, indOverl, cm, OUT &fnId);
+   Bool ovFound = tFindOverload(tpFstArg, fnName, cm, OUT &fnId);
 #if defined(DEBUG) //{{{
    if (!ovFound) {
       d("Overload not found: indOverl %d name %d tpFirstArg %d j %d",
@@ -7513,7 +7578,7 @@ findOverload(NameId name, TypeId tpFstArg, CM) {
 }
 
 private FunctionId //:eFindOverload
-eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
+eFindOverload(NameId fnName, Int argCount, LInt* exp, CM) {
    TypeId tpFstArg;
    if (argCount == 0) {
       tpFstArg = VOID_TYPE;
@@ -7521,21 +7586,21 @@ eFindOverload(NameId name, Int argCount, LInt* exp, CM) {
       tpFstArg = typeOf(exp->c[exp->len - argCount]);
       if (tpFstArg.v == -1) { //{{{
          Int a = exp->c[exp->len - argCount];
-         d("can't get first type of type %d name %d cmj %d", a, name, cm->j);
+         d("can't get first type of type %d name %d cmj %d", a, fnName, cm->j);
       } //}}}
-      VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name)))
+      VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(fnName)))
    }
-   return findOverload(name, tpFstArg, cm);
+   return findOverload(fnName, tpFstArg, cm);
 }
 
 internal Int //:getOper
 getOper(Int opName, Int operandType, Compiler* cm) {
 // Try to find convert test value to operator entityId
-   Int ovInd = -getBinding(opName, cm) - 2;
+   if (!OPERATORS[opName].overloadable) // non-overloadable operators just have functionId
+      { return getBinding(opName, cm); }
+   
    Int fnId;
-   Bool foundOv UNUSED = tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
-
-   tFindOverload(typeOf(operandType), ovInd, cm, OUT &fnId);
+   Bool foundOv UNUSED = tFindOverload(typeOf(operandType), opName, cm, OUT &fnId);
    VALIDATEI(foundOv, ierrParsedFunctionNotInScope);
    return fnId;
 }
@@ -8478,7 +8543,7 @@ dbgOverloads(Int nameId, CM) { //:dbgOverloads
 
 void //:printTypesInterval
 printTypesInterval(Int startInd, Int count, CM) {
-   print("@types[...");
+   d("@types[...");
    Int printedOnThisLine = 0;
    for (Int k = 0; k < count; k++) {
       Int value = cm->types.c[k];
