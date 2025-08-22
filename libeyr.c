@@ -2102,6 +2102,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrOverloadsOverflow    "There were more overloads for a function than what was allocated"
 #define ierrOverloadsNotFull     "There were fewer overloads for a function than what was allocated"
 #define ierrOverloadsIncoherent  "The overloads table is incoherent"
+#define ierrOverloadsForNonoverloadable "More than one overload for a non-overloadable operator"
 #define ierrExpressionIsNotAnExpr "What is supposed to be an expression in the AST is not a nodExpr"
 #define ierrComplexExpression     "Error in a complex expression's internal definitions"
 #define ierrTypeExprNotAFunction  "This type expression was supposed to be a function"
@@ -5242,7 +5243,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    case tokFieldAcc:
       add(((Node){.tp = nodCall, .pl1 = name, .pl3 = callField}), &(e->scr)); break;
    case tokString:
-      add(((Node){ .tp = cTk.tp, .pl1 = loc.startBt, .pl2 = loc.lenBts }), &(e->scr));
+      add(((Node){ .tp = nodLit, .pl1 = loc.startBt, .pl2 = loc.lenBts, .pl3 = tokString }), &(e->scr));
       add(loc, &(e->locsScr));
       eWriteUnaryCalls(e);
       eBumpArgCount(e->frames);
@@ -5251,7 +5252,7 @@ eProcessToken(Token cTk, Int sentinel, Expr* restrict e, TOKENS, CM) {
    case tokLong:
    case tokDouble:
    case tokBool:
-      add(((Node){ .tp = cTk.tp, .pl1 = name, .pl2 = cTk.pl2 }), &(e->scr));
+      add(((Node){ .tp = nodLit, .pl1 = name, .pl2 = cTk.pl2, .pl3 = cTk.tp }), &(e->scr));
       //-fallthrough
    case tokWord:
       if (tokTp == tokWord)
@@ -5943,11 +5944,7 @@ buildOper(Int operId, TypeId typeId, Emit emit, CM) {
       (Function){ .typeId = typeId, .name = OPERATORS[operId].name, .emit = emit, },
       cm
    );
-   if (OPERATORS[operId].overloadable) {
-      addRawOverload(operId, typeId, newFnId, cm);
-   } else {
-      cm->activeBindings[operId] = newFnId;  
-   }
+   addRawOverload(operId, typeId, newFnId, cm);
 }
 
 private void //:buildOperators
@@ -6265,6 +6262,9 @@ createNameOverloads(NameId name, CM) {
 
    VALIDATEI(rawStart != -1, ierrImportedFnNotInScope)
    Int const countOverloads = raw[listId]/2;
+   if (name < countOperators && !OPERATORS[name].overloadable) {
+      VALIDATEI(countOverloads == 1, ierrOverloadsForNonoverloadable)
+   }
 
    Int const rawSentinel = rawStart + raw[listId];
 
@@ -6376,7 +6376,15 @@ pToplevelConstants(CM) {
    }
 }
 
-#ifdef DEBUG
+#if defined(DEBUG) || defined(SAFETY)
+
+private void
+validateTypesCoherent(CM) {
+// Validate that @generics, @concretes and @types are coherent: every @generic has a TSPan
+// which is also generic, every @concrete has a TSpan which is concrete, every @concrete that has
+// field types has them within bounds of @concretes etc
+   
+}
 
 private void
 validateOverloadsFull(CM) {
