@@ -207,23 +207,79 @@ still needs to import those elements to use them.
 
 
 ////////////////////
+// Function calls
+////////////////////
+
+obj = coll :method 1 2 `arg` :anotherChainedMethod x y :sortBy{= x y => x - 2} :toList;
+
+
+////////////////////
 // Namespaces
 ////////////////////
 
-Within any name on module toplevel, there may be 2 parts like "asdf:namespace". If the nspace is
-"pub", that means it's public (exported). So a function or method named "foo:pub" is importable
-as "foo" in other modules. "pub" also allows names to be tripartite like "create:fromInt:pub".
+Within any name on module toplevel, there may be 2 parts like "asdf:namespace".
+So a function or method named "foo:pub" is importable as "foo" in other modules. 
 
 This can be used for all kinds of partitioning. For example a "FooStruct" can have a constructor
 "fooStruct:new". What is "overloaded methods" in Java can be named with single prefix:
-"doSomething:int", "doSomething:listInts" etc.
+"doSomething:int", "doSomething:listInts" etc. A generic function may have specializations for
+performance, and it makes sense to group them into a namespace.
 
-But how to reconcile it with modules?
+But how to reconcile their syntax with modules?
 
-mod1:submod::fooStruct:new
+:method,specializedForInt
 
-fn apiMethod:pub [Self Int -> Double] {- s inp ->
+:mod1_submod_subsubMod:fooStruct,new
+
+fn apiMethod [Self Int -> Double] {= s inp ->
 }
+
+
+////////////////////
+// Fantom types
+////////////////////
+
+Foo = struct .id Int .name $A @meta(.fantom $0);
+
+...[Foo Str Bar]
+        ^$A ^$0
+
+
+////////////////////
+// Specifying struct memory layout
+////////////////////
+
+
+Foo = struct .id Int .name Str .flag Bool 
+   @meta(.layout (flag id name));
+
+...[Foo String Bar]
+
+
+
+////////////////////
+// Type-level enums
+////////////////////
+
+State = typeEnum Open Closed HalfShut;
+
+Foo = struct .data Int @meta(.fantom ($0 = State));
+
+Now the only legal Foo concretes are [Foo Open], [Foo Closed] and [Foo HalfShut].
+
+Type level enums subsume empty structs, so we can require that every struct is non-empty (has keys)
+
+
+
+////////////////////
+// Two kinds of newtypes
+////////////////////
+
+Newtypes 1: completely disjoint types. No operations, we have to define them from scratch.
+Useful e.g. for types packing something into the bits of an int.
+
+Newtypes 2: types that inherit the operations of the underlying type except functions that 
+are strict
 
 
    [[[Optimization (so for the future)]]]
