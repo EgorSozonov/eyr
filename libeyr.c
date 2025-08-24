@@ -454,7 +454,6 @@ private TypeId tFunctionReturnType(TypeId t, CM);
 private TypeId tCreateFnTypeCall(TStuff* ts, Int startInd, TypeFrame frame, CM);
 private TypeId tCreateTypeCall(TStuff* ts, Byte sort, Int startInd, TypeFrame frame, CM);
 private void teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM);
-private Int teMergeParam(NameId name, TStuff* restrict ts, CM);
 private TypeId tExtractFnOverloadHandle(TSpan fnType, CM);
 
 private TypeId tParse(Int sentinel, TOKENS, CM);
@@ -1510,6 +1509,9 @@ minPositiveOf(Int count, ...) {
 //}}}
 //{{{ Generics
 
+#define initListValue(initCap, T, a) ((L##T){.c = allocateArray(initCap, T, a),\
+   .len = 0, .cap = initCap})
+
 DEFINE_LIST(Int)
 DEFINE_LIST(Ulong)
 DEFINE_LIST(Unt)
@@ -1564,7 +1566,7 @@ struct TypeFrame {   // :TypeFrame
    Byte tp;          // "tfr" constants
    Int typeStart;    // Starting index in @ts.exp
    Int sentinel;     // token id sentinel
-   Int countArgs;    // accumulated number of type arguments
+   Int argCount;     // accumulated number of type arguments
    Int tyrity;       // For comparison with countArgs when the frame ends
 };
 
@@ -1652,8 +1654,8 @@ DEFINE_LIST(Var)
 DEFINE_LIST(Function)
 
 struct Expr { //:Expr State for parsing expressions
-   LInt* exp;            // For assignments with complex left sides
-   LExprFrame* frames;
+   LInt exp;            // For assignments with complex left sides
+   LExprFrame frames;
    LNode scr;            // "Scratch". Draft nodes written to during expression parsing
    LChInterval locsScr;  // SourceLocs for @scr
    LInt reorderKeys;     // (start end) which point into @scr. Used in struct reordering [aTmp]
@@ -1681,8 +1683,8 @@ typedef struct { //:OverloadHandle
 DEFINE_LIST(TypeParam)
 
 struct TStuff { // :TStuff State for parsing types & type expressions. Lives in [aTmp]
-   LInt* exp;          //  TypeId
-   LTypeFrame* frames;
+   LInt exp;          //  TypeId
+   LTypeFrame frames;
    LTypeParam params;  // Unique type param names
    LInt names;           // Used in name uniqueness validation, and subtree determination
    //LTypeLoc* genericWalk;  // Type location stack within a generic type, used for unification
@@ -4208,7 +4210,7 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
             stackLen--; break;
          }
          default: {
-            stackLen -= (nd.pl2 - 1); break;
+            stackLen -= (nd.pl2 - 1); break; // arg count of the call
          }
          }
       } else {
@@ -4217,12 +4219,12 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
    }
 }
 
-private TypeId //:pAssignmentLeftComplexExpr
+private Concrete //:pAssignmentLeftComplexExpr
 pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 // Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
-// arr[i][j*2][k + 3] ==> arr i .getElem j 2 *(2) .getElem k 3 +(2) .getElem
-   LInt* sc = cm->expr.exp;
+// arr[i][j*2][k + 3] ==> arr i :getElem j 2 *(2) :getElem k 3 +(2) :getElem
+   LInt* sc = &(cm->expr.exp);
    sc->len = 0;
    Int const startBt = firstTok.startBt;
    Int const lastBt = tokens[cm->i - 1].startBt + tokens[cm->i - 1].lenBts;
@@ -4245,13 +4247,13 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
    return leftType;
 }
 
-private TypeId //:pAssignmentLeftWithType
+private Concrete //:pAssignmentLeftWithType
 pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT Bool* isAFnVar,
       TOKENS, CM) {
-// Typechecks a complex left side like `x (Foo Int) = ...` in an assignment, consumes tokens,
+// Typechecks a complex left side like `x [Foo Int] = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
 // Precondition: we are looking right past tokAssignment
-   LInt* sc = cm->expr.exp;
+   LInt* sc = &(cm->expr.exp);
    sc->len = 0;
 
    cm->i++; // CONSUME the var name
@@ -4291,11 +4293,11 @@ pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKENS, CM) {
    }
 }
 
-private void //:pAssignmentWorker
-pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
+private void //:assignmentWorker
+assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
 // Main assignment parsing function
    Unt const tp = (tok.tp == tokToplevelFn) ? nodToplevelFn : nodAssignment;
-   TypeId leftType = ZERO_ARITY_TYPE;
+   Concrete leftType;
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
 
    Token rightTk = tokens[assignment.rightTokenInd];
@@ -4320,12 +4322,16 @@ pAssignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
             pError(errCannotMutateImmutable, nameErr(assignment.name))
          )
 
-         leftType = cm->vars.c[varId].typeId;
-         if (tIsFunction(leftType, cm) > -1) { // reassignment of a function var
+         Int leftTp = cm->vars.c[varId].concreteId;
+         leftType = cm->concretes.c[leftTp];
+         if (leftType.sort == sorFn) { // reassignment of a function var
             NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
+            Int firstParamOnLeftConcr = cm->types.c[leftType.fields];
+               
             FunctionId newFnId = findOverload(
                fnName,
-               libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c),
+               cm->concretes.c[firstParamOnLeftConcr].spanId,
+               //libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c),
                cm
             );
             cm->vars.c[varId].fnId = newFnId;
@@ -4393,7 +4399,7 @@ pAssignment(Token tok, Int sentinel, TOKENS, CM) {
       pTypeDef(sentinel, tokens, cm);
    } else {
       Assignment assi = pPreparseAssignment(cm->i, sentinel, tokens, cm);
-      pAssignmentWorker(tok, assi, tokens, cm);
+      assignmentWorker(tok, assi, tokens, cm);
    }
 }
 
@@ -6168,8 +6174,8 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->functionMonos = createMultiAssocList(a);
 
    cm->expr = (Expr) {
-      .exp = createLInt(16, cm->aTmp),
-      .frames = createLExprFrame(16, aTmp),
+      .exp = initListValue(16, Int, cm->aTmp),// (LInt){.c = allocateArray(16, Int, cm->aTmp), len = 0, .cap = 16},
+      .frames = initListValue(16, ExprFrame, aTmp), //(LExprFrame){.c = allocateArray(16, ExprFrame, aTmp), .len = 0, cap = 16},
       .scr = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 16},
       .locsScr = (LChInterval){.c = allocateArray(16, ChInterval, aTmp), .len = 0, .cap = 16},
       .reorderKeys = (LInt){.c = allocateArray(4, Int, aTmp), .len = 0, .cap = 4},
@@ -6210,8 +6216,8 @@ initializeParser(Compiler* lx, Arena* a) {
 
    cm->ts = (TStuff) {
       .typesDict = copyStringDict(PROTO.ts.typesDict, a),
-      .exp = createLInt(16, cm->aTmp),
-      .frames = createLTypeFrame(16, cm->aTmp),
+      .exp = (LInt){.c = allocateArray(16, Int cm->aTmp), .len = 0, .cap = 16},
+      .frames = (LTypeFrame){. c = allocateArray(16, TypeFrame, cm->aTmp), .len = 0, .cap = 16},
       .params = (LTypeParam){.c = allocateArray(4, TypeParam, cm->aTmp), .len = 0, .cap = 4},
       .names = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
 //      .genericWalk = createLTypeLoc(16, cm->aTmp),
@@ -6371,7 +6377,7 @@ pToplevelConstants(CM) {
       if (tok.tp == tokAssignment) {
          cm->i++; // CONSUME the tokAssignment
          Assignment assi = pPreparseAssignment(cm->i, sentinel, toks, cm);
-         pAssignmentWorker(tok, assi, toks, cm);
+         assignmentWorker(tok, assi, toks, cm);
       } else { // tokToplevelFn
          cm->i = sentinel;
       }
@@ -6956,15 +6962,12 @@ tFreshState(TStuff* ts) {
 private void //:teClose
 teClose(TStuff* ts, CM) {
 // Flushes the finished subexpr frames from the top of the type stack.
-   LInt* exp = ts->exp;
-   LTypeFrame* frames = ts->frames;
+   LTypeFrame* frames = &(ts->frames);
    while (frames->len > 0 && last(frames).sentinel == cm->i) {
       TypeFrame frame = removeLast(frames);
-      Int startInd = exp->len - frame.countArgs;
-      TypeId newType = ZERO_ARITY_TYPE;
-
-      Int typeLen = exp->len - frame.typeStart;
-      exp->c[frame.typeStart + 1] += typeLen;
+      
+      Int typeLen = cm->types.len - frame.typeStart;
+      cm->types.c[frame.typeStart + 1] += typeLen;
 
       if (frame.tp == tfrTypeCall) {
          VALIDATEP(frame.argCount == frame.tyrity, 
@@ -6996,6 +6999,8 @@ tParseComplexType(Int sentinel, TOKENS, CM) {
             VALIDATEP(t.isGeneric == 0 && t.entityId < UNT_MAX_31_BITS, 
                pError(errTypeNotConcrete, nameErr(name))
             )
+            VALIDATEI(frames->len > 0, ierrInconsistentTyrities)
+            frames->c[frames->len - 1].argCount++;
             pushIntypes(t.entityId, cm); // concreteId
          }
       }
@@ -7009,6 +7014,8 @@ tParseComplexType(Int sentinel, TOKENS, CM) {
          }
          add(name, ts->names);
          paramAdding:
+         VALIDATEI(frames->len > 0, ierrInconsistentTyrities)
+         frames->c[frames->len - 1].argCount++;
          pushIntypes(ttagParam + deBruijn, cm);
       }
       default: throwExcParser(pError0(errExpectedType));
@@ -7105,20 +7112,6 @@ tParse(Int sentinel, TOKENS, CM, OUT TSpan* span) {
 //~   return r;
 //~}
 
-private Int //:teMergeParam
-teMergeParam(NameId name, TStuff* restrict ts) {
-   for (Int j = ts->frames->len; j > -1 && !ts->frames->c[j].isGeneric; j--) {
-      ts->frames->c[j].isGeneric = true;
-   }
-   add(-name - 1, ts->exp);
-   for (Int j = 0; j < ts->paramNames.len; j++) {
-      if (te->paramNames.c[j] == name)
-         { return -name - 1; }
-   }
-   add(name, &(te->tParams));
-   return -name - 1;
-}
-
 private TypeId //:tCreateFnTypeCall
 tCreateFnTypeCall(TStuff* ts, Int startInd, TypeFrame frame, CM) {
 // Creates an `F[A B -> C]` type. AAA
@@ -7176,7 +7169,7 @@ private void //:teOpenTypeCall
 teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM) {
 // Adds a new type call to @exp during type expression parsing
    Int typeStart = cm->types.len;
-   TypeFrame newFrame = (TypeFrame){.typeStart = typeStart, .sentinel = sentinel};
+   TypeFrame newFrame = (TypeFrame){.typeStart = typeStart, .sentinel = sentinel, .argCount = 0};
    
    if (typeName == nameF) { // F ...
       typeFrame.tp = tfrFunction;
@@ -7580,14 +7573,14 @@ findOverload(NameId fnName, TypeId tpFstArg, CM) {
 }
 
 private FunctionId //:eFindOverload
-eFindOverload(NameId fnName, Int argCount, LInt* exp, CM) {
+eFindOverload(NameId fnName, Int argCount, LInt exp, CM) {
    TypeId tpFstArg;
    if (argCount == 0) {
       tpFstArg = VOID_TYPE;
    } else {
-      tpFstArg = typeOf(exp->c[exp->len - argCount]);
+      tpFstArg = typeOf(exp.c[exp.len - argCount]);
       if (tpFstArg.v == -1) { //{{{
-         Int a = exp->c[exp->len - argCount];
+         Int a = exp.c[exp.len - argCount];
          d("can't get first type of type %d name %d cmj %d", a, fnName, cm->j);
       } //}}}
       VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(fnName)))
@@ -7662,7 +7655,7 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    Bool isGeneric = false;
    VarId varId;
    if (!isVarCall) {
-      fnId = eFindOverload(name, argCount, exp, cm);
+      fnId = eFindOverload(name, argCount, *exp, cm);
       typeOfFunc = cm->functions.c[fnId].typeId;
       isGeneric = typeReadHeader(typeOfFunc, cm).isGeneric;
    } else {
@@ -7807,7 +7800,7 @@ typeReduceExpr(Int const indExpr, CM) {
    Node exprNd = cm->ast.c[indExpr];
    // pl2 > 0 case is for subexpressions inside data allocs, the other one is for normal exprs
    Int const sentinelNode = exprNd.pl2 > 0 ? calcNodeSentinel(exprNd, indExpr) : cm->ast.len;
-   LInt* exp = cm->expr.exp;
+   LInt* exp = &(cm->expr.exp);
    exp->len = 0;
 
    // Skip internal assignments, if any
@@ -7839,10 +7832,9 @@ typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
 // the fact that this expr may contain sub-assignments for data allocation.
 // "indExpr" is the index of nodExpr or nodAssignmentRight
 // CONSUMES the whole expression
-   LInt* exp = cm->expr.exp;
    typeReduceExpr(indExpr, cm);
-   if (exp->len == 1) {
-      return typeOf(exp->c[0]); // the last remaining stack elt is the type of the whole expression
+   if (cm->expr.exp.len == 1) {
+      return typeOf(cm->expr.exp.c[0]); // the last remaining stack elt is the type of the whole expression
    } else {
       return ZERO_ARITY_TYPE;
    }

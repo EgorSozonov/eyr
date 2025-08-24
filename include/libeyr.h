@@ -270,7 +270,8 @@ typedef struct {  //:Concrete All primitive types, concrete structs and monomorp
    Unt fieldNames; // index into @fieldNames, or for a function, -1 
    Unt arity;               
    Int size;      // size of type in bytes
-   Int codegenConcr; // if >0, points to another concrete which codegen must use instead of this one
+   Int codegenConcr; // Iff >0, points to another concrete which codegen must use instead of this one.
+                     // This is for fantom types & newtypes
 } Concrete;
 
 #define accessPrivImm   1 // private, which for abstract classes means "protected"
@@ -280,9 +281,9 @@ typedef struct {  //:Concrete All primitive types, concrete structs and monomorp
 #define accessAbstract  5 // abstract methods in an abstract class
 
 struct Var { //:Var Local variable inside function
-   TypeId typeId;
+   Byte access : 8;  // the "access" constants above
+   Unt concreteId : 24; // the concrete type of this variable
    NameId name;  // if negative, then it's a nameless local
-   Byte access;  // the "access" constants above
    Int fnId;     // only for aliases to functions, otherwise -1
 };
 
