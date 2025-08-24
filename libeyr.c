@@ -408,6 +408,7 @@ PARSE_TABLE[countSyntaxForms] = {
 
 #define BIG 67'108'864 // 2^26
 #define UNT_MAX_31_BITS 2'147'483'647 // 2^32 - 1 - 2^31, ie. all "1"s in lower 31 bits
+#define UNT_MAX 4'294'967'295 // 2^32 - 1
 #define LOWER29BITS 0x1FFFFFFF
 DECLARE_LIST(Token)
 DECLARE_LIST(BtToken)
@@ -440,7 +441,7 @@ private void eSaveNodes(Int startNodeInd, CM);
 private void eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
-private TypeId exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
+private Concrete exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
 private void typeAddHeader(TSpan hdr, CM);
 private TSpan typeReadHeader(TypeId typeId, CM);
 private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
@@ -455,6 +456,7 @@ private TypeId tCreateFnTypeCall(TStuff* ts, Int startInd, TypeFrame frame, CM);
 private TypeId tCreateTypeCall(TStuff* ts, Byte sort, Int startInd, TypeFrame frame, CM);
 private void teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM);
 private TypeId tExtractFnOverloadHandle(TSpan fnType, CM);
+private Int tConcretize(TSpan, CM);
 
 private TypeId tParse(Int sentinel, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
@@ -1668,6 +1670,10 @@ struct TypeParam { //:TypeParam Type parameters which were resolved during unifi
    TypeId spanId;
 };
 
+typedef struct {  //:GenericId Index into @generics
+   Int v;
+} GenericId;
+
 typedef enum {
    ovSortNullary, // each function can have one of these
    ovSortConcrete, // concrete types, possible when ovSortTypeParam doesn't exist
@@ -1683,7 +1689,7 @@ typedef struct { //:OverloadHandle
 DEFINE_LIST(TypeParam)
 
 struct TStuff { // :TStuff State for parsing types & type expressions. Lives in [aTmp]
-   LInt exp;          //  TypeId
+   //LInt exp;          //  TypeId
    LTypeFrame frames;
    LTypeParam params;  // Unique type param names
    LInt names;           // Used in name uniqueness validation, and subtree determination
@@ -2073,7 +2079,7 @@ compileErrors[] = {
    "Expression must have the Bool type, but has: $0",
    "Type $0 is not a type constructor",
    "Only up to 254 type parameters are supported",
-   "Trying to get the element of a type which is not a list",
+   "Trying to get the element of a type $0 which is not a list",
    "The type of a list/array index must be Int",
    "Assignments and constants must be monomorphic (no type params)",
    "Generic function's type cannot be unified with its argument types",
@@ -3872,7 +3878,9 @@ createVar(NameId name, Byte access, FunctionId fnId, CM) {
 // "fnId" should be -1 for ordinary (non-function) local vars
 // Consumes no tokens
    VarId newVarId = cm->vars.len;
-   pushInvars(((Var){ .name = name, .access = access, .fnId = fnId }), cm);
+   pushInvars(
+      ((Var){ .name = name, .access = access, .fnId = fnId, .concreteId = LOWER24BITS }), cm
+   );
    if (name > -1) // nameId == -1 for built-in operators or nameless locals
       { addBinding(name, newVarId, cm); }
    return newVarId;
@@ -4050,7 +4058,7 @@ getBinding(Int id, CM) { return cm->activeBindings[id]; }
 //{{{ Forward decls
 
 private TypeId pTypeDef(Int sentinel, TOKENS, CM);
-private Bool tIsList(TypeId t, CM);
+private Bool tIsList(Int name);
 private TypeId tGetSpanByName(Int name, CM);
 private TSpan createTSpan(Int start, Int len);
 
@@ -4224,12 +4232,12 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 // Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
 // arr[i][j*2][k + 3] ==> arr i :getElem j 2 *(2) :getElem k 3 +(2) :getElem
-   LInt* sc = &(cm->expr.exp);
+   LInt* sc = &(cm->expr.exp); // scratch space
    sc->len = 0;
    Int const startBt = firstTok.startBt;
    Int const lastBt = tokens[cm->i - 1].startBt + tokens[cm->i - 1].lenBts;
    Token locTk = (Token){.startBt = startBt, .lenBts = lastBt - startBt};
-   Int start = cm->ast.len + 1;
+   Int const start = cm->ast.len + 1;
 
    VALIDATEP(tokens[cm->i + 1].tp == tokWord, pError0(errAssignmentLeftSide))
    for (Int j = cm->i + 2; j < sentinel; ){
@@ -4239,7 +4247,7 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
       add(j, sc);
    }
 
-   TypeId leftType = exprUpToWithFrame((ParseFrame){
+   Concrete leftType = exprUpToWithFrame((ParseFrame){
       .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, interOf(locTk), tokens, cm
    );
 
@@ -4248,8 +4256,7 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 }
 
 private Concrete //:pAssignmentLeftWithType
-pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT Bool* isAFnVar,
-      TOKENS, CM) {
+pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, TOKENS, CM) {
 // Typechecks a complex left side like `x [Foo Int] = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
 // Precondition: we are looking right past tokAssignment
@@ -4262,35 +4269,23 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, OUT
 
    Bool isGeneric;
    TypeId leftType = tParse(sentinel, tokens, cm);
-   VALIDATEP(!isGeneric, pError(errTypePolymorphicAssignment, typeErr(leftType)))
+   TSpan leftSpan = cm->tSpans.c[leftType.v];
+   
+   // create a concrete if it doesn't exist yet
+   Int leftConcreteId = tConcretize(leftSpan, cm);
 
    if (nextTk.pl1 == nameF) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
-      *isAFnVar = true;
       cm->i = assignment.sentinel; // CONSUME the whole assignment
    } else {
       VarId varId = createVarWithType(
-         assignment.name, leftType, (firstTok.pl2 == 1 ? accessPrivMut : accessPrivMut), -1, cm
+         assignment.name, leftType, (firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm), -1, cm
       );
       newNode((Node){.tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiVarAssignment},
             interOf(firstTok), cm
       );
    }
-   return leftType;
-}
-
-private TypeId //:pAssignmentRight
-pAssignmentRight(TypeId leftType, Token rightTk, Int sentinel, TOKENS, CM) {
-// The right side of an assignment
-   if (rightTk.tp == tokFn) {
-      return ZERO_ARITY_TYPE;
-   } else {
-      TypeId rightType = exprUpToWithFrame((ParseFrame){
-        .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, interOf(rightTk),
-        tokens, cm
-      );
-      return rightType;
-   }
+   return cm->concretes.c[leftConcreteId];
 }
 
 private void //:assignmentWorker
@@ -4351,9 +4346,8 @@ assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
       );
    } ei (tokens[cm->i + 1].tp == tokType) {
       Bool isAFnVar = false;
-      leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide,
-            OUT &isAFnVar, tokens, cm);
-      if (isAFnVar)
+      leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide, tokens, cm);
+      if (leftType.sort == sorFn)
          { goto closeSpans; }
    } else {
       leftType = pAssignmentLeftComplexExpr(firstTok, assignment.rightTokenInd, tokens, cm);
@@ -4362,8 +4356,12 @@ assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    cm->i = assignment.rightTokenInd + 1; // CONSUME everything up to body of right side
    cm->ast.c[assignmentNodeInd].pl3 = cm->ast.len - assignmentNodeInd;
 
-   TypeId const rightType = pAssignmentRight(leftType, rightTk, assignment.sentinel, tokens, cm);
-   if (varId > -1 && rightType.v > -1 && eq(leftType, ZERO_ARITY_TYPE)) {
+   Concrete const rightType = exprUpToWithFrame((ParseFrame){
+        .level = 0, .startNodeInd = cm->ast.len, .sentinel = assignment.sentinel }, interOf(rightTk),
+        tokens, cm
+      );
+   
+   if (cm->vars.c[varId].concreteId == LOWER24BITS && eq(leftType, ZERO_ARITY_TYPE)) {
       cm->vars.c[varId].typeId = rightType; // inferring the type of left binding
    } ei (leftType.v > -1 && rightType.v > -1) {
       VALIDATEP(eq(leftType, rightType), pError(errTypeMismatch, typeErr2(leftType, rightType)))
@@ -4477,7 +4475,7 @@ pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 
 private EachData //:eachLoopProcess
 eachLoopProcess(
-   Int collVarId, TypeId eltType, Int headerStart, Int headerSentinel,
+   Int collVarId, Int eltType, Int headerStart, Int headerSentinel,
    Int sentinel, TOKENS, CM,
    OUT Int* skip, OUT Int* step, OUT Int* balk
 ) {
@@ -4486,9 +4484,9 @@ eachLoopProcess(
 // and the balk (how many elements at the end to stop before)
 // Step is written to the tokMisc.pl2 that terminates the "each" loop in tokens!
    Int indVarId = cm->vars.len;
-   pushInvars((Var){.access = accessPrivImm, .typeId = typeOf(tokInt), .fnId = -1}, cm);
+   pushInvars((Var){.access = accessPrivImm, .concreteId = tokInt, .fnId = -1}, cm);
    Int elementVarId = cm->vars.len;
-   pushInvars((Var){.access = accessPrivImm, .typeId = eltType, .fnId = -1}, cm);
+   pushInvars((Var){.access = accessPrivImm, .concreteId = eltType, .fnId = -1}, cm);
    EachData eachData = (EachData){
       .collVar = collVarId, .indexVar = indVarId, .elementVar = elementVarId
    };
@@ -4652,6 +4650,7 @@ eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM) {
 
 private void //:pEach
 pEach(Token eachTk, Int sentinel, TOKENS, CM) {
+// The each loop: `each { coll -> ... }`
    Token miscTk = tokens[cm->i];
 
    VALIDATEP(miscTk.tp == tokMisc && miscTk.pl1 == miscLoopStep0 && miscTk.pl2 > 0,
@@ -4664,11 +4663,10 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
    Int collVarId = cm->activeBindings[collName];
    VALIDATEP(collVarId > -1, pError(errUnknownBinding, nameErr(collName)));
    Var collVar = cm->vars.c[collVarId];
-   TypeId collType = collVar.typeId;
-   VALIDATEP(tIsList(collType, cm), pError(errTypeOfNotList, typeErr(collType)));
+   Concrete collType = cm->concretes.c[collVar.concreteId];
+   VALIDATEP(tIsList(collType.name), pError(errTypeOfNotList, nameErr(collType.name)));
 
-   TypeId eltType =
-      libeyr_typeGetGenericArg(collType, typeReadHeader(collType, cm), 0, cm->types.c);
+   Int eltType = cm->types.c[collType.fields];
 
    Int headerStart = cm->i + 2;
    Int headerSentinel = calcSentinel(tokens[cm->i + 1], cm->i + 1);
@@ -5313,7 +5311,7 @@ eParse(Int sentinel, TOKENS, CM) {
    eClose(e, cm);
 }
 
-private TypeId //:exprUpToWithFrame
+private Concrete //:exprUpToWithFrame
 exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
 // The main "big" expression parser. Parses an expression whether there is a
 // token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
@@ -6174,12 +6172,12 @@ initializeParser(Compiler* lx, Arena* a) {
    cm->functionMonos = createMultiAssocList(a);
 
    cm->expr = (Expr) {
-      .exp = initListValue(16, Int, cm->aTmp),// (LInt){.c = allocateArray(16, Int, cm->aTmp), len = 0, .cap = 16},
-      .frames = initListValue(16, ExprFrame, aTmp), //(LExprFrame){.c = allocateArray(16, ExprFrame, aTmp), .len = 0, cap = 16},
-      .scr = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 16},
-      .locsScr = (LChInterval){.c = allocateArray(16, ChInterval, aTmp), .len = 0, .cap = 16},
-      .reorderKeys = (LInt){.c = allocateArray(4, Int, aTmp), .len = 0, .cap = 4},
-      .reorderBuf = (LNode){.c = allocateArray(16, Node, aTmp), .len = 0, .cap = 4}
+      .exp = initListValue(16, Int, aTmp),// (LInt){.c = allocateArray(16, Int, cm->aTmp), len = 0, .cap = 16},
+      .frames = initListValue(16, ExprFrame, aTmp),
+      .scr = initListValue(16, Node, aTmp),
+      .locsScr = initListValue(16, ChInterval, aTmp),
+      .reorderKeys = initListValue((4, Int, aTmp),
+      .reorderBuf = initListValue(4, Node, aTmp)
    };
 
    cm->rawOverloads = copyMultiAssocList(PROTO.rawOverloads, cm->aTmp);
@@ -6216,10 +6214,10 @@ initializeParser(Compiler* lx, Arena* a) {
 
    cm->ts = (TStuff) {
       .typesDict = copyStringDict(PROTO.ts.typesDict, a),
-      .exp = (LInt){.c = allocateArray(16, Int cm->aTmp), .len = 0, .cap = 16},
-      .frames = (LTypeFrame){. c = allocateArray(16, TypeFrame, cm->aTmp), .len = 0, .cap = 16},
-      .params = (LTypeParam){.c = allocateArray(4, TypeParam, cm->aTmp), .len = 0, .cap = 4},
-      .names = (LInt){.c = allocateArray(16, Int, cm->aTmp), .len = 0, .cap = 16},
+      .exp = initListValue(16, Int, aTmp),
+      .frames = initListValue(16, TypeFrame, aTmp),
+      .params = initListValue(4, TypeParam, aTmp),
+      .names = initListValue(16, Int, aTmp)
 //      .genericWalk = createLTypeLoc(16, cm->aTmp),
 //      .concreteWalk = createLTypeLoc(16, cm->aTmp),
    };
@@ -6793,9 +6791,8 @@ tIsFunction(TypeId t, CM) {
 }
 
 private Bool //:tIsList
-tIsList(TypeId t, CM) {
-   TypeId outer = typeGetOuter(t, cm);
-   return outer.v == cm->stats.listType || outer.v == cm->stats.arrayType;
+tIsList(Int name) {
+   return name == nameOfStd(strL) || name == nameOfStd(strA);
 }
 
 private Int //:tGetBodyStart
@@ -6910,6 +6907,90 @@ tAddTypeCall(Int name, CM) {
    Unt secondValue = cm->generics.c[span.entityId].tyrity << 24;
    // length will be added to the lower 24 bits of this second value
    pushIntypes(firstValue, secondValue);
+}
+
+private Int //:tFieldConcretize
+tFieldsConcretize(TSpan sp, CM, OUT *Int arity) {
+// Creates a concrete for every top-level subtree, e.g. a field in a struct or param in a function.
+// Does not recurse lower. Writes into @concretes. Returns arity.
+   Int j = sp.start + 2; // skipping the type call / fn application
+   Int const sentinel = sp.start + sp.len;
+   Int const fieldTypesInd = cm->types.len;
+   *arity = 0;
+   
+   for (; j < sentinel;) {
+      TypeId tId = tSubtreeStartingAt(j, cm->ts, cm->types.c);
+      Bool wasNew = false;
+      tId = tMerge(tId, cm, OUT &wasNew);
+      Int concrId;
+      if (wasNew) {
+         concrId = cm->concretes.len;
+         pushInconcretes(
+            (Concrete){.sort = , .spanId = tId, .name = UNT_MAX, .fields = UNT_MAX,
+            .fieldNames = UNT_MAX, .arity = 0, .size = 0, .codegenConcr = - 1
+            }, 
+            cm
+         );        
+      } else {
+         concrId = cm->tSpans.c[tId.v].entityId;
+      }
+      *arity++;
+      pushIntypes(concrId, cm);
+   }
+   return fieldTypesInd;
+}
+
+private Int //:tConcretize
+tConcretize(TypeId t, CM) {
+// Creates a concrete for a type span if one doesn't exist yet. Returns id of the new or old
+// concrete. Throws if "t" is generic
+   TSpan theSpan = cm->tSpans.c[t.v];
+   VALIDATEP(theSpan.isGeneric == 0, pError(errTypePolymorphicAssignment, typeErr(t)))
+   Bool wasNew = false;
+   TypeId tId = tMerge(theSpan, cm, OUT &wasNew);
+   if (!wasNew) {
+      { return; }
+      
+   Int fieldNamesLen = cm->fieldNames.len;   
+   Int arity;
+   Int fieldTypesInd = tFieldsConcretize(theSpan, cm, OUT &arity);
+
+   Int firstTNode = cm->types.c[theSpan.start];
+   if (firstTNode & UPPER3BITS == ttagFnCall) {
+      sort = sorFn;
+      name = nameF;
+      
+      Concrete newConcrete = (Concrete) {
+         .sort = sorFn, .spanId = tId, .name = nameF, .fieldNames = ,
+      };
+      pushInconcretes(newConcrete, cm);
+   } else {
+      sort = sorTypeCall;
+      name = firstTNode & LOWER29BITS;
+      GenericId gId = tGetGenericByName(name, cm);
+      
+      Concrete newConcrete = (Concrete) {
+         .sort = sort, .spanId = tId, .name = name, .fieldNames = 
+      };
+      pushInconcretes(newConcrete, cm);
+   }
+   
+      
+      
+      
+   Byte sort;     // "sor" constants above
+   TypeId spanId; // points to @spans like `[Foo Int Str]` where `Foo` is a generic struct.
+                  // Or, if this is a concrete struct, just is the struct declaration's spanId 
+   Int name; 
+   Unt fields;     // points to @types where there's a list of ids of @concretes comprising the body
+                  // (i.e. fields for a struct, or params and return for a function, variant types 
+                  // for a sum type)
+   Unt fieldNames; // index into @fieldNames, or for a function, -1 
+   Unt arity;               
+   Int size;      // size of type in bytes
+   Int codegenConcr; // Iff >0, points to another concrete which codegen must use instead of this one.
+                     // This is for fantom types & newtypes
+   }
 }
 
 //}}}

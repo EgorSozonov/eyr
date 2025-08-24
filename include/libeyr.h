@@ -264,7 +264,8 @@ typedef struct {  //:Concrete All primitive types, concrete structs and monomorp
    Byte sort;     // "sor" constants above
    TypeId spanId; // points to @spans like `[Foo Int Str]` where `Foo` is a generic struct.
                   // Or, if this is a concrete struct, just is the struct declaration's spanId 
-   Unt fields;     // points to @types where there's a list of ids of @concretes comprising the body
+   Int name; 
+   Unt fields;    // points to @types where there's a list of ids of @concretes comprising the body
                   // (i.e. fields for a struct, or params and return for a function, variant types 
                   // for a sum type)
    Unt fieldNames; // index into @fieldNames, or for a function, -1 
