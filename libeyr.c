@@ -447,15 +447,17 @@ private TSpan typeReadHeader(TypeId typeId, CM);
 private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
 private TypeId getFirstParamType(TypeId funcTypeId, CM);
 private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
-private TypeId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
-private TypeId typecheckList(Node nd, Int startInd, CM);
+private Concrete typeCheckBigExpr(Int indExpr, Int sentinel, CM);
+private Concrete typecheckList(Node nd, Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(NameId outerName, TypeId param, CM);
 private TypeId tFunctionReturnType(TypeId t, CM);
 private TypeId tCreateFnTypeCall(TStuff* ts, Int startInd, TypeFrame frame, CM);
 private TypeId tCreateTypeCall(TStuff* ts, Byte sort, Int startInd, TypeFrame frame, CM);
 private void teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM);
-private TypeId tExtractFnOverloadHandle(TSpan fnType, CM);
+
+declStruct(OverloadHandle);
+private OverloadHandle tExtractFnOverloadHandle(TSpan fnType, CM);
 private Int tConcretize(TSpan, CM);
 
 private TypeId tParse(Int sentinel, TOKENS, CM);
@@ -467,13 +469,13 @@ void printNameNoLnCr(NameId nameId, PrintableCompiler prc);
 
 private void eWriteCallToScratch(ExprFrame frame, Expr* stEx);
 private void tFreshState(TStuff* st);
-private FunctionId findOverload(NameId name, TypeId tpFstArg, CM);
+private FunctionId findOverload(NameId name, OverloadHandle overloadHandle, CM);
 private Int calcSentinel(Token tok, Int tokInd);
 private void reorderFor(Int forStart, Int sentinel, TOKENS, LX);
 
 private Int getBinding(Int id, CM);
 TypeId tResolveGenericFnCall(Function fn, Arr(Int) args, Int argCount, CM);
-private TypeId typeTryGetField(NameId name, TypeId t, OUT Int* mbFieldInd, CM);
+private Int typeTryGetField(NameId name, Concrete c, CM, OUT Int* mbFieldInd);
 void printType(TypeId type, PrintableCompiler prc);
 
 private libeyr_CompilationErrors* getCompilationErrors(CM);
@@ -1674,6 +1676,8 @@ typedef struct {  //:GenericId Index into @generics
    Int v;
 } GenericId;
 
+#define generOf(x) (GenericId){.v = x}
+
 typedef enum {
    ovSortNullary, // each function can have one of these
    ovSortConcrete, // concrete types, possible when ovSortTypeParam doesn't exist
@@ -1682,9 +1686,9 @@ typedef enum {
    ovSortTypeParam // each function can have one of these but if so, only ovSortNullary allowed
 } OverloadSort;
 
-typedef struct { //:OverloadHandle
-   Int v; // see {tDecodeOverloadHandle}
-} OverloadHandle;
+struct OverloadHandle { //:OverloadHandle
+   Int v; // see {tEncodeOverloadHandle},{tDecodeOverloadHandle}
+};
 
 DEFINE_LIST(TypeParam)
 
@@ -3668,7 +3672,7 @@ populateStringOffsets(Arr(Byte const) stringLens, Int start, Int len, OUT Arr(In
 
 #define VALIDATEP(cond, error) if (!(cond)) { throwExcParser0(error, __LINE__, cm); }
 
-private TypeId exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM);
+private Concrete exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM);
 private void eClose(Expr* s, CM);
 private void addBinding(NameId nameId, Int bindingId, Compiler* cm);
 private void closeParseFrames(CM);
@@ -4173,7 +4177,7 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
    NameId fnName = rightTk.pl1;
 
    FunctionId fnId = findOverload(
-      fnName, tExtractFnOverloadHandle(leftType, cm), cm
+      fnName, tExtractFnOverloadHandle(cm->tSpans.c[leftType.v], cm), cm
    );
    TypeId fnType = cm->functions.c[fnId].typeId;
    VALIDATEP(eq(leftType, fnType), pError(errTypeMismatch, typeErr2(leftType, fnType)));
@@ -4325,8 +4329,7 @@ assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
                
             FunctionId newFnId = findOverload(
                fnName,
-               cm->concretes.c[firstParamOnLeftConcr].spanId,
-               //libeyr_typeGetGenericArg(leftType, typeReadHeader(leftType, cm), 0, cm->types.c),
+               tExtractFnOverloadHandle(cm->tSpans.c[leftType.spanId.v], cm),
                cm
             );
             cm->vars.c[varId].fnId = newFnId;
@@ -5334,7 +5337,7 @@ exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
 
    eParse(frame.sentinel, tokens, cm);
    eSaveNodes(startNodeInd, cm);
-   TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
+   Concrete exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    closeParseFrames(cm);
    return exprType;
 }
@@ -5353,7 +5356,7 @@ exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM) {
    eParse(sentinelToken, tokens, cm);
    eSaveNodes(startNodeInd, cm);
 
-   TypeId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
+   Concrete exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    closeParseFrames(cm);
    return exprType;
 }
@@ -6693,15 +6696,26 @@ tGetOuterGeneric(Int tp, Arr(Int) types) {
    
 }
 
+private OverloadHandle //:tEncodeOverloadHandle
+tEncodeOverloadHandle(Byte ovSort, Int ovVal) {
+   switch (ovSort) {
+   case ovSortNullary: return (OverloadHandle){ .c = 0 };
+   case ovSortConcrete: return (OverloadHandle){ .c = ovVal };
+   case ovSortGeneric: return (OverloadHandle){ .c = BIG + ovVal };
+   case ovSortFn: return (OverloadHandle){ .c = 2*BIG + ovVal };
+   case ovSortTypeParam: return (OverloadHandle){ .c = 3*BIG };
+   }
+}
+
 private Int //:tDecodeOverloadHandle
 tDecodeOverloadHandle(OverloadHandle hndl, OUT Int* value) {
    if (hndl.v == 0) {
       return ovSortNullary;
    } ei (hndl.v < BIG) {
-      *value = hndl.v;
+      *value = hndl.v;         // concreteId
       return ovSortConcrete;
    } ei (hndl.v < 2*BIG) {
-      *value = hndl.v - BIG;   // genericId
+      *value = hndl.v - BIG;   // genericId, present only in @overloads, not in expressions
       return ovSortGeneric;
    } ei (hndl.v < 3*BIG) {
       *value = hndl.v - 2*BIG; // fn arity
@@ -6712,40 +6726,50 @@ tDecodeOverloadHandle(OverloadHandle hndl, OUT Int* value) {
 }
 
 private OverloadHandle //:tExtractFnOverloadHandle
-tExtractFnOverloadHandle(TypeId fnType, CM) {
-// From a function type, extracts the handle which is used for finding overloads:
-// If the first param is a concrete type, then its typeId; otherwise, the outer type constructor's.
-   TSpan fnSpan = cm->tSpans.c[fnType.v];
+tExtractFnOverloadHandle(TSpan fnSpan, CM) {
+// From a concrete (!) function type, extracts the handle which is used for finding overloads:
+// If the first param is a function type, then its arity; otherwise, its concrete id.
    Int j = fnSpan.start;
    VALIDATEI(cm->types.c[j] & UPPER3BITS == ttagFnCall, ierrTypeExprNotAFunction)
+   
    j += 2; // CONSUME the `F[`
    TypeId firstParamId = tSubtreeStartingAt(j, ts, types);
    TSpan firstParam = cm->tSpans.c[firstParamId.v];
-   if (firstParam.isGeneric == 0) {
-      return firstParamId;
+   
+   VALIDATEI(firstParam.isGeneric == 0, ierrInconsistentTyrities)
+   
+   if (cm->types.c[firstParam.start] & UPPER3BITS == ttagFnCall) { // first param is a function
+      Int fnArity = tArityOfSubtree(firstParam.start, &(cm->ts), cm->types.c) - 1;
+      return tEncodeOverloadHandle(ovSortFn, fnArity);
+   } else {
+      tEncodeOverloadHandle(ovSortConcrete, tConcretize(firstParamId, cm));
    }
-   
-   
 }
 
-TypeId //:libeyr_typeGetGenericArg
-libeyr_typeGetGenericArg(TypeId t, TSpan hdr, Int indArg, Arr(Int) types) {
-// (S Foo) => Foo. (F A -> B) => A
-   if (hdr.name == nameF) {
-      if (hdr.arity == 1) {
-         return typeOf(tokMisc); // void type
-      } else {
-         return typeOf(types[t.v + TYPE_PREFIX + indArg]);
-      }
-   } else if (hdr.sort == sorTypeCall) {
-      // need to skip the prefix, field types, and the index in @genericFields
-      // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type
-      Int ind = t.v + TYPE_PREFIX + hdr.arity + 2 + indArg;
-      return typeOf(types[ind]);
-   } else {
-      return typeOf(-1);
-   }
+private Bool //:tIsConcreteDataOf
+tIsConcreteDataOf(Int concrId, GenericId genId, CM) {
+// Is this concrete type an instance of that generic type? Works for data only, not functions
+   return cm->concretes.c[concrId].name == cm->generics.c[genId.v].name;
 }
+
+//~TypeId //:libeyr_typeGetGenericArg
+//~libeyr_typeGetGenericArg(TypeId t, TSpan hdr, Int indArg, Arr(Int) types) {
+//~// (S Foo) => Foo. (F A -> B) => A
+//~   if (hdr.name == nameF) {
+//~      if (hdr.arity == 1) {
+//~         return typeOf(tokMisc); // void type
+//~      } else {
+//~         return typeOf(types[t.v + TYPE_PREFIX + indArg]);
+//~      }
+//~   } else if (hdr.sort == sorTypeCall) {
+//~      // need to skip the prefix, field types, and the index in @genericFields
+//~      // the +2 is: 1 for the index in @genericFields, and 1 for the generic outer type
+//~      Int ind = t.v + TYPE_PREFIX + hdr.arity + 2 + indArg;
+//~      return typeOf(types[ind]);
+//~   } else {
+//~      return typeOf(-1);
+//~   }
+//~}
 
 private TypeId //:typeGetOuter
 typeGetOuter(TypeId t, CM) {
@@ -7001,6 +7025,44 @@ tConcretize(TypeId t, CM) {
 
 private TypeId //:tSubtreeStartingAt
 tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
+   LInt* sentinels = &(ts->tmp);
+   Int const startingLen = sentinels.len; // will be restored at end of function
+   Int isGeneric = 0;
+   for (Int j = 0; true; j++) {
+      switch (gen & UPPER3BITS) {
+      case 0: {
+         break;
+      }
+      case ttagTypeCall: {
+         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
+         j++;
+         break;
+      }
+      case ttagParam: {
+         isGeneric = 1; break;
+      } 
+      case ttagFnCall: {
+         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
+         j++;
+         break;
+      }
+      case ttagPointer: break; // Coming in future releases
+      case ttagNullable: break; // Coming in future releases
+      }
+      if (ts->frames.len == startingLen) {
+         Bool wasNew;
+         return tMerge(
+            (TSpan){.start = start, .len = j - start, .isGeneric = isGeneric}, cm, OUT &wasNew
+         );
+      }
+   } 
+}
+
+private Int //:tArityOfSubtree
+tArityOfSubtree(Int startInd, TStuff* restrict ts, Arr(Int) types) {
+// Counts the arity (count of immediate children) of a subtree. For functions, this will be the
+// sum of param counts and return value counts; for structs, number of fields; for sum types, count
+// of variants.
    LInt* sentinels = &(ts->tmp);
    Int const startingLen = sentinels.len; // will be restored at end of function
    Int isGeneric = 0;
@@ -7575,12 +7637,49 @@ tFunctionReturnType(TypeId funcTypeId, CM) {
    return typeOf(cm->types.c[funcTypeId.v + TYPE_PREFIX + hdr.arity - 1]);
 }
 
+private Int //:tOverloadWorker
+tOverloadWorker(OverloadHandle overHandle, Int j, Int sentinel, Arr(Int) overs) {
+// The core function overload finding logic
+   for (; j < sentinel && overs[j] < BIG; j++) {
+      if (overs[j] == overHandle.v)
+         { return j; }
+   }
+   if (j == sentinel)
+      { return -1; }
+      
+   {  // if there is an all-matching overload, it will be here and we seek no further
+      Int ovValue;
+      if (tDecodeOverloadHandle(overs[j], OUT &ovValue) == ovSortTypeParam)
+         { return j; }
+   } 
+      
+   Int needleValue;
+   Byte needleSort = tDecodeOverloadHandle(overHandle, OUT Int* needleValue);
+   if (needleSort == ovSortConcrete) { // matching our concrete needle vs the generic haystack
+      for (; j < sentinel; j++) {
+         Int haystackValue;
+         OverloadSort haystackSort = tDecodeOverloadHandle(overs[j], OUT &haystackValue);
+         if (haystackSort == ovSortGeneric 
+               && tIsConcreteDataOf(needleValue, generOf(haystackValue), cm))
+            { return j; }
+      }
+   } else {
+      VALIDATEI(needleSort == ovSortFn, ierrOverloadsIncoherent)
+      for (; j < sentinel; j++) {
+         Int haystackValue;
+         OverloadSort haystackSort = tDecodeOverloadHandle(overs[j], OUT &haystackValue);
+         if (haystackSort == ovSortFn && haystackValue == needleValue)
+            { return j; }
+      }
+   }
+   
+   return -1;
+}
 
 private Bool //:tFindOverload
-tFindOverload(Int fnName, TypeId firstParamTp, CM, OUT FunctionId* fn) {
-// Params: firstParamTp = type of the first function parameter, or 0 if it's nullary
-//         entityId = address where to store the result, if successful
-// For decoding the overload handles in @overloads, see {tDecodeOverloadHandle}
+tFindOverload(Int fnName, OverloadHandle overHandle, CM, OUT FunctionId* fnId) {
+// Finds a specific overload for a function name in @overloads
+// For decoding the overload handles, see {tDecodeOverloadHandle}
 
    Int ovInd = -getBinding(fnName, cm) - 2;
    Int const start = ovInd + 1;
@@ -7589,56 +7688,19 @@ tFindOverload(Int fnName, TypeId firstParamTp, CM, OUT FunctionId* fn) {
    Int const countOverloads = overs[ovInd]/2;
    Int const sentinel = ovInd + countOverloads + 1;
    
-   // nullary and concrete overloads
-   Int j = ovInd + 1;
-   for (; j < sentinel && overs[j] < BIG; j++) {
-      if (overs[j] == firstParamTp.v) {
-         (*fn) = overs[j + countOverloads];
-         return true;
-      }
-   }
-   if (j == sentinel)
-      { return false; }
-      
-   // all-matching overload   
-   if (ovSortTypeParam == tDecodeOverloadHandle(overs[j], OUT &ovValue)) {
-      (*fn) = overs[j + countOverloads];
+   Int overloadInd = tOverloadWorker(overHandle, start, sentinel, overs);
+   if (overloadInd > -1) {
+      *fnId = overs[overloadInd + countOverloads];
       return true;
-   }
-      
-   // generic types and function overloads
-   Int needle;
-   if (tIsFunction(tpFstArg)) {
-      needle = -arity;
    } else {
-      needle = tGetOuterGeneric(tpFstArg, cm->types.c)
+      return false;
    }
-   for (; j < sentinel; j++) {
-      Int ovValue;
-      OverloadSort ovSort = tDecodeOverloadHandle(overs[j], OUT &ovValue);
-      switch (ovSort) {
-      case ovSortGeneric: {
-         if (ovValue == needle) {
-            (*fn) = overs[j + countOverloads];
-            return true;
-         }
-      }
-      case ovSortFn: {
-         if (ovValue == -needle) {
-            (*fn) = overs[j + countOverloads];
-            return true;
-         }
-      }
-      }
-   }
-   return false;
 }
 
 private FunctionId //:findOverload
-findOverload(NameId fnName, TypeId tpFstArg, CM) {
-   VALIDATEP(tpFstArg.v > -1, pError(errTypeUnknownFirstArg, nameErr(name)))
+findOverload(NameId fnName, OverloadHandle overHandle, CM) {
    Int fnId;
-   Bool ovFound = tFindOverload(tpFstArg, fnName, cm, OUT &fnId);
+   Bool ovFound = tFindOverload(fnName, overHandle, cm, OUT &fnId);
 #if defined(DEBUG) //{{{
    if (!ovFound) {
       d("Overload not found: indOverl %d name %d tpFirstArg %d j %d",
@@ -7659,7 +7721,7 @@ eFindOverload(NameId fnName, Int argCount, LInt exp, CM) {
    if (argCount == 0) {
       tpFstArg = VOID_TYPE;
    } else {
-      tpFstArg = typeOf(exp.c[exp.len - argCount]);
+      tpFstArg = exp.c[exp.len - argCount];
       if (tpFstArg.v == -1) { //{{{
          Int a = exp.c[exp.len - argCount];
          d("can't get first type of type %d name %d cmj %d", a, fnName, cm->j);
@@ -7676,7 +7738,7 @@ getOper(Int opName, Int operandType, Compiler* cm) {
       { return getBinding(opName, cm); }
    
    Int fnId;
-   Bool foundOv UNUSED = tFindOverload(typeOf(operandType), opName, cm, OUT &fnId);
+   Bool foundOv UNUSED = tFindOverload(opName, overHandle, cm, OUT &fnId);
    VALIDATEI(foundOv, ierrParsedFunctionNotInScope);
    return fnId;
 }
@@ -7714,17 +7776,17 @@ typeCheckFnGenericCall(Int fnId, Int argCount, LInt* restrict exp, CM) {
 
 private void //:typeCheckFnCall
 typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
-   // A function call. cont[j] contains the argument count, cont[j + 1] index in @overloads
+   // An ordinary function call.
    Bool isVarCall = nd.pl3 == callVar;
    Int const argCount = nd.pl2;
    Int const name = nd.pl1; // name for function calls, varId for var calls
 
    // # on lists and arrays
    if (name == opSize) {
-      Int argumentType = exp->c[exp->len - 1];
-      TypeId outer = typeGetOuter(typeOf(argumentType), cm);
-      if (outer.v == cm->stats.arrayType || outer.v == cm->stats.listType || outer.v == tokString) {
-         // field 0 is content, 1 is len. see {buildPreludeTypes}
+      Int argumentTypeId = exp->c[exp->len - 1];
+      Concrete collType = cm->concretes.c[argumentTypeId];
+      if (tIsList(collType.name) || argumentTypeId == tokString) {
+         // field 0 is content, 1 is len. So this is 1. see {buildPreludeTypes}
          cm->ast.c[cm->j] = (Node){.tp = nodCall, .pl1 = argumentType, .pl2 = 1, .pl3 = callField};
          exp->c[exp->len - 1] = tokInt;
          return;
@@ -7738,7 +7800,7 @@ typeCheckFnCall(Node nd, LInt* restrict exp, CM) {
    if (!isVarCall) {
       fnId = eFindOverload(name, argCount, *exp, cm);
       typeOfFunc = cm->functions.c[fnId].typeId;
-      isGeneric = typeReadHeader(typeOfFunc, cm).isGeneric;
+      isGeneric = cm->tSpans.c[typeOfFunc.v].isGeneric > 0;
    } else {
       varId = cm->activeBindings[name];
       typeOfFunc = cm->vars.c[varId].typeId;
@@ -7783,34 +7845,34 @@ typeCheckCall(Node nd, LInt* restrict exp, CM) {
    if (nd.pl3 == callGetElem) {
       VALIDATEP(exp->len >= 2, pError0(errExpressionError))
 
-      TypeId typeColl = typeOf(exp->c[exp->len - 2]);
-      VALIDATEP(tIsList(typeColl, cm), pError(errTypeOfNotList, typeErr(typeColl)))
+      Int typeCollId = exp->c[exp->len - 2];
+      Concrete typeColl = cm->concretes.c[typeCollId];
+      VALIDATEP(tIsList(typeColl.name, cm), pError(errTypeOfNotList, nameErr(typeColl.name)))
 
       // list index must be Int
-      VALIDATEP(eq(typeOf(exp->c[exp->len - 1]), intTy),
-         pError(errTypeOfListIndex, typeErr(typeOf(exp->c[exp->len - 1])))
-      )
+      VALIDATEP(exp->c[exp->len - 1] == tokInt, pError0(errTypeOfListIndex))
 
-      TypeId typeElt =
-         libeyr_typeGetGenericArg(typeColl, typeReadHeader(typeColl, cm), 0, cm->types.c);
-      cm->ast.c[cm->j].pl1 = typeColl.v;
+      Int typeElt = cm->types.c[typeColl.fields]; // concreteId
+      cm->ast.c[cm->j].pl1 = typeCollId;
       exp->len -= 2; // replace collection and its index type (Int) with element type
-      add(typeElt.v, exp);
+      add(typeElt, exp);
    } ei (nd.pl3 == callField) { // a field accessor
       VALIDATEP(exp->len >= 1, pError0(errExpressionError))
-      NameId name = nd.pl1;
+      NameId fieldName = nd.pl1;
 
-      Int structType = exp->c[exp->len - 1];
-      VALIDATEP(structType > topVerbatimType,
-         pError(errTypeFieldNotFound, nameErr2(name, typeReadHeader(typeOf(structType), cm).name))
+      Int structTypeId = exp->c[exp->len - 1];
+      Concrete structType = cm->concretes.c[structTypeId];
+
+      VALIDATEP(structType.sort == sorStruct,
+         pError(errTypeFieldNotFound, nameErr2(fieldName, structType.name))
       );
 
       Int fieldInd;
-      TypeId fieldType = typeTryGetField(name, typeOf(structType), OUT &fieldInd, cm);
+      Int fieldType = typeTryGetField(name, structType, cm, OUT &fieldInd);
 
-      cm->ast.c[cm->j].pl1 = structType;
+      cm->ast.c[cm->j].pl1 = structTypeId;
       cm->ast.c[cm->j].pl2 = fieldInd;
-      exp->c[exp->len - 1] = fieldType.v;
+      exp->c[exp->len - 1] = fieldType;
    } else {
       typeCheckFnCall(nd, exp, cm);
    }
@@ -7875,8 +7937,8 @@ typeReduceExpr(Int const indExpr, CM) {
 // Runs the typechecking "reduction" on a pure expression, i.e. one that doesn't
 // contain any nested subexpressions (data allocations or lambdas)
 // We go from left to right: resolving the calls, typechecking & collapsing args, and replacing
-// calls with their return types
-// "indExpr" is the index of the nodExpr or nodAssignmentRight
+// calls with their return types.
+// "indExpr" is the index of the nodExpr or nodAssignmentRight in @ast
    cm->j = indExpr + 1; // index in @ast
    Node exprNd = cm->ast.c[indExpr];
    // pl2 > 0 case is for subexpressions inside data allocs, the other one is for normal exprs
@@ -7907,7 +7969,7 @@ typeReduceExpr(Int const indExpr, CM) {
    }
 }
 
-private TypeId //:typeCheckBigExpr
+private Concrete //:typeCheckBigExpr
 typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
 // Typechecks and resolves overloads in a single expression. "Big" refers to
 // the fact that this expr may contain sub-assignments for data allocation.
@@ -7915,7 +7977,8 @@ typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
 // CONSUMES the whole expression
    typeReduceExpr(indExpr, cm);
    if (cm->expr.exp.len == 1) {
-      return typeOf(cm->expr.exp.c[0]); // the last remaining stack elt is the type of the whole expression
+      // the last remaining stack elt is the type of the whole expression
+      return cm->concretes.c[cm->expr.exp.c[0]];
    } else {
       return ZERO_ARITY_TYPE;
    }
@@ -7935,7 +7998,7 @@ typecheckAndProcessListElt(Int* j, CM) {
       return nd.pl1 == -1 ? ZERO_ARITY_TYPE : typeOf(nd.pl1);
    } else {
       Int sentinel = (*j) + nd.pl2 + 1;
-      TypeId exprType = typeCheckBigExpr(*j, sentinel, cm);
+      Concrete exprType = typeCheckBigExpr(*j, sentinel, cm);
       *j = sentinel;
       return exprType;
    }
@@ -7951,11 +8014,11 @@ typecheckList(Node nd, Int startInd, CM) {
       { return typeOf(nd.pl1); }
    ei (nd.pl3 == BIG) {
       Int sentinel = calcNodeSentinel(nd, startInd);
-      TypeId exprType;
+      Concrete exprType;
       if (startInd + 2 == sentinel) {
          Node singleNode = cm->ast.c[startInd + 1];
          VALIDATEP(singleNode.tp == nodVar, pError0(errMetaArrSyntax))
-         exprType = cm->vars.c[singleNode.pl1].typeId;
+         exprType = cm->vars.c[singleNode.pl1].concreteId;
       } else {
          exprType = typeCheckBigExpr(startInd + 1, sentinel, cm);
       }
@@ -7997,24 +8060,21 @@ typecheckList(Node nd, Int startInd, CM) {
    return collType;
 }
 
-private TypeId //:typeTryGetField
-typeTryGetField(NameId fieldName, TypeId t, OUT Int* fieldInd, CM) {
-// Searches for a field within a struct by its name. Returns the index of that field
-// (within the type, so 0-based), and its type.
-   TSpan hdr = typeReadHeader(t, cm);
-
-   Int const indInGenericFields = libeyr_getFieldNameInd(t, hdr, cm->types.c);
-   Int j = indInGenericFields;
-   for (; j < indInGenericFields + hdr.arity; j++) {
-      if (cm->genericFields.c[j].name == fieldName)
-         { break; }
+private Int //:typeTryGetField
+typeTryGetField(NameId fieldName, Concrete structType, CM, OUT Int* fieldInd) {
+// Searches for a field within a struct by its name. Returns the type of that field, and 
+// its index within the type (so 0-based).
+   Int j = structType.fieldNames;
+   Int const nameSentinel = j + structType.arity;
+   for (; j < nameSentinel; j++) {
+      if (cm->fieldNames.c[j].name == fieldName)
+         { goto foundField; }
    }
-   VALIDATEP(j < indInGenericFields + hdr.arity,
-      pError(errTypeFieldNotFound, nameErr2(fieldName, hdr.name))
-   );
-   *fieldInd = j - indInGenericFields;
-
-   return typeOf(cm->types.c[t.v + TYPE_PREFIX + (*fieldInd)]);
+   throwParserExc(pError(errTypeFieldNotFound, nameErr2(fieldName, hdr.name)))
+   
+   foundField:
+   *fieldInd = j - structType.fieldNames;
+   return cm->types.c[structType.fields + (*fieldInd)];
 }
 
 //}}}
