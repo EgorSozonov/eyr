@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <setjmp.h>
-#include "include/libeyr.h"
+#include "libeyr.h"
 typedef libeyr_String String;
 typedef libeyr_StringBuilder StringBuilder;
 #define UNUSED __attribute__((unused))
@@ -371,7 +371,7 @@ PARSE_FN(pElse) PARSE_FN(pFor) PARSE_FN(pEach)
 
 private ParseFn const //:PARSE_TABLE
 PARSE_TABLE[countSyntaxForms] = {
-   [nodLit]        = &pLoopStepMarker,
+   [tokMisc]       = &pLoopStepMarker,
    [tokWord]       = &parseErrorBareAtom,
    [tokTypeVar]    = &parseErrorBareAtom,
    [tokKey]        = &parseErrorBareAtom,
@@ -441,14 +441,14 @@ private void eSaveNodes(Int startNodeInd, CM);
 private void eachLoopAddStep(ParseFrame fr, Int step, TOKENS, CM);
 private Int tIsFunction(TypeId typeId, CM);
 private void addRawOverload(NameId nameId, TypeId typeId, FunctionId fnId, CM);
-private Concrete exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
+private ConcId exprUpToWithFrame(ParseFrame fr, ChInterval chi, TOKENS, CM);
 private void typeAddHeader(TSpan hdr, CM);
 private TSpan typeReadHeader(TypeId typeId, CM);
 private Int typeEncodeTag(Unt sort, Int depth, Int arity, CM);
 private TypeId getFirstParamType(TypeId funcTypeId, CM);
 private TypeId typeGetOuter(TypeId firstArgTypeId, CM);
-private Concrete typeCheckBigExpr(Int indExpr, Int sentinel, CM);
-private Concrete typecheckList(Node nd, Int startInd, CM);
+private ConcId typeCheckBigExpr(Int indExpr, Int sentinel, CM);
+private ConcId typecheckList(Node nd, Int startInd, CM);
 private TypeId tGetIndexOfFnFirstParam(TypeId fnType, CM);
 private TypeId tCreateSingleParamTypeCall(NameId outerName, TypeId param, CM);
 private TypeId tFunctionReturnType(TypeId t, CM);
@@ -458,7 +458,7 @@ private void teOpenTypeCall(NameId typeName, Int sentinel, TStuff* ts, CM);
 
 declStruct(OverloadHandle);
 private OverloadHandle tExtractFnOverloadHandle(TSpan fnType, CM);
-private Int tConcretize(TSpan, CM);
+private ConcId tConcretize(TypeId, CM);
 
 private TypeId tParse(Int sentinel, TOKENS, CM);
 private NameLoc nameOfHost(Int strId);
@@ -477,6 +477,8 @@ private Int getBinding(Int id, CM);
 TypeId tResolveGenericFnCall(Function fn, Arr(Int) args, Int argCount, CM);
 private Int typeTryGetField(NameId name, Concrete c, CM, OUT Int* mbFieldInd);
 void printType(TypeId type, PrintableCompiler prc);
+
+#define spanOf(concId) cm->concretes.c[concId.v].spanId
 
 private libeyr_CompilationErrors* getCompilationErrors(CM);
 private void fillInCompilationResult(CM, OUT CompResult* cr);
@@ -1530,8 +1532,8 @@ struct BtToken { // :BtToken
 DEFINE_LIST(BtToken) //:createLBtToken
 DEFINE_LIST(Token) //:createLToken
 
-constexpr TypeId boolTy = { .v = tokBool };
-constexpr TypeId intTy = { .v = tokInt };
+#define boolTy (ConcId){ .v = tokBool }
+#define intTy (ConcId){ .v = tokInt }
 constexpr TypeId ZERO_ARITY_TYPE = { .v = tokMisc };
 constexpr TypeId VOID_TYPE = { .v = 0 };
 
@@ -1540,15 +1542,21 @@ constexpr Int arrLitRuntimeLength = BIG;  // array literal without elements but 
 constexpr Int arrLitKnownElements = BIG + 1; // array literal with all elements known
 constexpr Int arrLitKnownLength = BIG + 2;  // array literal with comp-time known length, [@Str 15]
 
-Bool eq_TypeId(TypeId a, TypeId b) {
-    return a.v == b.v;
-}
+#define eq(a, b) a.v == b.v
 
-struct EachData{ //:EachData Data for "each" loops
+struct EachData { //:EachData Data for "each" loops
    Int collVar;
    Int indexVar;
    Int elementVar;
 };
+
+typedef struct { //:EachAstData Auxiliary data for "each" loop AST generation
+   ConcId collType;
+   Int skip;
+   Int step;
+   Int balk;
+   Int headerSentinel;
+} EachAstData;
 
 #define pfrScope 1 // this frame is a scope (i.e. allows creation of var bindings)
 #define pfrLoop  2 // this frame is a scope and a loop (allows break and continue)
@@ -1616,11 +1624,6 @@ struct TypeLoc { //:TypeLoc
 };
 
 DEFINE_LIST(TypeLoc)
-
-#define eq(X, Y) _Generic((X),\
-   TypeId: eq_TypeId\
-   )(X, Y)
-
 
 //}}}
 //}}}
@@ -2120,6 +2123,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrExpressionIsNotAnExpr "What is supposed to be an expression in the AST is not a nodExpr"
 #define ierrComplexExpression     "Error in a complex expression's internal definitions"
 #define ierrTypeExprNotAFunction  "This type expression was supposed to be a function"
+#define ierrTypeNotConcrete       "Expected a concrete type but found generic"
 #define ierrGenericTypesInconsistent "Two generic types have inconsistent layout "\
                                       "(premature end of type)"
 #define ierrOuterTypeOfParam     "Tried to get an outer type of param or generic"
@@ -2127,7 +2131,7 @@ struct libeyr_CompilationErrors { //:libeyr_CompilationErrors
 #define ierrInconsistentTypeExpr "Reduced type expression has != 1 elements"
 #define ierrNotAFunction         "Expected to find a function type here"
 #define ierrInconsistentTypeSpans "Inconsistent type span length in a type expression"
-#define ierrInconsistentTyrities "Same type constructor has different tyrities in type exprs"
+#define ierrInconsistentTyrities  "Same type constructor has different tyrities in type exprs"
 
 #endif
 //}}}
@@ -3891,14 +3895,14 @@ createVar(NameId name, Byte access, FunctionId fnId, CM) {
 }
 
 private VarId //:createVarWithType
-createVarWithType(NameId name, TypeId typeId, Byte access, FunctionId fnId, CM) {
+createVarWithType(NameId name, Byte access, ConcId concreteId, FunctionId fnId, CM) {
 // Validates a new binding (that it is unique), creates a Var for it & adds it to the current scope
 // "fnId" should be -1 for ordinary (non-function) local vars
 // Consumes no tokens
    Int mbBinding = cm->activeBindings[name];
    VALIDATEP(mbBinding == -1, pError(errAssignmentShadowing, nameErr(name)))
    VarId newVarId = createVar(name, access, fnId, cm);
-   cm->vars.c[newVarId].typeId = typeId;
+   cm->vars.c[newVarId].concreteId = concreteId.v;
    return newVarId;
 }
 
@@ -3924,8 +3928,9 @@ private void //:eOperatorCall
 eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
 // Pushes a call to the temporary lists during expression parsing
    Expr* e = &(cm->expr);
-   VALIDATEP(e->frames->len > 0, pError0(errExpressionError))
-   ExprFrame frame = last(e->frames);
+   LExprFrame* restrict frames = &(e->frames);
+   VALIDATEP(frames->len > 0, pError0(errExpressionError))
+   ExprFrame frame = last(frames);
 
    if (frame.tp == exfrParen) { // for infix operators
       VALIDATEP(frame.argCount == 1, pError0(errExpressionWrongArgCount))
@@ -3933,10 +3938,10 @@ eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
       if (frame.tp == exfrCall) {
          // Pop all calls with same or higher precedence. This is where precedence is useful
          for (;
-              e->frames->len > 0 && frame.tp == exfrCall && frame.precedence >= precedence;
-              frame = last(e->frames)
+              e->frames.len > 0 && frame.tp == exfrCall && frame.precedence >= precedence;
+              frame = last(frames)
          ) {
-            frame = removeLast(e->frames);
+            frame = removeLast(frames);
             eWriteCallToScratch(frame, e);
          }
       }
@@ -3948,7 +3953,7 @@ eOperatorCall(Token tok, Int precedence, Bool isVarCall, CM) {
          .tp = exfrCall, .name = tok.pl1, .sentinel = frame.sentinel, .precedence = precedence,
          .argCount = 1, .chi = interOf(tok), .isVarCall = isVarCall
       }),
-      e->frames
+      frames
    );
 }
 
@@ -4180,13 +4185,15 @@ pAssignmentFnVar(Assignment assignment, Token leftNameTk, TypeId leftType, CM) {
       fnName, tExtractFnOverloadHandle(cm->tSpans.c[leftType.v], cm), cm
    );
    TypeId fnType = cm->functions.c[fnId].typeId;
+   
    VALIDATEP(eq(leftType, fnType), pError(errTypeMismatch, typeErr2(leftType, fnType)));
+   VALIDATEI(cm->tSpans.c[fnType.v].isGeneric == 0, ierrTypeNotConcrete)
 
    NameId varName = leftNameTk.pl1;
    Int pl3;
    Int varId = createVarWithType(
-      varName, fnType,
-      (leftNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm), fnId, cm
+      varName, (leftNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm), 
+      concOf(cm->tSpans.c[fnType.v].entityId), fnId, cm
    );
    pl3 = assiFnVarDef;
    newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = fnId, .pl3 = assiFnVarDef },
@@ -4231,7 +4238,7 @@ pAssignmentValidateLeftAccessors(Int start, Int sentinel, TOKENS, CM) {
    }
 }
 
-private Concrete //:pAssignmentLeftComplexExpr
+private ConcId //:pAssignmentLeftComplexExpr
 pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
 // Complex left side in an assignment like `a[i][j] = ...` or `a.b = ...`.
 // It gets transformed like this:
@@ -4251,7 +4258,7 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
       add(j, sc);
    }
 
-   Concrete leftType = exprUpToWithFrame((ParseFrame){
+   ConcId leftType = exprUpToWithFrame((ParseFrame){
       .level = 0, .startNodeInd = cm->ast.len, .sentinel = sentinel }, interOf(locTk), tokens, cm
    );
 
@@ -4259,7 +4266,7 @@ pAssignmentLeftComplexExpr(Token firstTok, Int sentinel, TOKENS, CM) {
    return leftType;
 }
 
-private Concrete //:pAssignmentLeftWithType
+private ConcId //:pAssignmentLeftWithType
 pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, TOKENS, CM) {
 // Typechecks a complex left side like `x [Foo Int] = ...` in an assignment, consumes tokens,
 // inserts nodes. Returns the type of the left side.
@@ -4271,32 +4278,69 @@ pAssignmentLeftWithType(Token firstTok, Assignment assignment, Int sentinel, TOK
    Token nextTk = tokens[cm->i]; // +1 is safe because we know left side is long
    // when the left side is a var definition with its type declared
 
-   Bool isGeneric;
    TypeId leftType = tParse(sentinel, tokens, cm);
-   TSpan leftSpan = cm->tSpans.c[leftType.v];
    
    // create a concrete if it doesn't exist yet
-   Int leftConcreteId = tConcretize(leftSpan, cm);
+   ConcId leftConcreteId = tConcretize(leftType, cm);
 
    if (nextTk.pl1 == nameF) {
       pAssignmentFnVar(assignment, firstTok, leftType, cm);
       cm->i = assignment.sentinel; // CONSUME the whole assignment
    } else {
       VarId varId = createVarWithType(
-         assignment.name, leftType, (firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm), -1, cm
+         assignment.name, (firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm),
+         leftConcreteId, -1, cm
       );
       newNode((Node){.tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiVarAssignment},
             interOf(firstTok), cm
       );
    }
-   return cm->concretes.c[leftConcreteId];
+   return leftConcreteId;
+}
+
+private Int //:assignmentSimple
+assignmentSimple(
+   Assignment assignment, Token firstTok, CM, 
+   OUT ConcId* leftType, OUT Bool* needToParseRight
+) {
+// Assignments like `a = ...`. No declared type, not a fresh function var, only 1 token left of `=`
+   Int varId = cm->activeBindings[assignment.name];
+   Byte assiSort = assiVarAssignment;
+   if (varId > -1) {
+      VALIDATEP(cm->vars.c[varId].access == accessPrivMut,
+         pError(errCannotMutateImmutable, nameErr(assignment.name))
+      )
+
+      *leftType = concOf(cm->vars.c[varId].concreteId);
+      Concrete leftConcrete = cm->concretes.c[(*leftType).v];
+      if (leftConcrete.sort == sorFn) { // reassignment of a function var
+         NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
+            
+         FunctionId newFnId = findOverload(
+            fnName, tExtractFnOverloadHandle(cm->tSpans.c[leftConcrete.spanId.v], cm), cm
+         );
+         cm->vars.c[varId].fnId = newFnId;
+         cm->i = assignment.sentinel;
+         newNode(((Node){.tp = nodVar, .pl1 = varId, .pl2 = newFnId, .pl3 = assiFnVarReassign}),
+            interOf(firstTok), cm
+         );
+         *needToParseRight = false;
+      }
+      assiSort = assiReassignment;
+   } else {
+      varId = createVar(assignment.name, firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm);
+   }
+   newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort },
+         interOf(firstTok), cm
+   );
+   return varId;
 }
 
 private void //:assignmentWorker
 assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
 // Main assignment parsing function
    Unt const tp = (tok.tp == tokToplevelFn) ? nodToplevelFn : nodAssignment;
-   Concrete leftType;
+   ConcId leftType;
    Int const countLeftSide = assignment.rightTokenInd - assignment.nameTokenInd;
 
    Token rightTk = tokens[assignment.rightTokenInd];
@@ -4314,43 +4358,13 @@ assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
 
    Token firstTok = tokens[cm->i];
    if (countLeftSide == 1)  {
-      varId = cm->activeBindings[assignment.name];
-      Byte assiSort = assiVarAssignment;
-      if (varId > -1) {
-         VALIDATEP(cm->vars.c[varId].access == accessPrivMut,
-            pError(errCannotMutateImmutable, nameErr(assignment.name))
-         )
-
-         Int leftTp = cm->vars.c[varId].concreteId;
-         leftType = cm->concretes.c[leftTp];
-         if (leftType.sort == sorFn) { // reassignment of a function var
-            NameId fnName = cm->tokens.c[assignment.rightTokenInd + 1].pl1;
-            Int firstParamOnLeftConcr = cm->types.c[leftType.fields];
-               
-            FunctionId newFnId = findOverload(
-               fnName,
-               tExtractFnOverloadHandle(cm->tSpans.c[leftType.spanId.v], cm),
-               cm
-            );
-            cm->vars.c[varId].fnId = newFnId;
-            cm->i = assignment.sentinel;
-            newNode(((Node){.tp = nodVar, .pl1 = varId, .pl2 = newFnId, .pl3 = assiFnVarReassign}),
-               interOf(firstTok), cm
-            );
-            goto closeSpans;
-         }
-         assiSort = assiReassignment;
-      } else {
-         varId =
-            createVar(assignment.name, firstTok.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm);
-      }
-      newNode((Node){ .tp = nodVar, .pl1 = varId, .pl2 = 0, .pl3 = assiSort },
-            interOf(firstTok), cm
-      );
+      Bool needToParseRight = true;
+      varId = assignmentSimple(assignment, firstTok, cm, OUT &leftType, OUT &needToParseRight);
+      if (!needToParseRight)
+         { goto closeSpans; }
    } ei (tokens[cm->i + 1].tp == tokType) {
-      Bool isAFnVar = false;
       leftType = pAssignmentLeftWithType(firstTok, assignment, cm->i + countLeftSide, tokens, cm);
-      if (leftType.sort == sorFn)
+      if (cm->concretes.c[leftType.v].sort == sorFn)
          { goto closeSpans; }
    } else {
       leftType = pAssignmentLeftComplexExpr(firstTok, assignment.rightTokenInd, tokens, cm);
@@ -4359,15 +4373,18 @@ assignmentWorker(Token tok, Assignment assignment, TOKENS, CM) {
    cm->i = assignment.rightTokenInd + 1; // CONSUME everything up to body of right side
    cm->ast.c[assignmentNodeInd].pl3 = cm->ast.len - assignmentNodeInd;
 
-   Concrete const rightType = exprUpToWithFrame((ParseFrame){
+   ConcId const rightType = exprUpToWithFrame((ParseFrame){
         .level = 0, .startNodeInd = cm->ast.len, .sentinel = assignment.sentinel }, interOf(rightTk),
         tokens, cm
       );
    
    if (cm->vars.c[varId].concreteId == LOWER24BITS && eq(leftType, ZERO_ARITY_TYPE)) {
-      cm->vars.c[varId].typeId = rightType; // inferring the type of left binding
+      cm->vars.c[varId].concreteId = rightType.v; // inferring the type of left binding
    } ei (leftType.v > -1 && rightType.v > -1) {
-      VALIDATEP(eq(leftType, rightType), pError(errTypeMismatch, typeErr2(leftType, rightType)))
+      VALIDATEP(
+         eq(leftType, rightType),
+         pError(errTypeMismatch, typeErr2(spanOf(leftType), spanOf(rightType)))
+      )
    }
 closeSpans:
    closeParseFrames(cm);
@@ -4434,13 +4451,15 @@ pFor(Token forTk, Int sentinel, TOKENS, CM) {
    Int const condSentinel = calcSentinel(condTok, cm->i);
    cm->i++; // +1 cause the expression parser needs to be 1 past the exprToken
    Int const condNodeInd = cm->ast.len;
-   TypeId condType = exprUpToWithFrame((ParseFrame){
+   ConcId condType = exprUpToWithFrame((ParseFrame){
          .level = 0, .startNodeInd = cm->ast.len, .sentinel = condSentinel
       },
       interOf(condTok), tokens, cm
    );
 
-   VALIDATEP(eq(condType, boolTy), pError(errTypeMustBeBool, typeErr(condType)))
+   VALIDATEP(
+      eq(condType, boolTy), pError(errTypeMustBeBool, nameErr(cm->concretes.c[condType.v].name))
+   )
 
    cm->i = condSentinel; // CONSUME the "for" until the loop body
    // readying to parse the body + step statements
@@ -4457,10 +4476,7 @@ pFor(Token forTk, Int sentinel, TOKENS, CM) {
 private void //:pLoopStepMarker
 pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 // tokMisc as a span token must be the marker for stepping code in loops
-   VALIDATEI(
-      tok.pl1 == miscLoopStep && cm->parseFrames->len > 0 && tok.pl3 == tokMisc, 
-      ierrInconsistentSpans
-   );
+   VALIDATEI(tok.pl1 == miscLoopStep && cm->parseFrames->len > 0, ierrInconsistentSpans);
 
    Int j = cm->parseFrames->len - 1;
    for (; j > -1; j--) {
@@ -4478,9 +4494,8 @@ pLoopStepMarker(Token tok, Int sentinel, TOKENS, CM) {
 
 private EachData //:eachLoopProcess
 eachLoopProcess(
-   Int collVarId, Int eltType, Int headerStart, Int headerSentinel,
-   Int sentinel, TOKENS, CM,
-   OUT Int* skip, OUT Int* step, OUT Int* balk
+   Int collVarId, Int eltType, Int headerStart, Int sentinel, TOKENS, CM,
+   OUT EachAstData* astData
 ) {
 // Processes the heading of the each loop (the part between the `{` and the arrow).
 // Determines the start (how many elements to skip), the step (increment, may be negative)
@@ -4495,15 +4510,15 @@ eachLoopProcess(
    };
 
    Int j = headerStart + 1;
-   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strSkip)) {
+   if (j + 1 < astData->headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strSkip)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, pError0(errEachLoopWrongSyntax));
-      *skip = tokens[j + 1].pl2;
-      VALIDATEP(*skip >= 0, pError(errEachLoopInvalidValue, numberErr(*skip)))
+      astData->skip = tokens[j + 1].pl2;
+      VALIDATEP(astData->skip >= 0, pError(errEachLoopInvalidValue, numberErr(astData->skip)))
       j += 2;
    } else
-      { *skip = 0; }
+      { astData->skip = 0; }
 
-   if (j + 1 < headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
+   if (j + 1 < astData->headerSentinel && tokens[j].tp == tokWord && tokens[j].pl1 == nameOfStd(strStep)) {
       VALIDATEP(tokens[j + 1].tp == tokInt, pError0(errEachLoopWrongSyntax));
       *step = tokens[j + 1].pl2;
       VALIDATEP(step != 0, pError(errEachLoopInvalidValue, numberErr(*step)))
@@ -4526,28 +4541,28 @@ eachLoopProcess(
 }
 
 private void //:eachLoopAddHeader
-eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, SourceLoc loc,
-   TOKENS, CM
-) {
+eachLoopAddHeader(ParseFrame fr, EachAstData astData,SourceLoc loc, TOKENS, CM) {
 // The `i = 0; i < coll.len` part of "each" loops
 
    Int countInserted = 0;
-   if (step > 0) {
+   if (astData.step > 0) {
       pushInast((Node){.tp = nodAssignment, .pl2 = 2, .pl3 = 2 }, cm); // i = start
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
-      pushInast((Node){.tp = tokInt, .pl2 = skip }, cm);
+      pushInast((Node){.tp = tokInt, .pl2 = astData.skip }, cm);
 
       countInserted = 3;
       cm->ast.c[fr.startNodeInd].pl1 = countInserted + 1; // how many nodes from nodFor to condition
 
       Int const lt = getOper(opLessTh, tokInt, cm);
-      if (balk > 0) { // i < coll.len - balk
+      if (astData.balk > 0) { // i < coll.len - balk
          Int const minus = getOper(opMinus, tokInt, cm);
          pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 6 }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
-         pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
-         pushInast((Node){.tp = tokInt, .pl2 = balk }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = astData.collType.v, .pl2 = 1, .pl3 = callField }, 
+            cm
+         );
+         pushInast((Node){.tp = tokInt, .pl2 = astData.balk }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = lt, .pl2 = 2, .pl3 = callNormal }, cm);
          countInserted  += 7;
@@ -4555,7 +4570,9 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
          pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 4 }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
          pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, }, cm);
-         pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
+         pushInast((Node){.tp = nodCall, .pl1 = astData.collType.v, .pl2 = 1, .pl3 = callField }, 
+            cm
+         );
          pushInast((Node){.tp = nodCall, .pl1 = lt, .pl2 = 2, .pl3 = callNormal }, cm);
          countInserted += 5;
       }
@@ -4565,8 +4582,8 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar, .pl3 = assiVarAssignment }, cm);
       pushInast((Node){.tp = nodExpr,       .pl2 = 4 }, cm);
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.collVar, .pl3 = assiVarAssignment }, cm);
-      pushInast((Node){.tp = nodCall, .pl1 = collType.v, .pl2 = 1, .pl3 = callField }, cm);
-      pushInast((Node){.tp = tokInt, .pl1 = 0, .pl2 = (skip + 1) }, cm);
+      pushInast((Node){.tp = nodCall, .pl1 = astData.collType.v, .pl2 = 1, .pl3 = callField }, cm);
+      pushInast((Node){.tp = tokInt, .pl1 = 0, .pl2 = (astData.skip + 1) }, cm);
       pushInast((Node){.tp = nodCall, .pl1 = minus, .pl2 = 2, .pl3 = callNormal }, cm);
 
       countInserted = 7;
@@ -4574,9 +4591,9 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
 
       pushInast((Node){.tp = nodExpr, .pl1 = 0, .pl2 = 3 }, cm);
       pushInast((Node){.tp = nodVar, .pl1 = fr.eachData.indexVar }, cm);
-      if (balk > 0) { // i > (balk - 1)
+      if (astData.balk > 0) { // i > (balk - 1)
          Int const gt = getOper(opGreaterTh, tokInt, cm);
-         pushInast((Node){.tp = tokInt, .pl2 = (balk - 1) }, cm);
+         pushInast((Node){.tp = tokInt, .pl2 = (astData.balk - 1) }, cm);
          pushInast((Node){.tp = nodCall, .pl1 = gt, .pl2 = 2, .pl3 = callNormal }, cm);
       } else { // i >= 0
          Int const gtEq = getOper(opGTEQ, tokInt, cm);
@@ -4592,7 +4609,7 @@ eachLoopAddHeader(ParseFrame fr, TypeId collType, Int skip, Int step, Int balk, 
 }
 
 private void //:eachLoopAddBody
-eachLoopAddBody(ParseFrame fr, TypeId collType, Int headerSentinel, Token eachTk, SourceLoc loc,
+eachLoopAddBody(ParseFrame fr, ConcId collType, Int headerSentinel, Token eachTk, SourceLoc loc,
    TOKENS, CM
 ) {
 // The inner scope and `elem = coll[ind]` part of "each" loops
@@ -4616,13 +4633,12 @@ eachLoopAddBody(ParseFrame fr, TypeId collType, Int headerSentinel, Token eachTk
 }
 
 private void //:eachLoopAddNodes
-eachLoopAddNodes(Token eachTk, ParseFrame fr, TypeId collType, Int skip, Int step, Int balk,
-   Int headerSentinel, TOKENS, CM
+eachLoopAddNodes(Token eachTk, ParseFrame fr, EachAstData astData, TOKENS, CM
 ) {
 // Inserts nodes for the initializer and condition of an "each" loop
    SourceLoc loc = locOf(interOf(eachTk), cm);
-   eachLoopAddHeader(fr, collType, skip, step, balk, loc, tokens, cm);
-   eachLoopAddBody(fr, collType, headerSentinel, eachTk, loc, tokens, cm);
+   eachLoopAddHeader(fr, astData, loc, tokens, cm);
+   eachLoopAddBody(fr, astData, eachTk, loc, tokens, cm);
 }
 
 private void //:eachLoopAddStep
@@ -4678,14 +4694,16 @@ pEach(Token eachTk, Int sentinel, TOKENS, CM) {
       .startTokenInd = cm->i - 1,
       .startNodeInd = cm->ast.len, .level = pfrLoop, .sentinel = sentinel
    };
-   Int skip, step, balk;
+   EachAstData astData = (EachAstData){
+      .collType = concOf(collVar.concreteId), .skip = skip, .step = step, .balk = balk, 
+      .headerSentinel = headerSentinel 
+   };
    eachFrame.eachData = eachLoopProcess(
-      collVarId, eltType, headerStart, headerSentinel, sentinel, tokens, cm,
-      OUT &skip, OUT &step, OUT &balk
+      collVarId, eltType, headerStart, sentinel, tokens, cm, OUT &astData
    );
    openParsedScopeWorker(eachFrame, (Node){.tp = nodFor}, interOf(eachTk), cm);
 
-   eachLoopAddNodes(eachTk, eachFrame, collType, skip, step, balk, headerSentinel, tokens, cm);
+   eachLoopAddNodes(eachTk, eachFrame, astData, tokens, cm);
    cm->i = headerSentinel; // CONSUME the tokMisc at start of an "each" loop
 }
 
@@ -4812,9 +4830,9 @@ subexSaveDataLiteral(ExprFrame frame, Expr* e, CM) {
 
    eSaveDataLiteralNodes(frame.startNode, *scr, e->locsScr, cm);
 
-   TypeId collType = typecheckList(cm->ast.c[astInd], astInd, cm);
+   ConcId collType = typecheckList(cm->ast.c[astInd], astInd, cm);
 
-   cm->vars.c[newVarId].typeId = collType;
+   cm->vars.c[newVarId].concreteId = collType;
    // replace the nodes in @scr with a single var
    e->scr.c[frame.startNode] = (Node){ .tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = 0 };
    scr->len = frame.startNode + 1;
@@ -5314,7 +5332,7 @@ eParse(Int sentinel, TOKENS, CM) {
    eClose(e, cm);
 }
 
-private Concrete //:exprUpToWithFrame
+private ConcId //:exprUpToWithFrame
 exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
 // The main "big" expression parser. Parses an expression whether there is a
 // token or not. Starts from cm->i and goes up to the sentinel. Returns the expression's type
@@ -5337,7 +5355,7 @@ exprUpToWithFrame(ParseFrame frame, ChInterval chi, TOKENS, CM) {
 
    eParse(frame.sentinel, tokens, cm);
    eSaveNodes(startNodeInd, cm);
-   Concrete exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
+   ConcId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    closeParseFrames(cm);
    return exprType;
 }
@@ -5356,7 +5374,7 @@ exprUpTo(Int sentinelToken, ChInterval loc, TOKENS, CM) {
    eParse(sentinelToken, tokens, cm);
    eSaveNodes(startNodeInd, cm);
 
-   Concrete exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
+   ConcId exprType = typeCheckBigExpr(startNodeInd, cm->ast.len, cm);
    closeParseFrames(cm);
    return exprType;
 }
@@ -6513,8 +6531,9 @@ pToplevelBodyWorker(Int tokenInd, Int fnId, TypeId concreteType, Int arity, TOKE
       Token paramNameTk = tokens[cm->i];
       TypeId paramType = typeOf(cm->types.c[t]);
       NameId name = paramNameTk.pl1;
+      ConcId concreteId = tConcretize(paramType, cm);
       VarId newVarId = createVarWithType(
-            name, paramType, paramNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm, -1, cm
+            name, paramNameTk.pl2 == 1 ? accessPrivMut : accessPrivImm, concreteId, -1, cm
       );
       newNode(
             ((Node){.tp = nodVar, .pl1 = newVarId, .pl2 = 0, .pl3 = assiFnParam}),
@@ -6624,6 +6643,7 @@ parse(CM, Arena* a) {
 //{{{ Type utils
 
 #define TYPE_DEFINE_EXP const LInt* exp = ts->exp
+
 
 private Int //:typeEncodeTag
 typeEncodeTag(Unt sort, Int depth, Int arity, CM) {
@@ -6742,7 +6762,7 @@ tExtractFnOverloadHandle(TSpan fnSpan, CM) {
       Int fnArity = tArityOfSubtree(firstParam.start, &(cm->ts), cm->types.c) - 1;
       return tEncodeOverloadHandle(ovSortFn, fnArity);
    } else {
-      tEncodeOverloadHandle(ovSortConcrete, tConcretize(firstParamId, cm));
+      tEncodeOverloadHandle(ovSortConcrete, tConcretize(firstParamId, cm).v);
    }
 }
 
@@ -6964,7 +6984,7 @@ tFieldsConcretize(TSpan sp, CM, OUT *Int arity) {
    return fieldTypesInd;
 }
 
-private Int //:tConcretize
+private ConcId //:tConcretize
 tConcretize(TypeId t, CM) {
 // Creates a concrete for a type span if one doesn't exist yet. Returns id of the new or old
 // concrete. Throws if "t" is generic
@@ -6973,8 +6993,9 @@ tConcretize(TypeId t, CM) {
    Bool wasNew = false;
    TypeId tId = tMerge(theSpan, cm, OUT &wasNew);
    if (!wasNew) {
-      { return; }
+      { return concOf(theSpan.entityId); }
       
+   ConcId const newConcId = cm->concretes.len;
    Int fieldNamesLen = cm->fieldNames.len;   
    Int arity;
    Int fieldTypesInd = tFieldsConcretize(theSpan, cm, OUT &arity);
@@ -6998,23 +7019,7 @@ tConcretize(TypeId t, CM) {
       };
       pushInconcretes(newConcrete, cm);
    }
-   
-      
-      
-      
-   Byte sort;     // "sor" constants above
-   TypeId spanId; // points to @spans like `[Foo Int Str]` where `Foo` is a generic struct.
-                  // Or, if this is a concrete struct, just is the struct declaration's spanId 
-   Int name; 
-   Unt fields;     // points to @types where there's a list of ids of @concretes comprising the body
-                  // (i.e. fields for a struct, or params and return for a function, variant types 
-                  // for a sum type)
-   Unt fieldNames; // index into @fieldNames, or for a function, -1 
-   Unt arity;               
-   Int size;      // size of type in bytes
-   Int codegenConcr; // Iff >0, points to another concrete which codegen must use instead of this one.
-                     // This is for fantom types & newtypes
-   }
+   return newConcId;
 }
 
 //}}}
@@ -7034,7 +7039,7 @@ tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
          break;
       }
       case ttagTypeCall: {
-         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
+         add(j + (cm->types.c[j + 1] & LOWER24BITS) + 2, sentinels); // +2 for the two-int call
          j++;
          break;
       }
@@ -7042,7 +7047,7 @@ tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
          isGeneric = 1; break;
       } 
       case ttagFnCall: {
-         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
+         add(j + (cm->types.c[j + 1] & LOWER24BITS) + 2, sentinels);
          j++;
          break;
       }
@@ -7058,42 +7063,47 @@ tSubtreeStartingAt(Int startInd, TStuff* restrict ts, Arr(Int) types) {
    } 
 }
 
+private Int //:tCalcSentinel
+tCalcSentinel(Int t, Arr(Int) types) {
+   switch (types[t] & UPPER3BITS) {
+   case 0: return t + 1;
+   case ttagTypeCall: return t + (cm->types.c[t + 1] & LOWER24BITS) + 2; // +2 for the two-int tag
+   case ttagParam: return t + 1;
+   case ttagFnCall:  return t + (cm->types.c[t + 1] & LOWER24BITS) + 2;
+   case ttagPointer: return t + 1; // Coming in future releases
+   case ttagNullable: return t + 1; // Coming in future releases
+   }
+}
+
 private Int //:tArityOfSubtree
-tArityOfSubtree(Int startInd, TStuff* restrict ts, Arr(Int) types) {
+tArityOfSubtree(Int startInd, Arr(Int) types) {
 // Counts the arity (count of immediate children) of a subtree. For functions, this will be the
 // sum of param counts and return value counts; for structs, number of fields; for sum types, count
 // of variants.
-   LInt* sentinels = &(ts->tmp);
-   Int const startingLen = sentinels.len; // will be restored at end of function
-   Int isGeneric = 0;
-   for (Int j = 0; true; j++) {
+   Int const sentinel = tCalcSentinel(startInd, types);
+   Int arity = 0;
+   for (Int j = startInd + 2; j < sentinel; ) { // no danger in +2 because atoms have arity = 0
       switch (gen & UPPER3BITS) {
       case 0: {
-         break;
+         j++; break;
       }
       case ttagTypeCall: {
-         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
-         j++;
+         j += ((cm->types.c[j + 1] & LOWER24BITS) + 2); // +2 for the two-int tag
          break;
       }
       case ttagParam: {
-         isGeneric = 1; break;
+         j++; break;
       } 
       case ttagFnCall: {
-         add(cm->types.c[j + 1] & LOWER24BITS, sentinels);
-         j++;
+         j += ((cm->types.c[j + 1] & LOWER24BITS) + 2); // +2 for the two-int tag
          break;
       }
       case ttagPointer: break; // Coming in future releases
       case ttagNullable: break; // Coming in future releases
       }
-      if (ts->frames.len == startingLen) {
-         Bool wasNew;
-         return tMerge(
-            (TSpan){.start = start, .len = j - start, .isGeneric = isGeneric}, cm, OUT &wasNew
-         );
-      }
+      arity++;
    } 
+   return arity;
 }
 
 private void //:tFreshState
@@ -7969,7 +7979,7 @@ typeReduceExpr(Int const indExpr, CM) {
    }
 }
 
-private Concrete //:typeCheckBigExpr
+private ConcId //:typeCheckBigExpr
 typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
 // Typechecks and resolves overloads in a single expression. "Big" refers to
 // the fact that this expr may contain sub-assignments for data allocation.
@@ -7978,13 +7988,13 @@ typeCheckBigExpr(Int indExpr, Int sentinelNode, CM) {
    typeReduceExpr(indExpr, cm);
    if (cm->expr.exp.len == 1) {
       // the last remaining stack elt is the type of the whole expression
-      return cm->concretes.c[cm->expr.exp.c[0]];
+      return concOf(cm->expr.exp.c[0]);
    } else {
       return ZERO_ARITY_TYPE;
    }
 }
 
-private TypeId //:typecheckAndProcessListElt
+private ConcId //:typecheckAndProcessListElt
 typecheckAndProcessListElt(Int* j, CM) {
 // Also updates the current index to skip the current element
    Node nd = cm->ast.c[*j];
@@ -7998,7 +8008,7 @@ typecheckAndProcessListElt(Int* j, CM) {
       return nd.pl1 == -1 ? ZERO_ARITY_TYPE : typeOf(nd.pl1);
    } else {
       Int sentinel = (*j) + nd.pl2 + 1;
-      Concrete exprType = typeCheckBigExpr(*j, sentinel, cm);
+      ConcId exprType = typeCheckBigExpr(*j, sentinel, cm);
       *j = sentinel;
       return exprType;
    }
@@ -8014,7 +8024,7 @@ typecheckList(Node nd, Int startInd, CM) {
       { return typeOf(nd.pl1); }
    ei (nd.pl3 == BIG) {
       Int sentinel = calcNodeSentinel(nd, startInd);
-      Concrete exprType;
+      ConcId exprType;
       if (startInd + 2 == sentinel) {
          Node singleNode = cm->ast.c[startInd + 1];
          VALIDATEP(singleNode.tp == nodVar, pError0(errMetaArrSyntax))

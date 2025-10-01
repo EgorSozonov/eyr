@@ -275,6 +275,12 @@ typedef struct {  //:Concrete All primitive types, concrete structs and monomorp
                      // This is for fantom types & newtypes
 } Concrete;
 
+typedef struct { //:ConcrId Index into @concretes
+    Int v;
+} ConcId;
+
+#define concOf(x) ((ConcId){.v = x})
+
 #define accessPrivImm   1 // private, which for abstract classes means "protected"
 #define accessPrivMut   2
 #define accessPubImm    3 // public immutable
@@ -283,7 +289,7 @@ typedef struct {  //:Concrete All primitive types, concrete structs and monomorp
 
 struct Var { //:Var Local variable inside function
    Byte access : 8;  // the "access" constants above
-   Unt concreteId : 24; // the concrete type of this variable
+   Int concreteId : 24; // the concrete type of this variable
    NameId name;  // if negative, then it's a nameless local
    Int fnId;     // only for aliases to functions, otherwise -1
 };

@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <setjmp.h>
 extern jmp_buf excBuf;
-#include "../include/libeyr.h"
+#include "../libeyr.h"
 #include "parserTest.h"
 
 
