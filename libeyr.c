@@ -544,7 +544,7 @@ void dbgAllTypes(CM);
 #endif
 
 //}}}
-//{{{ Utils
+//{{{ Rock-solid utils
 //{{{ Arena
 
 #define CHUNK_QUANT 32768
@@ -1836,7 +1836,7 @@ struct PrintableCompiler { //:PrintableCompiler Just the bits of the compiler ne
 private PrintableCompiler //:printableOfCompiler
 printableOfCompiler(CM) {
    return (PrintableCompiler){
-      .sourceCode = cm->sourceCode.c, .types = cm->types.c, .names = cm->names->c, .a = cm->a
+      .sourceCode = (Arr(Byte))cm->sourceCode.c, .types = cm->types.c, .names = cm->names->c, .a = cm->a
    };
 }
 
