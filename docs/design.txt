@@ -298,6 +298,14 @@ class { p1 FooProcessor; p2 BarProcessor; ...;
    }
 }
 
+// Named arguments may not change the order of arguments! Also they are optional. Also if they
+// are outdated, it's a compilation warning, not error! And a compiler command to fix all named
+// argument names according to function definition!
+// That way we get the most important benefit (readability) without the drawbacks (inability of a
+// function to change its arg names without breaking callers).
 
 
+// functions that only accept literals.  - ??
 
+// Struct fields that may only be set by getting the result from a specific function. 
+// Useful for state machines (ensuring that state transitions are encapsulated in one place)

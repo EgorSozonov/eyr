@@ -2,15 +2,9 @@
 
 .RECIPEPREFIX = /
 
-
-ifndef VERBOSE
-.SILENT: # Silent mode unless you run it like "make all VERBOSE=1"
-endif
-
-.PHONY: all library debug clean help testLexer testParser testIntegration test
-.DEFAULT_GOAL := testParser
-
-CC=gcc --std=gnu2x
+CC ?= gcc --std=gnu2x
+LDFLAGS ?= -Wl,--exclude-libs=ALL
+BIN ?= ../bin
 WARN=-Werror=return-type -Wunused-variable -Wshadow \ #-Wfatal-errors \
     -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
     -Wno-discarded-qualifiers \
@@ -20,7 +14,13 @@ INCLUDES=
 OPT=-march=native
 LIBS_LIB=-lm
 LIBS_EXE=-lm -lgccjit
-LDFLAGS=-Wl,--exclude-libs=ALL
+
+ifndef VERBOSE
+.SILENT: # Silent mode unless you run it like "make all VERBOSE=1"
+endif
+
+.PHONY: all library debug clean help testLexer testParser testIntegration test
+.DEFAULT_GOAL := testParser
 
 APP=eyrc
 LIB_NAME=libeyr
@@ -36,7 +36,6 @@ RELEASE_FLAGS = $(WARN) $(OPT) $(INCLUDES) -O2
 COMPILE_RELEASE = $(CC) $(RELEASE_FLAGS) $(LIBS_EXE)
 COMPILE_RELEASE_LIB = $(CC) $(RELEASE_FLAGS) $(LIBS_LIB) $(LDFLAGS)
 
-BIN=bin
 DEBUG_TGT=_debug
 EXE=$(BIN)/$(APP)
 LIB_OUTPUT=$(BIN)/$(LIB_NAME).o
