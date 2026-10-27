@@ -109,7 +109,7 @@ typedef struct { // :Token
    Unt pl2;
 } Token;
 
-// :Token types
+// Token types
 // The following group of variants are transferred to the AST byte for byte, with no analysis
 // Their values must exactly correspond with the initial group of variants in "Node"
 // The largest value must be stored in "topVerbatimTokenVariant" constant
@@ -2428,7 +2428,8 @@ ensureCapacityTypes(Int neededSpace, CM) {
    }
 }
 
-[[noreturn]] private void
+[[noreturn]]
+private void
 throwExcInternal0(char const* errMsg, Int lineNumber, CM) {
    printf("Internal error at line %d:\n", lineNumber);
    d("%s", errMsg);
@@ -2437,7 +2438,8 @@ throwExcInternal0(char const* errMsg, Int lineNumber, CM) {
 
 #define throwExcInternal(errInd) throwExcInternal0(errInd, __LINE__, cm) //:throwExcInternal
 
-[[noreturn]] private void
+[[noreturn]]
+private void
 throwExcLexer0(CompileError err, Int lineNumber, LX) {
 // Sets i to beyond input's length to communicate to callers that lexing is over
 #ifdef DEBUG

@@ -10,7 +10,7 @@ Structs, interfaces are the basic blocks.
 There is no "private", only "protected".
 
 A struct may define also an interface. Interfaces consist of virtual or concrete method decls.
-The definitions for those decls must be provided by the struct and can see protected fields of the 
+The definitions for those decls must be provided by the struct and can see protected fields of the
 struct
 
 KEY: different kinds of pointers:
@@ -27,13 +27,13 @@ provide ability to inherit from Void type?
 
 Abstract classes: they just don't implement at least one method of their own interface.
 
-Mixins: sharing implementation withou affecting the types. A mixin can have: fields, methods 
+Mixins: sharing implementation withou affecting the types. A mixin can have: fields, methods
 (public, protected, virtual). It cannot be cast to, and adding a mixin does no change the type
 of a struct. Mixin methods may be overridden in the class
 
 Methods real by default (virtual only with the "virtual" keyword).
 
-"pub" keyword for fields, types, functions (not for methods since those are handled by the 
+"pub" keyword for fields, types, functions (not for methods since those are handled by the
 interfaces - everything in the interface is public, other methods are all protected)
 
 Friends: yes, necessary.
@@ -45,8 +45,8 @@ Centralized syntax to provide all this info?
 class Foo {
 interface {
    allFieldsPublic; // all fields public, can be constructed with data init or passed by value
-   extends Bar; 
-} 
+   extends Bar;
+}
 }
 
 class Foo {
@@ -81,29 +81,29 @@ interface { // no need to specify the name, it will be same as class
 constants {
    ENV = `Asdf.bar`;
 }
-   
+
    id Int;
    name Str;
    pubField pub Int;
-   
+
    constructor [Int Str -> Self] f{id name ->
       return Foo(id id, name name, pubField 11);
    }
-   
+
    fn foo f{ // no need to specify the type - it's in the interface!
       return name + " " + $id;
    }
-   
+
    fn write f{ // no need to specify the type
-      
+
    }
-   
+
    fn someProtectedMethod [Self Int -> Double] f{ // Protected because not in the interface!
-      
+
    }
-   
+
    fn someStaticMethod[Int -> Double] f{
-      
+
    }
 }
 
@@ -128,28 +128,28 @@ refs may be either Arcs themselves, or may point into the owned arena (maybe mul
 Example: [Foo id Int, value Long] is flat,
          [Foo id Int, name 'a String] is an A-type,
          Arc [Foo id Int, name Arc String, internalData 'Bar] is an R-type.
-         
-         
+
+
 A-types may not own an arena because then that arena will never get freed!
 R-types may not point into an arbitrary arena because there's no lifetime comparison between
 Arc and arbitrary arena. I.e. an Arc may have a dynamic lifetime (it will be deallocated when
 no thread and no heap object holds a reference to it), but so can an Arena (since it's Arc itself
 and may be returned from functions).
-         
+
 R-types may only be referenced by other arc types. But they may contain a single (owned) arena
 and contain arbitrary references into that arena.
-         
+
 Example:
 
    r: Arc Foo = getRefcountedObj;
    arenaRef: 'r Bar = r.fld;
    doSomethingWith arenaRef;
    // r's refcount gets decremented, arenaRef is no longer valid, though r may still live on
-         
+
 
 Arena objects are all refcounted.
 
-   
+
 Functions working with arena references must specify arena flow (aka lifetime annotations). For
 example:
 
@@ -160,7 +160,7 @@ It may allocate "z" or it may just return a pre-existing ref, but it will be in 
 callers can use that info:
 
    a = newArena();
-   { 
+   {
       b = newArena();
       x = [Foo ... @a];
       y = [Bar ... @b];
@@ -177,11 +177,11 @@ created at runtime.
 For example, string concatenation:
 
    c '0 Str = `asdf` + str;
-   
+
 Specifying another arena automatically invokes copying from the call frame arena:
 
    c '1 Str = `asdf` + str; // means: copy 1 (`asdf + str)
-   
+
 R-types must always be assigned to local variables, i.e. they may not be intermediate results of
 expression evaluation.
 
@@ -210,7 +210,10 @@ still needs to import those elements to use them.
 // Function calls
 ////////////////////
 
-obj = coll :method 1 2 `arg` :anotherChainedMethod x y :sortBy{= x y => x - 2} :toList;
+obj = coll :method 1 2 "arg" :anotherChainedMethod x y :sortBy{= x y => x - 2} :toList;
+
+
+obj = coll .method 1 2 "arg" .anotherChainedMethod x y .sortBy{= x y => x - 2} .toList;
 
 
 ////////////////////
@@ -218,7 +221,7 @@ obj = coll :method 1 2 `arg` :anotherChainedMethod x y :sortBy{= x y => x - 2} :
 ////////////////////
 
 Within any name on module toplevel, there may be 2 parts like "asdf:namespace".
-So a function or method named "foo:pub" is importable as "foo" in other modules. 
+So a function or method named "foo:pub" is importable as "foo" in other modules.
 
 This can be used for all kinds of partitioning. For example a "FooStruct" can have a constructor
 "fooStruct:new". What is "overloaded methods" in Java can be named with single prefix:
@@ -235,6 +238,63 @@ fn apiMethod [Self Int -> Double] {= s inp ->
 }
 
 
+
+////////////////////
+// Specifying struct memory layout
+////////////////////
+
+
+Foo = struct .id Int .name Str .flag Bool
+   @meta(.layout (flag id name));
+
+...[Foo String Bar]
+
+
+////////////////////
+// Comments and ifdefs
+////////////////////
+
+
+Comments are #comment
+Only inline comments! Comments may be ended with `.#`:
+
+    var a #not until the line end comment.# = 15
+
+ifdefs are:
+
+#! ifdef...
+#! endif
+
+(indentation is optional but the #! must start the line)
+
+Obviously a "#!ifdef" mustn't be the first line in a file but that's easy (just insert an empty
+line).
+
+
+////////////////////
+// Simple multiline strings
+////////////////////
+
+   longString = """
+   a very very
+   long
+\ continuing line""";
+
+
+Whatever indentation the first internal non-backslashed line has is ignored in all subsequent
+lines. Newlines are interpreted as actual newlines. But if a line starts with a backslash (with
+NO indentation before that backslash!) it is lexed as a continuation of that line (no newline
+insert).
+
+
+////////////////////
+// Backticks mark enum values
+////////////////////
+enum Dir = [forward left right]
+
+var: Dir = `forward`
+
+
 ////////////////////
 // Fantom types
 ////////////////////
@@ -244,30 +304,20 @@ Foo = struct .id Int .name $A @meta(.fantom $0);
 ...[Foo Str Bar]
         ^$A ^$0
 
-
-////////////////////
-// Specifying struct memory layout
-////////////////////
-
-
-Foo = struct .id Int .name Str .flag Bool 
-   @meta(.layout (flag id name));
-
-...[Foo String Bar]
-
-
-
 ////////////////////
 // Type-level enums
 ////////////////////
 
-State = typeEnum Open Closed HalfShut;
+State = typeEnum [Open Closed HalfShut];
 
 Foo = struct .data Int @meta(.fantom ($0 = State));
 
 Now the only legal Foo concretes are [Foo Open], [Foo Closed] and [Foo HalfShut].
 
 Type level enums subsume empty structs, so we can require that every struct is non-empty (has keys)
+
+
+
 
 
 
@@ -278,12 +328,12 @@ Type level enums subsume empty structs, so we can require that every struct is n
 Newtypes 1: completely disjoint types. No operations, we have to define them from scratch.
 Useful e.g. for types packing something into the bits of an int.
 
-Newtypes 2: types that inherit the operations of the underlying type except functions that 
+Newtypes 2: types that inherit the operations of the underlying type except functions that
 are strict
 
 
    [[[Optimization (so for the future)]]]
-   
+
 When the types of interface values are statically-known, resolve method calls statically
 interface TransactionProcessor {...}
 class { p1 FooProcessor; p2 BarProcessor; ...;
@@ -307,5 +357,5 @@ class { p1 FooProcessor; p2 BarProcessor; ...;
 
 // functions that only accept literals.  - ??
 
-// Struct fields that may only be set by getting the result from a specific function. 
+// Struct fields that may only be set by getting the result from a specific function.
 // Useful for state machines (ensuring that state transitions are encapsulated in one place)
